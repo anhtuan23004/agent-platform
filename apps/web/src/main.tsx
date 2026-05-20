@@ -15,7 +15,7 @@ if (!rootElement) throw new Error('Root element #root not found');
 
 createRoot(rootElement).render(
   <StrictMode>
-    <ThemeProvider defaultTheme="dark" storageKey="seta-theme">
+    <ThemeProvider defaultTheme="light" storageKey="seta-theme">
       <ErrorBoundary>
         <RouterProvider router={router} />
       </ErrorBoundary>

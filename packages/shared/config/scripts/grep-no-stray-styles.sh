@@ -6,8 +6,10 @@ fail() { echo "❌ $1" >&2; exit 1; }
 stray_css=$(find packages apps \
   \( -name '*.css' -o -name '*.scss' \) \
   -not -path 'packages/shared/ui/src/styles/*' \
+  -not -path 'packages/shared/ui/.storybook/*' \
   -not -path 'apps/web/src/styles/globals.css' \
   -not -path '*/node_modules/*' -not -path '*/dist/*' -not -path '*/.turbo/*' \
+  -not -path '*/storybook-static/*' \
   2>/dev/null || true)
 [ -z "$stray_css" ] || fail "stray CSS files:
 $stray_css"

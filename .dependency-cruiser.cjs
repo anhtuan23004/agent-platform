@@ -36,9 +36,15 @@ module.exports = {
     {
       name: 'only-server-imports-backend',
       severity: 'warn',
-      comment: "A module's /backend subpath is private to apps/server.",
-      from: { pathNot: '^apps/server/src/' },
-      to: { path: '^packages/(core|identity|planner|copilot|integrations)/src/backend/' },
+      comment: "A module's /backend subpath is private to apps/server and the module itself.",
+      from: {
+        path: '^(?:packages|apps)/([^/]+)/',
+        pathNot: '^apps/server/src/',
+      },
+      to: {
+        path: '^packages/(core|identity|planner|copilot|integrations)/src/backend/',
+        pathNot: '^packages/$1/',
+      },
     },
     {
       name: 'no-deep-shared-imports',
@@ -82,7 +88,7 @@ module.exports = {
       from: {
         orphan: true,
         pathNot:
-          '(^|/)(\\.|index\\.ts|.+\\.config\\.[cm]?[jt]s)$|^packages/shared/config/eslint/|(^|/)(__tests__|test)/|\\.(spec|test)\\.[jt]sx?$',
+          '(^|/)(\\.|index\\.ts|.+\\.config\\.[cm]?[jt]s)$|^packages/shared/config/eslint/|(^|/)(__tests__|test)/|\\.(spec|test)\\.[jt]sx?$|/\\.storybook/|\\.stories\\.[jt]sx?$|(^|/)e2e/|^apps/web/src/lib/',
       },
       to: {},
     },
@@ -116,6 +122,8 @@ module.exports = {
       exportsFields: ['exports'],
       conditionNames: ['import', 'require', 'node', 'default'],
     },
+    tsPreCompilationDeps: true,
+    tsConfig: { fileName: 'tsconfig.json' },
     includeOnly: '^(packages|apps)/',
   },
 };

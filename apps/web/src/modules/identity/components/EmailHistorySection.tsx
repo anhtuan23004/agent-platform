@@ -49,23 +49,22 @@ export function EmailHistorySection({ userId }: { userId: string }) {
         {rows !== null && rows.length === 0 && (
           <p className="text-muted-foreground text-xs">No email changes recorded.</p>
         )}
-        {rows !== null &&
-          rows.map((row) => {
-            const oldEmail = row.payload?.old_email ?? '—';
-            const newEmail = row.payload?.new_email ?? '—';
-            const reason = row.payload?.reason ?? '';
-            return (
-              <div key={row.event_id} className="text-xs">
-                <span className="text-muted-foreground">
-                  {new Date(row.occurred_at).toLocaleString()}
-                </span>{' '}
-                <span>
-                  {oldEmail} → {newEmail}
-                </span>
-                {reason && <span className="text-muted-foreground ml-1">({reason})</span>}
-              </div>
-            );
-          })}
+        {rows?.map((row) => {
+          const oldEmail = row.payload?.old_email ?? '—';
+          const newEmail = row.payload?.new_email ?? '—';
+          const reason = row.payload?.reason ?? '';
+          return (
+            <div key={row.event_id} className="text-xs">
+              <span className="text-muted-foreground">
+                {new Date(row.occurred_at).toLocaleString()}
+              </span>{' '}
+              <span>
+                {oldEmail} → {newEmail}
+              </span>
+              {reason && <span className="text-muted-foreground ml-1">({reason})</span>}
+            </div>
+          );
+        })}
       </div>
     </details>
   );

@@ -66,7 +66,7 @@ describe('Microsoft Graph proxy', () => {
     } as Response);
     const out = await graphListUsers('11111111-2222-3333-4444-555555555555');
     expect(out).toHaveLength(2);
-    expect(out[1]!.accountEnabled).toBe(false);
+    expect(out[1]?.accountEnabled).toBe(false);
   });
 
   it('caches the application token across calls within the same Entra tenant', async () => {

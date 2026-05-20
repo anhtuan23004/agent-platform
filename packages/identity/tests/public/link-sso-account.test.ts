@@ -2,7 +2,7 @@ import { resetCoreDb } from '@seta/core/internal/test-support';
 import { createUser, linkSsoAccount } from '@seta/identity';
 import { closePools, initPools } from '@seta/shared-db';
 import { withTestDb } from '@seta/shared-testing';
-import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 const CLI_ACTOR = { type: 'cli' as const, user_id: null };
 const SSO_ACTOR = { type: 'sso' as const, user_id: null };
@@ -160,7 +160,7 @@ describe('@seta/identity linkSsoAccount', () => {
             [tenantId],
           );
           expect(events).toHaveLength(1);
-          expect((events[0]!.payload as { reason: string }).reason).toBe('user_deactivated');
+          expect((events[0]?.payload as { reason: string }).reason).toBe('user_deactivated');
         } finally {
           resetCoreDb();
           await closePools();
@@ -223,7 +223,7 @@ describe('@seta/identity linkSsoAccount', () => {
                WHERE tenant_id = $1 AND event_type = 'identity.user.sso_linked'`,
               [tenantId],
             )
-          ).rows[0]!.n;
+          ).rows[0]?.n;
 
           // Second call with same OID → matched
           const secondResult = await linkSsoAccount(
@@ -245,7 +245,7 @@ describe('@seta/identity linkSsoAccount', () => {
                WHERE tenant_id = $1 AND event_type = 'identity.user.sso_linked'`,
               [tenantId],
             )
-          ).rows[0]!.n;
+          ).rows[0]?.n;
 
           // No new sso_linked event emitted on second call
           expect(Number(ssoLinkedCountAfter)).toBe(Number(ssoLinkedCountBefore));
@@ -364,7 +364,7 @@ describe('@seta/identity linkSsoAccount', () => {
             `SELECT email FROM identity."user" WHERE id = $1`,
             [userId],
           );
-          expect(userRows[0]!.email).toBe('bob.old@acme.com');
+          expect(userRows[0]?.email).toBe('bob.old@acme.com');
 
           const { rows: events } = await pool.query<{ event_type: string; payload: unknown }>(
             `SELECT event_type, payload FROM core.events WHERE tenant_id = $1 ORDER BY occurred_at, id`,
@@ -375,7 +375,7 @@ describe('@seta/identity linkSsoAccount', () => {
           expect(eventTypes).toContain('identity.user.email.changed');
 
           const emailEvent = events.find((e) => e.event_type === 'identity.user.email.changed');
-          expect((emailEvent!.payload as { reason: string }).reason).toBe('sso_sync');
+          expect((emailEvent?.payload as { reason: string }).reason).toBe('sso_sync');
         } finally {
           resetCoreDb();
           await closePools();
@@ -428,7 +428,7 @@ describe('@seta/identity linkSsoAccount', () => {
             `SELECT name FROM identity."user" WHERE id = $1`,
             [result.user_id],
           );
-          expect(userRows[0]!.name).toBe('Eve New');
+          expect(userRows[0]?.name).toBe('Eve New');
 
           const { rows: events } = await pool.query<{ event_type: string }>(
             `SELECT event_type FROM core.events WHERE tenant_id = $1 ORDER BY occurred_at, id`,

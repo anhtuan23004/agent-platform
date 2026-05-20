@@ -22,16 +22,19 @@ export function DataTableColumnHeader<TData, TValue>({
     <Button
       variant="ghost"
       size="sm"
-      className={cn('-ml-3 h-8', className)}
+      className={cn(
+        '-ml-2 h-7 px-2 gap-1.5 text-eyebrow uppercase tracking-[0.04em] font-medium text-ink-subtle hover:text-ink',
+        className,
+      )}
       onClick={(e) => column.getToggleSortingHandler()?.(e)}
     >
       <span>{title}</span>
       {sorted === 'desc' ? (
-        <ArrowDown className="ml-2 size-3.5" />
+        <ArrowDown className="size-3" />
       ) : sorted === 'asc' ? (
-        <ArrowUp className="ml-2 size-3.5" />
+        <ArrowUp className="size-3" />
       ) : (
-        <ChevronsUpDown className="ml-2 size-3.5" />
+        <ChevronsUpDown className="size-3 opacity-60" />
       )}
     </Button>
   );

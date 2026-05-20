@@ -17,6 +17,7 @@ import {
 } from '@tanstack/react-table';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import * as React from 'react';
+import { cn } from '../lib/cn';
 import { Button } from '../primitives/button';
 import { Checkbox } from '../primitives/checkbox';
 import { Input } from '../primitives/input';
@@ -26,6 +27,8 @@ import { DataTableColumnHeader } from './data-table-column-header';
 import { DataTablePagination } from './data-table-pagination';
 import { DataTableToolbar } from './data-table-toolbar';
 import { EmptyState } from './empty-state';
+
+export type DataTableDensity = 'comfortable' | 'compact';
 
 interface ClientPagination {
   defaultPageSize?: number;
@@ -37,6 +40,7 @@ interface DataTableBaseProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[];
   isLoading?: boolean;
   emptyState?: React.ReactNode;
+  noResultsState?: React.ReactNode;
   enableGlobalFilter?: boolean;
   globalFilterPlaceholder?: string;
   enableColumnVisibility?: boolean;
@@ -48,6 +52,8 @@ interface DataTableBaseProps<TData, TValue> {
   enableExpansion?: boolean;
   renderSubComponent?: (props: { row: Row<TData> }) => React.ReactNode;
   getRowCanExpand?: (row: Row<TData>) => boolean;
+  density?: DataTableDensity;
+  onRowClick?: (row: Row<TData>) => void;
 }
 
 export interface DataTableClientProps<TData, TValue = unknown>
@@ -75,8 +81,13 @@ export type DataTableProps<TData, TValue = unknown> =
   | DataTableClientProps<TData, TValue>
   | DataTableServerProps<TData, TValue>;
 
+const headCellClass =
+  'h-10 px-md text-left align-middle text-eyebrow uppercase tracking-[0.04em] font-medium text-ink-subtle [&:has([role=checkbox])]:pr-0';
+const bodyCellClassComfortable = 'px-md py-2.5 align-middle text-body-sm text-ink';
+const bodyCellClassCompact = 'px-md py-1.5 align-middle text-body-sm text-ink';
+
 export function DataTable<TData, TValue>(props: DataTableProps<TData, TValue>) {
-  const { data, columns } = props;
+  const { data, columns, density = 'comfortable', onRowClick } = props;
   const isServer = props.mode === 'server';
 
   const [sortingInternal, setSortingInternal] = React.useState<SortingState>([]);
@@ -119,7 +130,10 @@ export function DataTable<TData, TValue>(props: DataTableProps<TData, TValue>) {
               variant="ghost"
               size="icon"
               aria-label="Expand row"
-              onClick={row.getToggleExpandedHandler()}
+              onClick={(e) => {
+                e.stopPropagation();
+                row.getToggleExpandedHandler()();
+              }}
             >
               {row.getIsExpanded() ? (
                 <ChevronDown className="size-4" />
@@ -150,14 +164,31 @@ export function DataTable<TData, TValue>(props: DataTableProps<TData, TValue>) {
             aria-label="Select row"
             checked={row.getIsSelected()}
             onCheckedChange={(v) => row.toggleSelected(!!v)}
+            onClick={(e) => e.stopPropagation()}
           />
         ),
         enableSorting: false,
         enableHiding: false,
       });
     }
-    return [...cols, ...columns];
-  }, [columns, props.enableExpansion, props.enableRowSelection]);
+    const tail: ColumnDef<TData, TValue>[] = [];
+    if (onRowClick) {
+      tail.push({
+        id: '__chevron',
+        header: () => null,
+        cell: () => (
+          <ChevronRight
+            className="size-4 text-ink-tertiary"
+            aria-hidden
+            data-testid="row-chevron"
+          />
+        ),
+        enableSorting: false,
+        enableHiding: false,
+      });
+    }
+    return [...cols, ...columns, ...tail];
+  }, [columns, props.enableExpansion, props.enableRowSelection, onRowClick]);
 
   const showPagination = !(props.mode !== 'server' && props.pagination === false);
 
@@ -196,6 +227,13 @@ export function DataTable<TData, TValue>(props: DataTableProps<TData, TValue>) {
 
   const enableGlobalFilter = props.enableGlobalFilter ?? true;
   const enableColumnVisibility = props.enableColumnVisibility ?? true;
+  const hasActiveFilters = (globalFilter ?? '').length > 0 || (columnFilters ?? []).length > 0;
+  const clearFilters = React.useCallback(() => {
+    onGlobalFilterChange('');
+    onColumnFiltersChange([]);
+  }, [onGlobalFilterChange, onColumnFiltersChange]);
+
+  const cellClass = density === 'compact' ? bodyCellClassCompact : bodyCellClassComfortable;
 
   return (
     <div className="space-y-md">
@@ -213,13 +251,13 @@ export function DataTable<TData, TValue>(props: DataTableProps<TData, TValue>) {
           ) : null
         }
       />
-      <div className="rounded-md border border-hairline">
+      <div>
         <Table>
-          <TableHeader>
+          <TableHeader className="bg-canvas sticky top-0 z-10 [&_tr]:border-b [&_tr]:border-hairline">
             {table.getHeaderGroups().map((hg) => (
-              <TableRow key={hg.id}>
+              <TableRow key={hg.id} className="border-b border-hairline hover:bg-transparent">
                 {hg.headers.map((h) => (
-                  <TableHead key={h.id}>
+                  <TableHead key={h.id} className={headCellClass}>
                     {h.isPlaceholder ? null : h.column.getCanSort() ? (
                       <DataTableColumnHeader
                         column={h.column}
@@ -236,40 +274,72 @@ export function DataTable<TData, TValue>(props: DataTableProps<TData, TValue>) {
           <TableBody>
             {props.isLoading ? (
               ['s0', 's1', 's2', 's3', 's4'].map((skId) => (
-                <TableRow key={skId}>
+                <TableRow key={skId} className="border-b border-hairline-tertiary">
                   {effectiveColumns.map((col, j) => (
-                    <TableCell key={`${skId}-${col.id ?? String(j)}`}>
+                    <TableCell key={`${skId}-${col.id ?? String(j)}`} className={cellClass}>
                       <Skeleton className="h-4 w-full" data-skeleton="true" />
                     </TableCell>
                   ))}
                 </TableRow>
               ))
             ) : rows.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={effectiveColumns.length}>
-                  {props.emptyState ?? <EmptyState title="No results" />}
+              <TableRow className="border-b-0 hover:bg-transparent">
+                <TableCell colSpan={effectiveColumns.length} className="p-0">
+                  {hasActiveFilters
+                    ? (props.noResultsState ?? (
+                        <EmptyState
+                          title="No results match these filters"
+                          description="Try removing a filter or clearing your search."
+                          action={{ label: 'Clear filters', onClick: clearFilters }}
+                        />
+                      ))
+                    : (props.emptyState ?? <EmptyState title="No results" />)}
                 </TableCell>
               </TableRow>
             ) : (
-              rows.map((row) => (
-                <React.Fragment key={row.id}>
-                  <TableRow data-state={row.getIsSelected() ? 'selected' : undefined}>
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id}>
-                        {flexRender(cell.column.columnDef.cell, cell.getContext()) ??
-                          String(cell.getValue() ?? '')}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                  {row.getIsExpanded() && props.renderSubComponent && (
-                    <TableRow>
-                      <TableCell colSpan={row.getVisibleCells().length}>
-                        {props.renderSubComponent({ row })}
-                      </TableCell>
+              rows.map((row) => {
+                const selected = row.getIsSelected();
+                const visibleCells = row.getVisibleCells();
+                return (
+                  <React.Fragment key={row.id}>
+                    <TableRow
+                      data-state={selected ? 'selected' : undefined}
+                      onClick={onRowClick ? () => onRowClick(row) : undefined}
+                      className={cn(
+                        'border-b border-hairline-tertiary transition-colors hover:bg-surface-2',
+                        'data-[state=selected]:bg-primary-tint data-[state=selected]:hover:bg-primary-tint',
+                        onRowClick && 'cursor-pointer',
+                      )}
+                    >
+                      {visibleCells.map((cell, cellIdx) => (
+                        <TableCell
+                          key={cell.id}
+                          className={cn(cellClass, selected && cellIdx === 0 && 'relative')}
+                        >
+                          {selected && cellIdx === 0 && (
+                            <span
+                              aria-hidden
+                              className="absolute left-0 top-0 bottom-0 w-0.5 bg-primary"
+                            />
+                          )}
+                          {flexRender(cell.column.columnDef.cell, cell.getContext()) ??
+                            String(cell.getValue() ?? '')}
+                        </TableCell>
+                      ))}
                     </TableRow>
-                  )}
-                </React.Fragment>
-              ))
+                    {row.getIsExpanded() && props.renderSubComponent && (
+                      <TableRow className="border-b border-hairline-tertiary hover:bg-transparent">
+                        <TableCell
+                          colSpan={row.getVisibleCells().length}
+                          className="px-md py-sm bg-surface-1"
+                        >
+                          {props.renderSubComponent({ row })}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </React.Fragment>
+                );
+              })
             )}
           </TableBody>
         </Table>

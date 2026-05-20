@@ -14,7 +14,7 @@ export function peerAuth(opts: PeerAuthOpts) {
   return createMiddleware(async (c, next) => {
     if (opts.kind === 'bearer') {
       const header = c.req.header('Authorization');
-      if (!header || !header.startsWith('Bearer ')) return c.json({ error: 'unauthorized' }, 401);
+      if (!header?.startsWith('Bearer ')) return c.json({ error: 'unauthorized' }, 401);
       const provided = header.slice('Bearer '.length);
       if (provided.length !== opts.secret.length) {
         return c.json({ error: 'unauthorized' }, 401);

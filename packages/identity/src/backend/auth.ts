@@ -105,8 +105,8 @@ export const auth = betterAuth({
   socialProviders: entraSsoConfigured(env)
     ? {
         microsoft: {
-          clientId: env.MICROSOFT_CLIENT_ID!,
-          clientSecret: env.MICROSOFT_CLIENT_SECRET!,
+          clientId: env.MICROSOFT_CLIENT_ID,
+          clientSecret: env.MICROSOFT_CLIENT_SECRET,
           tenantId: 'common',
           prompt: 'select_account',
           disableImplicitSignUp: true,
@@ -121,7 +121,7 @@ export const auth = betterAuth({
             const oid = profile.oid ?? profile.sub;
             if (!oid) throw new APIError('BAD_REQUEST', { message: 'missing_oid' });
             const email = (profile.email ?? '').toLowerCase();
-            const name = profile.name ?? profile.preferred_username ?? email.split('@')[0]!;
+            const name = profile.name ?? profile.preferred_username ?? email.split('@')[0] ?? email;
             stashSsoContext(oid, {
               seta_tenant_id: seta.tenant_id,
               tid: profile.tid,

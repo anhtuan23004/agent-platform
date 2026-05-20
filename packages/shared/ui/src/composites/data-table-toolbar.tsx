@@ -28,8 +28,13 @@ export function DataTableToolbar<TData>({
       {enableColumnVisibility && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="secondary" size="sm" aria-label="Columns">
-              <Settings2 className="mr-2 size-4" />
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label="Columns"
+              className="h-7 gap-1.5 px-2 text-ink-muted"
+            >
+              <Settings2 className="size-3.5" />
               Columns
             </Button>
           </DropdownMenuTrigger>

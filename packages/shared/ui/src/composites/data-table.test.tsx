@@ -78,13 +78,20 @@ describe('DataTable — pagination', () => {
 
   it('renders pagination footer with default page size 25', () => {
     render(<DataTable data={many} columns={columns} />);
-    expect(screen.getByText(/1–25 of 60/i)).toBeInTheDocument();
+    expect(screen.getByText(/Showing 1–25 of 60/i)).toBeInTheDocument();
   });
 
   it('clicks next → shows rows 26–50', () => {
     render(<DataTable data={many} columns={columns} />);
     fireEvent.click(screen.getByRole('button', { name: /next/i }));
-    expect(screen.getByText(/26–50 of 60/i)).toBeInTheDocument();
+    expect(screen.getByText(/Showing 26–50 of 60/i)).toBeInTheDocument();
+  });
+
+  it('renders numbered page buttons and jumps when clicked', () => {
+    render(<DataTable data={many} columns={columns} />);
+    const page3 = screen.getByRole('button', { name: /Page 3/i });
+    fireEvent.click(page3);
+    expect(screen.getByText(/Showing 51–60 of 60/i)).toBeInTheDocument();
   });
 });
 
@@ -136,6 +143,29 @@ describe('DataTable — loading + empty', () => {
     render(<DataTable data={[]} columns={columns} />);
     expect(screen.getByText(/no results/i)).toBeInTheDocument();
   });
+
+  it('shows no-results state with Clear filters when a filter is active', () => {
+    render(<DataTable data={rows} columns={columns} />);
+    const search = screen.getByPlaceholderText('Search…');
+    fireEvent.change(search, { target: { value: 'zzz-no-match' } });
+    expect(screen.getByText(/No results match these filters/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /clear filters/i }));
+    expect(screen.getByText('Alpha')).toBeInTheDocument();
+  });
+});
+
+describe('DataTable — clickable rows', () => {
+  it('invokes onRowClick and renders a trailing chevron', () => {
+    const onRowClick = vi.fn();
+    const { container } = render(
+      <DataTable data={rows} columns={columns} onRowClick={onRowClick} />,
+    );
+    expect(container.querySelectorAll('[data-testid="row-chevron"]').length).toBe(rows.length);
+    const firstDataRow = container.querySelector('tbody tr');
+    if (!firstDataRow) throw new Error('expected a data row');
+    fireEvent.click(firstDataRow);
+    expect(onRowClick).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('DataTable — server mode', () => {
@@ -158,7 +188,7 @@ describe('DataTable — server mode', () => {
         rowCount={100}
       />,
     );
-    expect(screen.getByText(/1–25 of 100/i)).toBeInTheDocument();
+    expect(screen.getByText(/Showing 1–25 of 100/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /next/i }));
     expect(onPaginationChange).toHaveBeenCalled();
   });

@@ -1,8 +1,8 @@
 import { resetCoreDb } from '@seta/core/internal/test-support';
-import { changeUserEmail, createUser, IdentityError } from '@seta/identity';
+import { changeUserEmail, createUser } from '@seta/identity';
 import { closePools, initPools } from '@seta/shared-db';
 import { withTestDb } from '@seta/shared-testing';
-import { afterAll, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 const CLI_ACTOR = { type: 'cli' as const, user_id: null };
 const SSO_ACTOR = { type: 'sso' as const, user_id: null };
@@ -46,7 +46,7 @@ describe('@seta/identity changeUserEmail', () => {
             `SELECT email FROM identity."user" WHERE id = $1`,
             [user_id],
           );
-          expect(userRows[0]!.email).toBe('alice@new.com');
+          expect(userRows[0]?.email).toBe('alice@new.com');
 
           const { rows: events } = await pool.query<{ event_type: string; payload: unknown }>(
             `SELECT event_type, payload FROM core.events
@@ -54,7 +54,7 @@ describe('@seta/identity changeUserEmail', () => {
             [tenantId],
           );
           expect(events).toHaveLength(1);
-          const payload = events[0]!.payload as {
+          const payload = events[0]?.payload as {
             old_email: string;
             new_email: string;
             reason: string;
@@ -163,7 +163,7 @@ describe('@seta/identity changeUserEmail', () => {
             [tenantId],
           );
           expect(events).toHaveLength(1);
-          expect((events[0]!.payload as { reason: string }).reason).toBe('sso_sync');
+          expect((events[0]?.payload as { reason: string }).reason).toBe('sso_sync');
         } finally {
           resetCoreDb();
           await closePools();

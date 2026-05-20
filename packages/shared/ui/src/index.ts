@@ -1,12 +1,16 @@
 // Primitives
 
 // Composites
+export * from './composites/app-shell';
 export * from './composites/command-palette';
+export * from './composites/copilot-panel';
 export * from './composites/data-table';
 export * from './composites/empty-state';
 export * from './composites/inbox-list';
 export * from './composites/kbd-hint';
+export * from './composites/left-nav';
 export * from './composites/side-panel';
+export * from './composites/top-bar';
 // Icons
 export * from './icons/seta-logo';
 export * from './icons/seta-mark';

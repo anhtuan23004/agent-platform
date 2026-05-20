@@ -110,19 +110,19 @@
   --text-body--line-height: 1.50;
   --text-body--letter-spacing: -0.05px;
 
-  --text-body-sm: 14px;
+  --text-body-sm: 13px;
   --text-body-sm--line-height: 1.50;
 
   --text-caption: 12px;
   --text-caption--line-height: 1.40;
 
-  --text-button: 14px;
+  --text-button: 13px;
   --text-button--line-height: 1.20;
   --text-button--font-weight: 500;
 
-  --text-eyebrow: 13px;
-  --text-eyebrow--line-height: 1.30;
-  --text-eyebrow--letter-spacing: 0.4px;
+  --text-eyebrow: 11px;
+  --text-eyebrow--line-height: 1.35;
+  --text-eyebrow--letter-spacing: 0.66px;
   --text-eyebrow--font-weight: 500;
 
   --text-mono: 13px;

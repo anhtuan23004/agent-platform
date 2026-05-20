@@ -195,7 +195,7 @@ describe('rpc shim — public surface', () => {
       actor: adminActor,
       fetch: fetchFn,
     });
-    const init = (fetchFn.mock.calls as unknown as Array<[string, RequestInit]>)[0]![1];
+    const [, init] = (fetchFn.mock.calls as unknown as Array<[string, RequestInit]>)[0]!;
     const headers = init.headers as Record<string, string>;
     expect(headers['Idempotency-Key']).toBeUndefined();
   });

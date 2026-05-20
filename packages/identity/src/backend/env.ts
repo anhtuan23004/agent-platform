@@ -10,10 +10,17 @@ const envSchema = z.object({
 
 export type IdentityEnv = z.infer<typeof envSchema>;
 
+export type EntraSsoConfiguredEnv = IdentityEnv & {
+  MICROSOFT_CLIENT_ID: string;
+  MICROSOFT_CLIENT_SECRET: string;
+};
+
 export function parseIdentityEnv(env: NodeJS.ProcessEnv = process.env): IdentityEnv {
   return envSchema.parse(env);
 }
 
-export function entraSsoConfigured(env: IdentityEnv = parseIdentityEnv()): boolean {
+export function entraSsoConfigured(
+  env: IdentityEnv = parseIdentityEnv(),
+): env is EntraSsoConfiguredEnv {
   return Boolean(env.MICROSOFT_CLIENT_ID && env.MICROSOFT_CLIENT_SECRET);
 }

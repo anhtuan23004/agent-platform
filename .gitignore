@@ -61,3 +61,5 @@ infra/traefik/acme.json
 **/.tofu/
 **/crash.log
 **/crash.*.log
+.playwright-mcp/
+docs/design/
