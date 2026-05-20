@@ -25,6 +25,7 @@ export type {
 export { linkSsoAccount } from './backend/domain/link-sso-account.ts';
 export type { EntraImportableUser } from './backend/domain/list-entra-importable-users.ts';
 export { listEntraImportableUsers } from './backend/domain/list-entra-importable-users.ts';
+export { listMyEffectivePermissions } from './backend/domain/list-my-effective-permissions.ts';
 export type { ActiveRoleGrant, RoleGrantsResult } from './backend/domain/list-role-grants.ts';
 export { listRoleGrants } from './backend/domain/list-role-grants.ts';
 export { listSsoProviders } from './backend/domain/list-sso-providers.ts';
@@ -53,8 +54,11 @@ export type { RevokeUserSessionInput } from './backend/domain/revoke-user-sessio
 export { revokeUserSession } from './backend/domain/revoke-user-session.ts';
 export { searchSkills } from './backend/domain/search-skills.ts';
 export { setLocalPasswordDisabled } from './backend/domain/set-local-password-disabled.ts';
+export type { UpdateMyDisplayNameInput } from './backend/domain/update-my-display-name.ts';
+export { updateMyDisplayName } from './backend/domain/update-my-display-name.ts';
 export type { UpdateUserProfilePatch } from './backend/domain/update-user-profile.ts';
 export { updateUserProfile } from './backend/domain/update-user-profile.ts';
+export { whoAmI } from './backend/domain/who-am-i.ts';
 export { IdentityError } from './backend/rbac.ts';
 export { buildAdminConsentUrl } from './backend/sso/consent-url.ts';
 export type { ProviderRow as SsoProviderRow } from './backend/sso/helpers.ts';
