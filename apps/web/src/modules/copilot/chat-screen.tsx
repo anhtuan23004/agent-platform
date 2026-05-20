@@ -23,6 +23,7 @@ import { ChatThreadRailContainer } from './components/chat-thread-rail-container
 import { ThreadListRefresher } from './components/thread-list-refresher';
 import { ToolUIRegistry } from './components/tool-renderers';
 import { useAgentCatalog } from './hooks/use-agent-catalog';
+import { useApprovalResolvedEvent } from './hooks/use-approval-events';
 import { useCopilotRuntime } from './hooks/use-copilot-runtime';
 import { useModelCatalog } from './hooks/use-model-catalog';
 import { useThreadList } from './hooks/use-thread-list';
@@ -31,6 +32,7 @@ import { useDeleteThread, useRenameThread } from './hooks/use-thread-mutations';
 import { COPILOT_COPY } from './i18n';
 
 const MODEL_STORAGE_KEY = 'seta.copilot.model';
+const AGENT_STORAGE_KEY = 'seta.copilot.agent';
 
 function usePersistentModelKey(defaultKey: string | undefined): [string, (k: string) => void] {
   const [value, setValue] = useState<string>(() => {
@@ -286,7 +288,7 @@ function ChatPane({
           </ThreadPrimitive.Empty>
           <ThreadPrimitive.Messages components={{ UserMessage, AssistantMessage }} />
         </ChatTranscript>
-        <ToolUIRegistry />
+        <ToolUIRegistry agentName={agentName} />
         <ThreadListRefresher threadId={threadId} />
         <ChatComposerContainer
           agentName={agentName}
@@ -299,12 +301,24 @@ function ChatPane({
   );
 }
 
+function usePersistentAgentName(defaultName: string): [string, (next: string) => void] {
+  const [value, setValue] = useState<string>(() => {
+    if (typeof window === 'undefined') return defaultName;
+    return window.localStorage.getItem(AGENT_STORAGE_KEY) ?? defaultName;
+  });
+  const set = (next: string) => {
+    setValue(next);
+    if (typeof window !== 'undefined') window.localStorage.setItem(AGENT_STORAGE_KEY, next);
+  };
+  return [value, set];
+}
+
 export function ChatScreen({ threadId }: ChatScreenProps) {
   const { defaultName: defaultAgent } = useAgentCatalog();
-  const [agentName, setAgentName] = useState<AgentName>(defaultAgent);
+  const [agentName, setAgentName] = usePersistentAgentName(defaultAgent);
   useEffect(() => {
     if (!agentName) setAgentName(defaultAgent);
-  }, [defaultAgent, agentName]);
+  }, [defaultAgent, agentName, setAgentName]);
   const { data: catalog } = useModelCatalog();
   const [modelKey, setModelKey] = usePersistentModelKey(catalog?.default);
   const threadTitle = useThreadTitle(threadId);
@@ -313,6 +327,25 @@ export function ChatScreen({ threadId }: ChatScreenProps) {
   const initialMessages = threadId ? (history?.messages ?? []) : [];
   const waiting = Boolean(threadId) && historyLoading && !history;
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  // Remount ChatPane after a successful HITL approval so the resumed messages
+  // (refetched by useThreadMessages) seed the assistant-ui runtime's initial state.
+  // We also navigate to the just-resumed thread when the event carries a fresh id,
+  // but ONLY once per event (otherwise switching threads in the rail would re-fire
+  // the navigate and snap the user back to the approval's thread).
+  const approvalEvent = useApprovalResolvedEvent();
+  const navigate = useNavigate();
+  const handledApprovalRevision = useRef(0);
+  useEffect(() => {
+    if (approvalEvent.revision === 0) return;
+    if (approvalEvent.revision === handledApprovalRevision.current) return;
+    handledApprovalRevision.current = approvalEvent.revision;
+    if (!approvalEvent.threadId || approvalEvent.threadId === threadId) return;
+    void navigate({
+      to: '/copilot/chat',
+      search: { thread: approvalEvent.threadId },
+      replace: true,
+    });
+  }, [approvalEvent.revision, approvalEvent.threadId, threadId, navigate]);
 
   return (
     <div className="flex h-full min-h-0 flex-1">
@@ -338,7 +371,7 @@ export function ChatScreen({ threadId }: ChatScreenProps) {
         </div>
       ) : (
         <ChatPane
-          key={threadId ?? 'new'}
+          key={`${threadId ?? 'new'}::${approvalEvent.revision}`}
           threadId={threadId}
           initialMessages={initialMessages}
           agentName={agentName}

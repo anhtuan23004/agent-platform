@@ -372,12 +372,14 @@ export function registerCopilotRoutes(app: Hono<CopilotRouteEnv>, deps: CopilotR
   app.get('/api/copilot/v1/agents', async (c) => {
     const check = checkPerm(c.get('session') as SessionLike | undefined, 'copilot.chat.use');
     if (!check.ok) return c.json(check.denied.body, check.denied.status);
-    const agents = deps.factory.specs.map((s) => ({
-      name: s.name,
-      label: s.label,
-      description: s.description,
-      delegates: s.delegates ?? [],
-    }));
+    const agents = deps.factory.specs
+      .filter((s) => s.userVisible !== false)
+      .map((s) => ({
+        name: s.name,
+        label: s.label,
+        description: s.description,
+        delegates: s.delegates ?? [],
+      }));
     return c.json({ agents, default: agents[0]?.name ?? null });
   });
 

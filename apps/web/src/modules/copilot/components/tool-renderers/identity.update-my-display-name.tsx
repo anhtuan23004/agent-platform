@@ -2,22 +2,13 @@ import { ChatHitlCard, ChatToolCall } from '@seta/shared-ui';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSearch } from '@tanstack/react-router';
 import { useState } from 'react';
-import { copilotApi } from '../../api/client';
+import { resolveApproval, splitApprovalId } from '../../lib/resolve-approval';
 
 export interface UpdateMyDisplayNameProps {
   args: { displayName: string; expiresAt?: string };
   state: 'input-streaming' | 'input-pending-approval' | 'output-available' | 'output-error';
   callId: string;
   approval?: { id?: string } | null;
-}
-
-function splitApprovalId(composite: string | undefined): {
-  runId?: string;
-  toolCallId?: string;
-} {
-  if (!composite) return {};
-  const [runId, toolCallId] = composite.split('::');
-  return { runId, toolCallId };
 }
 
 export function UpdateMyDisplayNameRenderer({
@@ -31,21 +22,19 @@ export function UpdateMyDisplayNameRenderer({
   const threadId = search.thread;
   const [pending, setPending] = useState<'approve' | 'reject' | null>(null);
 
-  const resolve = async (approved: boolean) => {
-    const { runId, toolCallId: parsedToolCallId } = splitApprovalId(approval?.id);
+  const onResolve = async (approved: boolean) => {
+    const { runId, toolCallId } = splitApprovalId(approval?.id);
     if (!runId) return;
     setPending(approved ? 'approve' : 'reject');
     try {
-      await copilotApi.resolveApproval('self', {
+      await resolveApproval({
+        queryClient,
+        parentAgentName: 'self',
         runId,
-        toolCallId: parsedToolCallId ?? callId,
+        toolCallId: toolCallId ?? callId,
         approved,
-        ...(threadId ? { threadId } : {}),
+        knownThreadId: threadId,
       });
-      void queryClient.invalidateQueries({ queryKey: ['copilot', 'threads'] });
-      if (threadId) {
-        void queryClient.invalidateQueries({ queryKey: ['copilot', 'thread', threadId] });
-      }
     } finally {
       setPending(null);
     }
@@ -58,8 +47,8 @@ export function UpdateMyDisplayNameRenderer({
         toolName="identity.updateMyDisplayName"
         {...(args.expiresAt ? { expiresAt: new Date(args.expiresAt) } : {})}
         permissionHint="Requires identity.user.write.self"
-        onApprove={() => void resolve(true)}
-        onReject={() => void resolve(false)}
+        onApprove={() => void onResolve(true)}
+        onReject={() => void onResolve(false)}
         pending={pending}
       >
         <div className="rounded-md border border-hairline bg-surface-1 p-3 text-body-sm">

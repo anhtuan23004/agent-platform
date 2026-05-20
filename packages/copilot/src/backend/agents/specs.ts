@@ -9,6 +9,12 @@ export interface AgentSpec {
   tools: ReadonlyArray<CopilotTool>;
   delegates?: ReadonlyArray<string>;
   defaultTier?: ModelTier;
+  /**
+   * Whether end-users can pick this agent from the catalog. Defaults to true.
+   * Use false for routing-only agents that should stay wired in code (so other
+   * agents can reference them via `delegates`) but never appear in the selector.
+   */
+  userVisible?: boolean;
 }
 
 export type AgentSpecs = ReadonlyArray<AgentSpec>;

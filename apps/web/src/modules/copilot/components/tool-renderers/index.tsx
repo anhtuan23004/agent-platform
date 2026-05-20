@@ -92,25 +92,42 @@ const UPDATE_MY_DISPLAY_NAME_TOOL = makeAssistantToolUI<
 });
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-// Mastra auto-generates a delegation tool per sub-agent, named `agent-${id}`. We register a
-// renderer per known agent so any specialist call surfaces inline like a regular tool.
-function DelegateRegistration({ name, label }: { name: string; label: string }) {
+// Mastra auto-generates a delegation tool per sub-agent, named `agent-${id}`. The delegate
+// tool itself participates in HITL — when a leaf write tool deep in the chain pauses for
+// approval, Mastra surfaces a top-level `tool-approval-request` on the delegate tool here.
+// Approving it cascades the resume down through every suspended sub-agent automatically,
+// which is what lets the architecture scale to many agents without per-level wiring.
+function DelegateRegistration({
+  name,
+  label,
+  parentAgentName,
+}: {
+  name: string;
+  label: string;
+  parentAgentName: string;
+}) {
   useAssistantToolUI({
     toolName: `agent-${name}`,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    render: (props: ToolCallMessagePartProps<Record<string, unknown>, any>) => (
-      <DelegateRenderer
-        targetLabel={label}
-        args={props.args}
-        state={toReadState(props)}
-        output={props.result ?? undefined}
-      />
-    ),
+    render: (props: ToolCallMessagePartProps<Record<string, unknown>, any>) => {
+      const interrupt = (props as { interrupt?: { payload?: { id?: string } } }).interrupt;
+      return (
+        <DelegateRenderer
+          parentAgentName={parentAgentName}
+          targetName={name}
+          targetLabel={label}
+          args={props.args}
+          state={toWriteState(props)}
+          output={props.result ?? undefined}
+          approval={interrupt?.payload}
+        />
+      );
+    },
   });
   return null;
 }
 
-export function ToolUIRegistry() {
+export function ToolUIRegistry({ agentName }: { agentName: string }) {
   const { agents } = useAgentCatalog();
   return (
     <>
@@ -120,7 +137,12 @@ export function ToolUIRegistry() {
       <LIST_MY_THREADS_TOOL />
       <UPDATE_MY_DISPLAY_NAME_TOOL />
       {agents.map((a) => (
-        <DelegateRegistration key={a.name} name={a.name} label={a.label} />
+        <DelegateRegistration
+          key={a.name}
+          name={a.name}
+          label={a.label}
+          parentAgentName={agentName}
+        />
       ))}
     </>
   );
