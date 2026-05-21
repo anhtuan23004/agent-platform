@@ -1,196 +1,212 @@
 import {
-  AvatarStack,
-  Button,
-  EmptyState,
+  ComingSoon,
   Skeleton,
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
+  toast,
 } from '@seta/shared-ui';
-import { Link } from '@tanstack/react-router';
+import { Navigate, useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';
+import type { SessionScopeProjection } from '@/modules/identity/api/client';
 import { CreatePlanDialog } from '../components/CreatePlanDialog';
+import { GroupDetailHeader } from '../components/GroupDetailHeader';
+import { GroupMembersTable } from '../components/GroupMembersTable';
+import { GroupPlansSection, THEME_HEX } from '../components/GroupPlansSection';
+import { GroupRail } from '../components/GroupRail';
+import { GroupStatRow } from '../components/GroupStatRow';
 import { RenameGroupDialog } from '../components/RenameGroupDialog';
+import { useSetMemberRole } from '../hooks/mutations/set-member-role';
 import { useGroup } from '../hooks/queries/use-group';
 import { useGroupMembers } from '../hooks/queries/use-group-members';
 import { useGroupPlans } from '../hooks/queries/use-group-plans';
 
-export type GroupDetailTab = 'plans' | 'members' | 'settings';
+export type GroupTab = 'plans' | 'members' | 'activity' | 'labels' | 'integrations' | 'settings';
 
-export interface GroupDetailSession {
-  role_summary: { roles: string[]; cross_tenant_read: boolean };
-  accessible_group_ids: ReadonlyArray<string>;
-}
+// Re-export for route and tests
+export type { SessionScopeProjection as GroupDetailSession };
 
 interface Props {
   groupId: string;
-  tab: GroupDetailTab;
-  onTabChange: (tab: GroupDetailTab) => void;
-  session: GroupDetailSession;
+  tab: GroupTab;
+  onTabChange: (next: GroupTab) => void;
+  session: SessionScopeProjection;
 }
 
-function canManageGroup(session: GroupDetailSession, groupId: string): boolean {
-  const roles = session.role_summary.roles;
-  if (roles.includes('org.admin') || roles.includes('tenant.admin')) return true;
-  return roles.includes('planner.admin') && session.accessible_group_ids.includes(groupId);
+function DetailSkeleton() {
+  return (
+    <div className="flex flex-col gap-4 p-7" data-testid="skeleton-detail">
+      <Skeleton className="h-16 w-full" />
+      <Skeleton className="h-14 w-full" />
+      <Skeleton className="h-8 w-64" />
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6 mt-4">
+        <Skeleton className="h-64 w-full" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    </div>
+  );
+}
+
+interface ErrorStateProps {
+  onRetry: () => void;
+}
+
+function ErrorState({ onRetry }: ErrorStateProps) {
+  return (
+    <div className="flex flex-col items-center justify-center p-12 gap-4" role="alert">
+      <p className="text-body-sm text-ink-subtle">Couldn&apos;t load this group.</p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="text-sm text-primary underline hover:no-underline"
+      >
+        Retry
+      </button>
+    </div>
+  );
 }
 
 export function GroupDetailPage({ groupId, tab, onTabChange, session }: Props) {
-  const groupQ = useGroup(groupId);
-  const plansQ = useGroupPlans(groupId);
-  const membersQ = useGroupMembers(groupId);
-  const canManage = canManageGroup(session, groupId);
+  const groupQuery = useGroup(groupId);
+  const membersQuery = useGroupMembers(groupId);
+  const plansQuery = useGroupPlans(groupId);
+  const setMemberRoleMutation = useSetMemberRole(groupId);
+  const navigate = useNavigate();
+
   const [createPlanOpen, setCreatePlanOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
 
-  if (groupQ.isPending) {
-    return <Skeleton data-testid="skeleton-detail" className="m-6 h-24 w-full" />;
-  }
-  if (groupQ.isError) {
-    return (
-      <div role="alert" className="m-6">
-        Couldn't load this group.
-      </div>
-    );
+  // Capability checks
+  const roles = session.role_summary.roles;
+  const isAdmin =
+    roles.includes('org.admin') ||
+    roles.includes('tenant.admin') ||
+    roles.includes('planner.admin');
+  const members = membersQuery.data ?? [];
+  const isOwner = members.some((m) => m.user_id === session.user_id && m.role === 'owner');
+  const canManage = isAdmin || isOwner;
+  const canCreatePlan = canManage;
+  const canManageRoles = canManage;
+
+  if (groupQuery.isPending || membersQuery.isPending || plansQuery.isPending) {
+    return <DetailSkeleton />;
   }
 
-  const group = groupQ.data;
-  const planCount = plansQ.data?.length ?? 0;
-  const memberCount = membersQ.data?.length ?? 0;
+  if (groupQuery.isError) {
+    // 403 → redirect to groups list
+    const err = groupQuery.error as { status?: number } | null;
+    if (err?.status === 403) {
+      void navigate({ to: '/planner/groups' });
+      toast.error('You no longer have access to this group.');
+      return null;
+    }
+    return <ErrorState onRetry={() => void groupQuery.refetch()} />;
+  }
+
+  if (!groupQuery.data) {
+    // Shouldn't normally happen after !isPending && !isError, but guard anyway
+    return <Navigate to="/planner/groups" />;
+  }
+
+  const group = groupQuery.data;
+  const plans = plansQuery.data ?? [];
+  const themeColor = THEME_HEX[group.theme as keyof typeof THEME_HEX] ?? THEME_HEX.blue;
+
+  function handleMenuAction(action: 'archive' | 'delete') {
+    // Placeholder — full implementation in a follow-up PR
+    toast(`${action === 'archive' ? 'Archive' : 'Delete'} functionality coming soon.`);
+  }
 
   return (
-    <div className="p-6">
-      <header className="mb-5 flex items-start justify-between gap-4">
-        <div className="flex min-w-0 items-start gap-3">
-          <div
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary"
-            aria-hidden
-          >
-            <span className="font-semibold text-base uppercase">{group.name.slice(0, 2)}</span>
-          </div>
-          <div className="min-w-0">
-            <h1 className="truncate text-display-md text-ink">{group.name}</h1>
-            <p className="mt-1 text-body-sm text-ink-subtle">
-              {memberCount} {memberCount === 1 ? 'member' : 'members'} · {planCount}{' '}
-              {planCount === 1 ? 'plan' : 'plans'}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {membersQ.data && membersQ.data.length > 0 && (
-            <AvatarStack
-              max={5}
-              assignees={membersQ.data.map((m) => ({
-                user_id: m.user_id,
-                display_name: m.display_name,
-              }))}
-            />
-          )}
-          {canManage && (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setRenameOpen(true)}
-              aria-label="Rename group"
-            >
-              Rename
-            </Button>
-          )}
-        </div>
-      </header>
-      <Tabs value={tab} onValueChange={(v) => onTabChange(v as GroupDetailTab)}>
-        <TabsList>
-          <TabsTrigger value="plans">Plans</TabsTrigger>
-          <TabsTrigger value="members">Members</TabsTrigger>
-          {canManage && <TabsTrigger value="settings">Settings</TabsTrigger>}
+    <div className="flex h-full flex-col">
+      <GroupDetailHeader
+        group={group}
+        canManage={canManage}
+        onRenameClick={() => setRenameOpen(true)}
+        onInviteClick={() => toast('Invite functionality coming soon.')}
+        onCreatePlanClick={() => setCreatePlanOpen(true)}
+        onMenuAction={handleMenuAction}
+      />
+      <div className="px-7">
+        <GroupStatRow planCount={plans.length} openTaskCount={0} memberCount={members.length} />
+      </div>
+      <Tabs
+        value={tab}
+        onValueChange={(t) => onTabChange(t as GroupTab)}
+        className="flex flex-1 min-h-0 flex-col"
+      >
+        <TabsList className="border-b border-hairline px-7 justify-start gap-1 bg-transparent rounded-none">
+          <TabsTrigger value="plans">
+            Plans <span className="ml-1.5 text-xs text-ink-subtle">{plans.length}</span>
+          </TabsTrigger>
+          <TabsTrigger value="members">
+            Members <span className="ml-1.5 text-xs text-ink-subtle">{members.length}</span>
+          </TabsTrigger>
+          <TabsTrigger value="activity">Activity</TabsTrigger>
+          <TabsTrigger value="labels">Labels</TabsTrigger>
+          <TabsTrigger value="integrations">Integrations</TabsTrigger>
+          {canManage ? <TabsTrigger value="settings">Settings</TabsTrigger> : null}
         </TabsList>
 
-        <TabsContent value="plans">
-          {plansQ.isPending && (
-            <Skeleton data-testid="skeleton-plans" className="mt-4 h-16 w-full" />
-          )}
-          {plansQ.data && plansQ.data.length > 0 && (
-            <>
-              <div className="mt-4 mb-3 flex items-center justify-between">
-                <p className="text-body-sm text-ink-subtle">
-                  {plansQ.data.length} {plansQ.data.length === 1 ? 'plan' : 'plans'}
-                </p>
-                {canManage && (
-                  <Button size="sm" onClick={() => setCreatePlanOpen(true)}>
-                    + New plan
-                  </Button>
-                )}
-              </div>
-              <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                {plansQ.data.map((p) => (
-                  <li key={p.id}>
-                    <Link
-                      to="/planner/plans/$planId"
-                      params={{ planId: p.id }}
-                      className="block rounded-md border border-surface-3 bg-surface-1 p-4 transition-colors hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded bg-primary/10 text-primary"
-                          aria-hidden
-                        >
-                          <span className="font-medium text-xs uppercase">
-                            {p.name.slice(0, 2)}
-                          </span>
-                        </span>
-                        <span className="truncate font-medium text-ink">{p.name}</span>
-                      </div>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-          {plansQ.data?.length === 0 && (
-            <EmptyState
-              title="Create your first plan"
-              description="A plan groups buckets and tasks for one stream of work."
-              action={
-                canManage
-                  ? { label: 'Create plan', onClick: () => setCreatePlanOpen(true) }
-                  : undefined
+        <TabsContent value="plans" className="flex-1 overflow-auto bg-surface-1">
+          <div className="mx-auto max-w-[1240px] px-7 py-6 grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
+            <GroupPlansSection
+              groupName={group.name}
+              plans={plans}
+              themeColor={themeColor}
+              canCreatePlan={canCreatePlan}
+              onCreatePlan={() => setCreatePlanOpen(true)}
+              onPlanClick={(planId) =>
+                void navigate({
+                  to: '/planner/plans/$planId',
+                  params: { planId },
+                })
               }
             />
-          )}
+            <GroupRail
+              group={group}
+              members={members}
+              canManage={canManage}
+              onAddMember={() => toast('Invite functionality coming soon.')}
+            />
+          </div>
         </TabsContent>
 
-        <TabsContent value="members">
-          {membersQ.isPending && (
-            <Skeleton data-testid="skeleton-members" className="mt-4 h-16 w-full" />
-          )}
-          {membersQ.data && (
-            <table className="mt-4 w-full text-left text-body-sm">
-              <thead className="text-ink-subtle">
-                <tr>
-                  <th className="py-2 pr-4">Name</th>
-                  <th className="py-2 pr-4">Email</th>
-                  <th className="py-2">Added</th>
-                </tr>
-              </thead>
-              <tbody>
-                {membersQ.data.map((m) => (
-                  <tr key={m.user_id} className="border-t border-surface-3">
-                    <td className="py-2 pr-4">{m.display_name}</td>
-                    <td className="py-2 pr-4">{m.email}</td>
-                    <td className="py-2">{new Date(m.added_at).toLocaleDateString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+        <TabsContent value="members" className="flex-1 overflow-auto bg-surface-1">
+          <div className="mx-auto max-w-[1240px] px-7 py-6 grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
+            <GroupMembersTable
+              group={group}
+              members={members}
+              canManageRoles={canManageRoles}
+              onRoleChange={(v) => setMemberRoleMutation.mutate(v)}
+            />
+            <GroupRail
+              group={group}
+              members={members}
+              canManage={canManage}
+              onAddMember={() => toast('Invite functionality coming soon.')}
+            />
+          </div>
         </TabsContent>
 
-        {canManage && (
-          <TabsContent value="settings">
-            <p className="mt-4 text-ink-subtle">Group settings — rename, archive — coming soon.</p>
+        <TabsContent value="activity">
+          <ComingSoon feature="Activity" />
+        </TabsContent>
+        <TabsContent value="labels">
+          <ComingSoon feature="Labels" />
+        </TabsContent>
+        <TabsContent value="integrations">
+          <ComingSoon feature="Integrations" />
+        </TabsContent>
+
+        {canManage ? (
+          <TabsContent value="settings" className="p-7">
+            <div className="text-sm text-ink-subtle">
+              Settings tab — actual form coming in a follow-up. PR2 only scaffolds the route.
+            </div>
           </TabsContent>
-        )}
+        ) : null}
       </Tabs>
 
       <CreatePlanDialog groupId={groupId} open={createPlanOpen} onOpenChange={setCreatePlanOpen} />

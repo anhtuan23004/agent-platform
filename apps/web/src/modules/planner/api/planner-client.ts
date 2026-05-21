@@ -3,6 +3,7 @@ import type {
   ChecklistItemRow,
   GroupMemberRow,
   GroupRow,
+  GroupWithCountsRow,
   LabelRow,
   ListTasksFilters,
   PersistedPlannerEvent,
@@ -51,6 +52,13 @@ async function listGroups(): Promise<GroupRow[]> {
   return r.groups;
 }
 
+async function listGroupsWithCounts(): Promise<GroupWithCountsRow[]> {
+  const r = (await request<{ groups: GroupWithCountsRow[] }>(
+    `/api/planner/v1/groups?withCounts=true`,
+  )) ?? { groups: [] };
+  return r.groups;
+}
+
 async function listMyGroups(): Promise<GroupRow[]> {
   const r = (await request<{ groups: GroupRow[] }>(`/api/planner/v1/groups/mine`)) ?? {
     groups: [],
@@ -62,7 +70,13 @@ async function getGroup(group_id: string): Promise<GroupRow> {
   return (await request<GroupRow>(`/api/planner/v1/groups/${group_id}`)) as GroupRow;
 }
 
-async function createGroup(input: { name: string }): Promise<GroupRow> {
+async function createGroup(input: {
+  name: string;
+  description?: string;
+  theme?: 'teal' | 'purple' | 'green' | 'blue' | 'pink' | 'orange' | 'red';
+  visibility?: 'private' | 'public';
+  default_role?: 'owner' | 'member';
+}): Promise<GroupRow> {
   return (await request<GroupRow>(`/api/planner/v1/groups`, {
     method: 'POST',
     body: JSON.stringify(input),
@@ -110,6 +124,17 @@ async function addGroupMember(input: { group_id: string; user_id: string }): Pro
 async function removeGroupMember(input: { group_id: string; user_id: string }): Promise<void> {
   await request<void>(`/api/planner/v1/groups/${input.group_id}/members/${input.user_id}`, {
     method: 'DELETE',
+  });
+}
+
+async function setMemberRole(input: {
+  group_id: string;
+  user_id: string;
+  role: 'owner' | 'member';
+}): Promise<void> {
+  await request<void>(`/api/planner/v1/groups/${input.group_id}/members/${input.user_id}/role`, {
+    method: 'PATCH',
+    body: JSON.stringify({ role: input.role }),
   });
 }
 
@@ -442,6 +467,7 @@ async function listTaskEvents(input: {
 
 export const plannerClient = {
   listGroups,
+  listGroupsWithCounts,
   listMyGroups,
   getGroup,
   createGroup,
@@ -451,6 +477,7 @@ export const plannerClient = {
   listGroupMembers,
   addGroupMember,
   removeGroupMember,
+  setMemberRole,
   listPlans,
   getPlan,
   createPlan,

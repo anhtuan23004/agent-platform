@@ -1,121 +1,140 @@
-import {
-  Button,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  EmptyState,
-  Skeleton,
-} from '@seta/shared-ui';
-import { Link } from '@tanstack/react-router';
-import { useState } from 'react';
+import { Alert, AlertDescription, Button, EmptyState, Skeleton } from '@seta/shared-ui';
+import { Plus } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import { CreateGroupDialog } from '../components/CreateGroupDialog';
-import { useMyGroups } from '../hooks/queries/use-my-groups';
+import { GroupsGrid } from '../components/GroupsGrid';
+import { GroupsTable } from '../components/GroupsTable';
+import { GroupsToolbar } from '../components/GroupsToolbar';
+import { useGroupsWithCounts } from '../hooks/queries/use-groups-with-counts';
 
 interface Props {
-  /** When true, the user can create new groups. Gated by org.admin / tenant.admin / planner.admin. */
   canCreateGroup?: boolean;
 }
 
 export function GroupsPage({ canCreateGroup = false }: Props) {
-  const q = useMyGroups();
+  const q = useGroupsWithCounts();
+  const [view, setView] = useState<'list' | 'grid'>('list');
+  const [search, setSearch] = useState('');
+  const [visibility, setVisibility] = useState<'private' | 'public' | null>(null);
+  const [source, setSource] = useState<'native' | 'm365' | null>(null);
+  const [owner, setOwner] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
 
+  // Derive owner options from the data
+  const ownerOptions = useMemo(() => {
+    if (!q.data) return [];
+    const seen = new Map<string, string>();
+    for (const g of q.data) {
+      if (g.owner_display_name && !seen.has(g.created_by)) {
+        seen.set(g.created_by, g.owner_display_name);
+      }
+    }
+    return Array.from(seen.entries()).map(([value, label]) => ({ value, label }));
+  }, [q.data]);
+
+  // Loading skeleton — match the layout shape (header bar + toolbar + body)
   if (q.isPending) {
     return (
-      <div className="grid grid-cols-1 gap-4 p-6 md:grid-cols-2 lg:grid-cols-3">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <Skeleton
-            // biome-ignore lint/suspicious/noArrayIndexKey: skeleton placeholders have no semantic identity
-            key={i}
-            data-testid="skeleton-card"
-            className="h-32 w-full rounded-lg"
-          />
-        ))}
+      <div className="flex h-full flex-col">
+        <Skeleton className="h-20 w-full" data-testid="groups-page-skeleton" />
+        <Skeleton className="h-12 w-full mt-px" />
+        <div className="flex-1 p-6 space-y-3">
+          <Skeleton className="h-12 w-full" />
+          <Skeleton className="h-12 w-full" />
+          <Skeleton className="h-12 w-full" />
+        </div>
       </div>
     );
   }
 
   if (q.isError) {
     return (
-      <div
-        role="alert"
-        className="m-6 rounded-md border border-destructive/40 bg-destructive/10 p-4"
-      >
-        <h2 className="text-card-title text-ink">Couldn't load groups</h2>
-        <p className="mt-1 text-body-sm text-ink-subtle">
-          {q.error instanceof Error ? q.error.message : 'Unknown error.'}
-        </p>
-        <Button variant="secondary" size="sm" className="mt-3" onClick={() => q.refetch()}>
-          Retry
-        </Button>
+      <div className="p-7">
+        <Alert variant="destructive">
+          <AlertDescription className="flex items-center justify-between gap-3">
+            <span>Couldn't load groups.</span>
+            <Button size="sm" variant="secondary" onClick={() => q.refetch()}>
+              Retry
+            </Button>
+          </AlertDescription>
+        </Alert>
       </div>
     );
   }
 
-  if (q.data.length === 0) {
+  const groups = q.data;
+
+  if (groups.length === 0) {
     return (
-      <>
-        {canCreateGroup ? (
-          <EmptyState
-            title="Create your first group"
-            description="Groups hold plans and members. Start one for the team or project you're working with."
-            action={{ label: 'Create group', onClick: () => setCreateOpen(true) }}
-          />
-        ) : (
-          <EmptyState
-            title="You're not in any groups yet"
-            description="Ask your tenant admin to add you to a group."
-          />
-        )}
+      <div className="p-7">
+        <EmptyState
+          title="No groups yet"
+          description={
+            canCreateGroup
+              ? 'Create a group to organize plans and people.'
+              : 'Ask an admin to create a group and invite you to it.'
+          }
+          action={
+            canCreateGroup ? { label: 'New group', onClick: () => setCreateOpen(true) } : undefined
+          }
+        />
         <CreateGroupDialog open={createOpen} onOpenChange={setCreateOpen} />
-      </>
+      </div>
     );
   }
 
+  // Apply filters
+  const filtered = groups.filter((g) => {
+    if (visibility && g.visibility !== visibility) return false;
+    if (source && g.external_source !== source) return false;
+    if (owner && g.created_by !== owner) return false;
+    if (search) {
+      const s = search.toLowerCase();
+      if (!g.name.toLowerCase().includes(s) && !(g.description ?? '').toLowerCase().includes(s)) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  const totalPlans = groups.reduce((s, g) => s + g.plan_count, 0);
+  const totalMembers = groups.reduce((s, g) => s + g.member_count, 0);
+  // Show Source filter only when at least one group is from m365 (PR2 native-only by default)
+  const showSourceFilter = groups.some((g) => g.external_source !== 'native');
+
   return (
-    <div className="p-6">
-      <header className="mb-5 flex items-center justify-between">
-        <div>
-          <h1 className="text-display-md text-ink">Groups</h1>
-          <p className="mt-1 text-body-sm text-ink-subtle">
-            {q.data.length} {q.data.length === 1 ? 'group' : 'groups'}
-          </p>
-        </div>
-        {canCreateGroup && (
-          <Button size="sm" onClick={() => setCreateOpen(true)} aria-label="Create group">
-            + Create group
-          </Button>
-        )}
+    <div className="flex h-full flex-col">
+      <header className="relative border-b border-hairline px-7 py-5">
+        <h1 className="text-display-md">Groups</h1>
+        <p className="mt-1 text-body-sm text-ink-subtle">
+          {groups.length} {groups.length === 1 ? 'group' : 'groups'} · {totalPlans} plans ·{' '}
+          {totalMembers} members
+        </p>
+        {canCreateGroup ? (
+          <div className="absolute right-7 top-5 flex gap-2">
+            <Button size="sm" onClick={() => setCreateOpen(true)}>
+              <Plus className="size-3" /> New group
+            </Button>
+          </div>
+        ) : null}
       </header>
-      <ul className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {q.data.map((g) => (
-          <li key={g.id}>
-            <Link
-              to="/planner/groups/$groupId"
-              params={{ groupId: g.id }}
-              className="block focus-visible:outline-none"
-            >
-              <Card className="h-full transition-colors hover:border-primary focus-visible:ring-2 focus-visible:ring-primary">
-                <CardHeader className="flex flex-row items-start gap-3 pb-3">
-                  <div
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary"
-                    aria-hidden
-                  >
-                    <span className="font-semibold text-sm uppercase">{g.name.slice(0, 2)}</span>
-                  </div>
-                  <CardTitle className="truncate text-card-title">{g.name}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-body-sm text-ink-subtle">
-                    Last activity {new Date(g.updated_at).toLocaleDateString()}
-                  </p>
-                </CardContent>
-              </Card>
-            </Link>
-          </li>
-        ))}
-      </ul>
+      <GroupsToolbar
+        view={view}
+        onViewChange={setView}
+        searchQuery={search}
+        onSearchChange={setSearch}
+        visibility={visibility}
+        onVisibilityChange={setVisibility}
+        source={source}
+        onSourceChange={setSource}
+        owner={owner}
+        onOwnerChange={setOwner}
+        ownerOptions={ownerOptions}
+        showSourceFilter={showSourceFilter}
+      />
+      <div className="flex-1 overflow-auto">
+        {view === 'list' ? <GroupsTable groups={filtered} /> : <GroupsGrid groups={filtered} />}
+      </div>
       <CreateGroupDialog open={createOpen} onOpenChange={setCreateOpen} />
     </div>
   );
