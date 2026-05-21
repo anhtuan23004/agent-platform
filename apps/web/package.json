@@ -1,8 +1,9 @@
 {
   "name": "@seta/web",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.0.1",
   "type": "module",
+  "description": "Seta web client — React 19, TanStack Router, AI SDK v6, and assistant-ui. The single-page front end for the platform.",
   "scripts": {
     "dev": "vite",
     "generate-routes": "tsr generate",

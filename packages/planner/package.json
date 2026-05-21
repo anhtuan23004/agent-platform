@@ -1,7 +1,8 @@
 {
   "name": "@seta/planner",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "private": true,
+  "description": "Planner module — plans, buckets, groups, and tasks with kanban/grid/sheet projections. Two-way Microsoft Planner sync.",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",

@@ -1,7 +1,8 @@
 {
   "name": "@seta/shared-crypto",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "private": true,
+  "description": "Envelope encryption helpers — AWS KMS-backed data-key wrapping for credentials at rest, with a local dev key fallback.",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",

@@ -1,7 +1,8 @@
 {
   "name": "@seta/shared-testing",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "private": true,
+  "description": "Shared test utilities — Postgres testcontainers, schema bootstrap, and integration-test helpers.",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"

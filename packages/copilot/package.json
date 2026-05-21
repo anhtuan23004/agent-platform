@@ -1,7 +1,8 @@
 {
   "name": "@seta/copilot",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "private": true,
+  "description": "AI copilot module — Mastra agents, AI SDK v6 tool wrappers, and human-in-the-loop approval flow for write actions.",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",

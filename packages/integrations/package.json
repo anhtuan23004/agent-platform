@@ -1,7 +1,8 @@
 {
   "name": "@seta/integrations",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "private": true,
+  "description": "External integrations module — credential storage, mail transport config, and Microsoft Graph connectors.",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",

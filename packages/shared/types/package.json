@@ -1,7 +1,8 @@
 {
   "name": "@seta/shared-types",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "private": true,
+  "description": "Cross-module type definitions — event payload contracts, branded ID types, and shared DTOs.",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"

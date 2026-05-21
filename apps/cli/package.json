@@ -1,7 +1,8 @@
 {
   "name": "@seta/cli",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "private": true,
+  "description": "Operational CLI — database migrations, seed data, tenant/user provisioning, and integration management.",
   "type": "module",
   "bin": {
     "seta-cli": "./dist/index.js"

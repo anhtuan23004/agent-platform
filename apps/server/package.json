@@ -1,7 +1,9 @@
 {
   "name": "@seta/server",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
+  "description": "Seta API server — Hono HTTP entry point, dispatcher, and graphile-worker host. Composes every domain module.",
   "scripts": {
     "dev": "tsx watch --env-file=../../.env src/index.ts",
     "build": "tsc",
