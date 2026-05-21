@@ -1,4 +1,5 @@
 import { withEmit } from '@seta/core/events';
+import { isValidEmail } from '@seta/shared-validation';
 import { and, eq, ne, sql } from 'drizzle-orm';
 import { identityDb } from '../../db/index.ts';
 import { account, user } from '../../db/schema.ts';
@@ -6,8 +7,6 @@ import { emitIdentityUserEmailChanged } from '../../events/index.ts';
 import { IdentityError, requirePermission } from '../rbac.ts';
 import { toEmitActor, toEventActor } from '../sso/helpers.ts';
 import type { Actor } from './create-user.ts';
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export interface ChangeUserEmailInput {
   user_id: string;
@@ -27,7 +26,7 @@ export async function changeUserEmail(
   if (!target) throw new IdentityError('USER_NOT_FOUND', `No user with id ${input.user_id}`);
 
   const newEmail = input.new_email.toLowerCase().trim();
-  if (!EMAIL_RE.test(newEmail)) {
+  if (!isValidEmail(newEmail)) {
     throw new IdentityError('INVALID_EMAIL', `Not a valid email: ${newEmail}`);
   }
 

@@ -66,7 +66,7 @@ export function GroupsPage({ canCreateGroup = false }: Props) {
     );
   }
 
-  if (q.data.length === 0) {
+  if (q.data.length === 0 && !creating) {
     if (canCreateGroup) {
       return (
         <EmptyState

@@ -1,10 +1,12 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { useEffect } from 'react';
 import { z } from 'zod';
 import { useSession } from '@/modules/identity/components/SessionProvider';
 import { useDeletePlan } from '@/modules/planner/hooks/mutations/delete-plan';
 import { useUpdatePlan } from '@/modules/planner/hooks/mutations/update-plan';
 import { useGroup } from '@/modules/planner/hooks/queries/use-group';
 import { usePlanBoard } from '@/modules/planner/hooks/queries/use-plan-board';
+import { useRecentPlans } from '@/modules/planner/hooks/use-recent-plans';
 import { PlanGridPage } from '@/modules/planner/pages/plan-grid-page';
 import { PlanPage } from '@/modules/planner/pages/plan-page';
 import { TaskSheetContainer } from '@/modules/planner/pages/task-sheet-container';
@@ -50,6 +52,23 @@ function PlanRoute() {
   const groupQ = useGroup(groupId ?? '');
   const updatePlan = useUpdatePlan(groupId ?? '', planId);
   const deletePlan = useDeletePlan(groupId ?? '', planId);
+
+  const { recordVisit, evict } = useRecentPlans(session.tenant_id);
+  const planName = plan?.name;
+  useEffect(() => {
+    if (planName) recordVisit(planId, planName);
+  }, [planId, planName, recordVisit]);
+  const errMsg = boardQ.error instanceof Error ? boardQ.error.message.toLowerCase() : '';
+  const isStale =
+    boardQ.isError &&
+    (errMsg.includes('404') ||
+      errMsg.includes('not found') ||
+      errMsg.includes('403') ||
+      errMsg.includes('forbidden') ||
+      errMsg.includes('permission'));
+  useEffect(() => {
+    if (isStale) evict(planId);
+  }, [isStale, planId, evict]);
 
   const canManage =
     session.role_summary.roles.includes('org.admin') ||

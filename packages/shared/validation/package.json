@@ -1,0 +1,19 @@
+{
+  "name": "@seta/shared-validation",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Cross-module input validators — non-backtracking, allocation-light string predicates used at module boundaries.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@seta/shared-config": "workspace:^",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7"
+  }
+}

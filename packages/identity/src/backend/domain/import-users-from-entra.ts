@@ -1,3 +1,4 @@
+import { generateRandomPassword } from '../password/generate.ts';
 import { requirePermission } from '../rbac.ts';
 import type { Actor } from './create-user.ts';
 import { createUser } from './create-user.ts';
@@ -6,13 +7,6 @@ import { listEntraImportableUsers } from './list-entra-importable-users.ts';
 export interface ImportUsersFromEntraInput {
   tenant_id: string;
   selected_oids: ReadonlyArray<string>;
-}
-
-function generateRandomPassword(length = 32): string {
-  const alphabet = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789-_';
-  let s = '';
-  for (let i = 0; i < length; i++) s += alphabet[Math.floor(Math.random() * alphabet.length)];
-  return s;
 }
 
 export async function importUsersFromEntra(

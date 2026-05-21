@@ -1,5 +1,6 @@
 import { emit, withEmit } from '@seta/core/events';
 import type { Mailer } from '@seta/shared-mailer';
+import { isValidEmail } from '@seta/shared-validation';
 import { account, roleGrants, user, userProfile } from '../../db/schema.ts';
 import { argon2id } from '../password/argon2.ts';
 import { IdentityError, requirePermission } from '../rbac.ts';
@@ -37,8 +38,6 @@ export interface CreateUserInviteOpts {
   ttlMs?: number;
 }
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
 export async function createUser(
   input: CreateUserInput,
   actor: Actor,
@@ -50,8 +49,7 @@ export async function createUser(
   }
 
   const email = input.email.toLowerCase().trim();
-  if (!EMAIL_RE.test(email))
-    throw new IdentityError('INVALID_EMAIL', `Not a valid email: ${email}`);
+  if (!isValidEmail(email)) throw new IdentityError('INVALID_EMAIL', `Not a valid email: ${email}`);
   if (input.password.length < 12 || input.password.length > 128) {
     throw new IdentityError('PASSWORD_LENGTH', 'Password must be 12-128 characters.');
   }

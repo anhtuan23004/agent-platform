@@ -14,10 +14,21 @@ import { useState } from 'react';
 import { createAdminUser } from '../api/client.ts';
 import { TENANT_ROLE_SLUGS } from '../constants.ts';
 
+const PASSWORD_ALPHABET = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789-_';
+const PASSWORD_ALPHA_LEN = PASSWORD_ALPHABET.length;
+const PASSWORD_REJECT_THRESHOLD = 256 - (256 % PASSWORD_ALPHA_LEN);
+
 function generatePassword(): string {
-  const chars = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789-_';
+  const len = 24;
   let s = '';
-  for (let i = 0; i < 24; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  while (s.length < len) {
+    const buf = new Uint8Array(len - s.length);
+    crypto.getRandomValues(buf);
+    for (let i = 0; i < buf.length && s.length < len; i++) {
+      const b = buf[i] as number;
+      if (b < PASSWORD_REJECT_THRESHOLD) s += PASSWORD_ALPHABET[b % PASSWORD_ALPHA_LEN];
+    }
+  }
   return s;
 }
 

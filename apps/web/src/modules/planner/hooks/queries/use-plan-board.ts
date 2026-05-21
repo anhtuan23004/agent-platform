@@ -40,6 +40,7 @@ export function usePlanBoard(planId: string) {
   const [planQ, bucketsQ, tasksQ, labelsQ] = queries;
   const isPending = queries.some((q) => q.isPending);
   const isError = queries.some((q) => q.isError);
+  const error = queries.find((q) => q.isError)?.error;
 
   const data: PlanBoardData | undefined =
     !isPending && !isError
@@ -57,6 +58,7 @@ export function usePlanBoard(planId: string) {
     data,
     isPending,
     isError,
+    error,
     refetch: () => {
       for (const q of queries) q.refetch();
     },
