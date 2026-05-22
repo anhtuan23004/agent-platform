@@ -1,6 +1,7 @@
 import type {
   BucketRow,
   ChecklistItemRow,
+  GroupActivityResult,
   GroupMemberRow,
   GroupRow,
   GroupSyncStatus,
@@ -10,6 +11,7 @@ import type {
   MyTasksResult,
   PersistedPlannerEvent,
   PlanRow,
+  PlanWithRollupsRow,
   TaskDetailRow,
   TaskReferenceRow,
   TaskReferenceType,
@@ -81,6 +83,18 @@ async function getGroup(group_id: string): Promise<GroupRow> {
   return (await request<GroupRow>(`/api/planner/v1/groups/${group_id}`)) as GroupRow;
 }
 
+async function getGroupActivity(
+  group_id: string,
+  opts: { since?: string; limit?: number } = {},
+): Promise<GroupActivityResult> {
+  const q = new URLSearchParams();
+  if (opts.since) q.set('since', opts.since);
+  if (opts.limit !== undefined) q.set('limit', String(opts.limit));
+  return (await request<GroupActivityResult>(
+    `/api/planner/v1/groups/${group_id}/activity${q.toString() ? `?${q}` : ''}`,
+  )) as GroupActivityResult;
+}
+
 async function createGroup(input: {
   name: string;
   description?: string;
@@ -150,13 +164,21 @@ async function setMemberRole(input: {
 }
 
 async function listPlans(
-  input: { group_id?: string; include_deleted?: boolean } = {},
+  input: { group_id?: string; include_deleted?: boolean; withRollups?: boolean } = {},
 ): Promise<PlanRow[]> {
   const q = new URLSearchParams();
   if (input.group_id) q.set('group_id', input.group_id);
   if (input.include_deleted) q.set('include_deleted', 'true');
+  if (input.withRollups) q.set('withRollups', 'true');
   const r = (await request<{ plans: PlanRow[] }>(
     `/api/planner/v1/plans${q.toString() ? `?${q}` : ''}`,
+  )) ?? { plans: [] };
+  return r.plans;
+}
+
+async function listGroupPlansWithRollups(group_id: string): Promise<PlanWithRollupsRow[]> {
+  const r = (await request<{ plans: PlanWithRollupsRow[] }>(
+    `/api/planner/v1/plans?group_id=${group_id}&withRollups=true`,
   )) ?? { plans: [] };
   return r.plans;
 }
@@ -632,6 +654,7 @@ export const plannerClient = {
   listGroupsWithCounts,
   listMyGroups,
   getGroup,
+  getGroupActivity,
   createGroup,
   updateGroup,
   deleteGroup,
@@ -641,6 +664,7 @@ export const plannerClient = {
   removeGroupMember,
   setMemberRole,
   listPlans,
+  listGroupPlansWithRollups,
   getPlan,
   createPlan,
   updatePlan,

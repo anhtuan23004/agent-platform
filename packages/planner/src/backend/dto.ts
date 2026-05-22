@@ -39,11 +39,17 @@ export interface GroupRow {
   version: number;
 }
 
+export interface GroupMemberPreview {
+  user_id: string;
+  display_name: string;
+}
+
 export interface GroupWithCountsRow extends GroupRow {
   plan_count: number;
   member_count: number;
   owner_display_name: string | null;
   owner_email: string | null;
+  members_preview: ReadonlyArray<GroupMemberPreview>;
 }
 
 export interface PlanRow {
@@ -61,6 +67,39 @@ export interface PlanRow {
   updated_at: string;
   deleted_at: string | null;
   version: number;
+}
+
+export interface GroupActivityItem {
+  event_id: string;
+  event_type: string;
+  /** Human-friendly verb derived from event_type, e.g. "moved task" or "added member". */
+  verb: string;
+  /** Payload title/name when present, otherwise null. UI may render "<verb> <target_title>". */
+  target_title: string | null;
+  occurred_at: string;
+  actor_user_id: string | null;
+  /** Resolved from planner.assignee_projection; null when projection lookup misses. */
+  actor_display_name: string | null;
+}
+
+export interface GroupActivityResult {
+  /** Total events in the window (independent of `items.length`, which is capped by `limit`). */
+  count: number;
+  items: ReadonlyArray<GroupActivityItem>;
+}
+
+export type PlanStatus = 'on-track' | 'at-risk' | 'off-track';
+
+export interface PlanWithRollupsRow extends PlanRow {
+  task_count: number;
+  open_task_count: number;
+  /** Average percent_complete across non-deleted tasks, 0..1. Null when plan has no tasks. */
+  percent_complete: number | null;
+  /** Latest task due_at across non-deleted tasks. Null when no tasks have due dates. */
+  latest_due_at: string | null;
+  owner_display_name: string | null;
+  /** Derived from progress vs time-to-due; null when neither is known. */
+  status: PlanStatus | null;
 }
 
 export interface BucketRow {

@@ -21,6 +21,9 @@ export interface AuditQueryOpts {
   tenant_id: string;
   event_type?: string;
   aggregate_id?: string;
+  /** When set, restricts results to events whose aggregate_id is in this list. Combined with
+   *  aggregate_id (single) via AND when both are provided. */
+  aggregate_ids?: ReadonlyArray<string>;
   from?: string;
   to?: string;
   limit: number;
@@ -36,6 +39,7 @@ export async function queryAudit(
     tenant_id,
     event_type,
     aggregate_id,
+    aggregate_ids,
     from: fromTs,
     to: toTs,
     limit,
@@ -43,6 +47,25 @@ export async function queryAudit(
     sort_by = 'occurred_at',
     sort_dir = 'desc',
   } = opts;
+
+  if (aggregate_ids !== undefined && aggregate_ids.length === 0) {
+    return { rows: [], total: 0 };
+  }
+  // Why inline literal: drizzle's `sql\`${array}\`` expands a JS array as comma-separated
+  // parameters (tuple form), which the `::text[]` cast then rejects. Building a SQL ARRAY
+  // literal sends zero parameters for this clause. Safe because every id is validated as
+  // a UUID — no SQL injection surface.
+  const aggregateIdsFilter =
+    aggregate_ids && aggregate_ids.length > 0
+      ? (() => {
+          const validated = aggregate_ids.filter((id) =>
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id),
+          );
+          if (validated.length === 0) return sql`AND FALSE`;
+          const literal = `ARRAY[${validated.map((id) => `'${id}'`).join(',')}]::text[]`;
+          return sql`AND aggregate_id = ANY(${sql.raw(literal)})`;
+        })()
+      : sql``;
 
   const orderBy =
     sort_by === 'event_type'
@@ -59,6 +82,7 @@ export async function queryAudit(
     WHERE tenant_id = ${tenant_id}::uuid
       ${event_type ? sql`AND event_type = ${event_type}` : sql``}
       ${aggregate_id ? sql`AND aggregate_id = ${aggregate_id}` : sql``}
+      ${aggregateIdsFilter}
       ${fromTs ? sql`AND occurred_at >= ${fromTs}::timestamptz` : sql``}
       ${toTs ? sql`AND occurred_at < ${toTs}::timestamptz` : sql``}
     ${orderBy}
@@ -71,6 +95,7 @@ export async function queryAudit(
     WHERE tenant_id = ${tenant_id}::uuid
       ${event_type ? sql`AND event_type = ${event_type}` : sql``}
       ${aggregate_id ? sql`AND aggregate_id = ${aggregate_id}` : sql``}
+      ${aggregateIdsFilter}
       ${fromTs ? sql`AND occurred_at >= ${fromTs}::timestamptz` : sql``}
       ${toTs ? sql`AND occurred_at < ${toTs}::timestamptz` : sql``}
   `);

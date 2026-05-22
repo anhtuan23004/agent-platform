@@ -28,7 +28,11 @@ export const plannerKeys = {
   groupsWithCounts: () => [...plannerKeys.groups(), 'withCounts'] as const,
   group: (id: string) => [...plannerKeys.groups(), id] as const,
   groupMembers: (id: string) => [...plannerKeys.group(id), 'members'] as const,
+  groupActivity: (id: string, days: number) =>
+    [...plannerKeys.group(id), 'activity', days] as const,
   groupPlans: (id: string) => [...plannerKeys.group(id), 'plans'] as const,
+  groupPlansWithRollups: (id: string) =>
+    [...plannerKeys.group(id), 'plans', 'withRollups'] as const,
   groupSyncStatus: (groupId: string) => [...plannerKeys.group(groupId), 'syncStatus'] as const,
   m365GroupSearch: (q: string) => [...plannerKeys.all, 'm365GroupSearch', q] as const,
   plan: (id: string) => [...plannerKeys.all, 'plan', id] as const,

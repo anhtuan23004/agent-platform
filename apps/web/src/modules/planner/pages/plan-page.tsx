@@ -21,6 +21,7 @@ import { useMoveTask } from '../hooks/mutations/move-task';
 import { usePlanBoard } from '../hooks/queries/use-plan-board';
 import { useBoardKeyboard } from '../hooks/use-board-keyboard';
 import { useFilterOptions } from '../hooks/use-filter-options';
+import { formatDueShort } from '../lib/format-due-short';
 import { computeNextFocus } from '../state/compute-next-focus';
 import { computeTaskMove } from '../state/compute-task-move';
 import { useRecentlyMovedTasks } from '../state/recently-moved-tasks';
@@ -37,7 +38,7 @@ interface Props {
   onViewChange: (v: 'board' | 'grid') => void;
   q?: string;
   onQChange?: (next: string) => void;
-  /** When provided, header shows "You have N" count. */
+  /** When provided, header shows "N assigned to you" count. */
   currentUserId?: string;
   /** When provided, header renders breadcrumb and overflow menu. */
   groupName?: string;
@@ -110,7 +111,7 @@ export function PlanPage({
         id: t.id,
         title: t.title,
         priority,
-        due_label: t.due_at ? new Date(t.due_at).toLocaleDateString() : undefined,
+        due_label: t.due_at ? formatDueShort(t.due_at) : undefined,
         label: t.labels[0] ? { name: t.labels[0].name, color: t.labels[0].color } : undefined,
         assignees: t.assignees.map((a) => ({
           user_id: a.user_id,
@@ -251,16 +252,19 @@ export function PlanPage({
         onDelete={canManage ? onDeletePlan : undefined}
       />
       <div className="plan-toolbar">
-        <PlanFilterBar
-          filters={filters}
-          onChange={onFiltersChange}
-          assigneeOptions={filterOptions.assigneeOptions}
-          labelOptions={filterOptions.labelOptions}
-          skillOptions={filterOptions.skillOptions}
-        />
+        <div className="plan-toolbar__left">
+          <PlanFilterBar
+            filters={filters}
+            onChange={onFiltersChange}
+            assigneeOptions={filterOptions.assigneeOptions}
+            labelOptions={filterOptions.labelOptions}
+            skillOptions={filterOptions.skillOptions}
+          />
+          <div className="plan-toolbar__divider" aria-hidden="true" />
+          <PlanViewSwitcher value={view} onChange={onViewChange} />
+        </div>
         <div className="plan-toolbar__right">
           {onQChange && <PlanSearchInput value={q} onChange={onQChange} />}
-          <PlanViewSwitcher value={view} onChange={onViewChange} />
         </div>
       </div>
 

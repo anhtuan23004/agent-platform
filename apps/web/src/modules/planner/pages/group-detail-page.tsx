@@ -19,6 +19,7 @@ import { GroupStatRow } from '../components/GroupStatRow';
 import { RenameGroupDialog } from '../components/RenameGroupDialog';
 import { useSetMemberRole } from '../hooks/mutations/set-member-role';
 import { useGroup } from '../hooks/queries/use-group';
+import { useGroupActivity } from '../hooks/queries/use-group-activity';
 import { useGroupMembers } from '../hooks/queries/use-group-members';
 import { useGroupPlans } from '../hooks/queries/use-group-plans';
 
@@ -71,6 +72,7 @@ export function GroupDetailPage({ groupId, tab, onTabChange, session }: Props) {
   const groupQuery = useGroup(groupId);
   const membersQuery = useGroupMembers(groupId);
   const plansQuery = useGroupPlans(groupId);
+  const activityQuery = useGroupActivity(groupId, 7);
   const setMemberRoleMutation = useSetMemberRole(groupId);
   const navigate = useNavigate();
 
@@ -129,7 +131,12 @@ export function GroupDetailPage({ groupId, tab, onTabChange, session }: Props) {
         onMenuAction={handleMenuAction}
       />
       <div className="px-7">
-        <GroupStatRow planCount={plans.length} openTaskCount={0} memberCount={members.length} />
+        <GroupStatRow
+          planCount={plans.length}
+          openTaskCount={plans.reduce((sum, p) => sum + (p.open_task_count ?? 0), 0)}
+          memberCount={members.length}
+          activityCount={activityQuery.isPending ? undefined : (activityQuery.data?.count ?? null)}
+        />
       </div>
       <Tabs
         value={tab}
@@ -150,7 +157,7 @@ export function GroupDetailPage({ groupId, tab, onTabChange, session }: Props) {
         </TabsList>
 
         <TabsContent value="plans" className="flex-1 overflow-auto bg-surface-1">
-          <div className="mx-auto max-w-[1240px] px-7 py-6 grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
+          <div className="mx-auto max-w-[1240px] px-7 py-6 grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6 items-start">
             <GroupPlansSection
               groupName={group.name}
               plans={plans}
@@ -169,12 +176,15 @@ export function GroupDetailPage({ groupId, tab, onTabChange, session }: Props) {
               members={members}
               canManage={canManage}
               onAddMember={() => toast('Invite functionality coming soon.')}
+              activityItems={
+                activityQuery.isPending ? undefined : (activityQuery.data?.items ?? null)
+              }
             />
           </div>
         </TabsContent>
 
         <TabsContent value="members" className="flex-1 overflow-auto bg-surface-1">
-          <div className="mx-auto max-w-[1240px] px-7 py-6 grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
+          <div className="mx-auto max-w-[1240px] px-7 py-6 grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6 items-start">
             <GroupMembersTable
               group={group}
               members={members}
@@ -186,6 +196,9 @@ export function GroupDetailPage({ groupId, tab, onTabChange, session }: Props) {
               members={members}
               canManage={canManage}
               onAddMember={() => toast('Invite functionality coming soon.')}
+              activityItems={
+                activityQuery.isPending ? undefined : (activityQuery.data?.items ?? null)
+              }
             />
           </div>
         </TabsContent>

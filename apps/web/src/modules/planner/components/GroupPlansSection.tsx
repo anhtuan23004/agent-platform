@@ -1,4 +1,4 @@
-import type { PlanRow } from '@seta/planner';
+import type { PlanWithRollupsRow } from '@seta/planner';
 import { Plus } from 'lucide-react';
 import { PlanCard } from './PlanCard';
 
@@ -19,7 +19,7 @@ export { THEME_HEX };
 
 interface Props {
   groupName: string; // shown in the dashed tile copy
-  plans: ReadonlyArray<PlanRow>;
+  plans: ReadonlyArray<PlanWithRollupsRow>;
   themeColor: string; // hex from group's theme
   canCreatePlan: boolean;
   onCreatePlan: () => void;
@@ -39,11 +39,17 @@ export function GroupPlansSection({
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-start">
       {plans.map((plan) => (
         <PlanCard
           key={plan.id}
           plan={plan}
+          status={plan.status ?? undefined}
+          progressPct={plan.percent_complete ?? undefined}
+          taskCount={plan.task_count}
+          openTaskCount={plan.open_task_count}
+          dueDate={plan.latest_due_at ?? undefined}
+          ownerDisplayName={plan.owner_display_name ?? undefined}
           themeColor={themeColor}
           onClick={() => onPlanClick(plan.id)}
         />

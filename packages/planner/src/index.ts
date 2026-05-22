@@ -19,6 +19,7 @@ export { deleteLabel } from './backend/domain/delete-label.ts';
 export { deletePlan } from './backend/domain/delete-plan.ts';
 export { deleteTask } from './backend/domain/delete-task.ts';
 export { getGroup } from './backend/domain/get-group.ts';
+export { getGroupActivity } from './backend/domain/get-group-activity.ts';
 export { getPlan } from './backend/domain/get-plan.ts';
 export { getPlanChartData } from './backend/domain/get-plan-chart-data.ts';
 export { getTask } from './backend/domain/get-task.ts';
@@ -31,6 +32,7 @@ export { linkGroupToM365 } from './backend/domain/link-group-to-m365.ts';
 export { listBuckets } from './backend/domain/list-buckets.ts';
 export { listChecklistItems } from './backend/domain/list-checklist-items.ts';
 export { listGroupMembers } from './backend/domain/list-group-members.ts';
+export { listGroupPlansWithRollups } from './backend/domain/list-group-plans-with-rollups.ts';
 export { listGroups } from './backend/domain/list-groups.ts';
 export { listGroupsWithCounts } from './backend/domain/list-groups-with-counts.ts';
 export { listLabels } from './backend/domain/list-labels.ts';
@@ -79,6 +81,8 @@ export type {
   BucketRow,
   ChartData,
   ChecklistItemRow,
+  GroupActivityItem,
+  GroupActivityResult,
   GroupMemberRow,
   GroupRow,
   GroupSyncStatus,
@@ -86,6 +90,8 @@ export type {
   LabelRow,
   MyTasksResult,
   PlanRow,
+  PlanStatus,
+  PlanWithRollupsRow,
   TaskDetailRow,
   TaskExternalSource,
   TaskPreviewType,
