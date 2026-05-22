@@ -5,18 +5,15 @@ import { plans } from '../../db/schema.ts';
 import { emitPlannerPlanUpdated } from '../../events/emit-helpers.ts';
 import type { PlanFieldKey } from '../../events/types.ts';
 import type { PlanRow } from '../dto.ts';
-import type { UpdatePlanPatch } from '../inputs.ts';
+import type { UnlinkPlanFromM365Input } from '../inputs.ts';
 import { PlannerError, requirePermission } from '../rbac.ts';
 
 type PlanDbRow = typeof plans.$inferSelect;
 
-export async function updatePlan(input: {
-  plan_id: string;
-  expected_version: number;
-  patch: UpdatePlanPatch;
-  session: SessionScope;
-}): Promise<PlanRow> {
-  let updated!: PlanDbRow;
+export async function unlinkPlanFromM365(
+  input: UnlinkPlanFromM365Input & { session: SessionScope },
+): Promise<PlanRow> {
+  let resultRow!: PlanDbRow;
   await withEmit(
     {
       actor: {
@@ -38,52 +35,61 @@ export async function updatePlan(input: {
         });
       }
 
-      requirePermission(input.session, 'planner.plan.update', existing.group_id);
+      requirePermission(input.session, 'planner.plan.unlink', existing.group_id);
 
-      if (existing.version !== input.expected_version) {
-        throw new PlannerError('CONFLICT', 'Version mismatch', {
-          current_version: existing.version,
+      if (existing.external_source === 'native') {
+        throw new PlannerError('PLAN_NOT_LINKED', 'Plan is not linked to any external source', {
+          plan_id: input.plan_id,
         });
       }
 
-      const before: Partial<Record<PlanFieldKey, unknown>> = {};
-      const after: Partial<Record<PlanFieldKey, unknown>> = {};
-      const changed: PlanFieldKey[] = [];
-      const setFields: { name?: string; updated_at: Date; version: number } = {
-        updated_at: new Date(),
-        version: existing.version + 1,
-      };
-
-      if (input.patch.name !== undefined && input.patch.name !== existing.name) {
-        before.name = existing.name;
-        after.name = input.patch.name;
-        setFields.name = input.patch.name;
-        changed.push('name');
-      }
+      const beforeSource = existing.external_source as 'native' | 'm365';
+      const beforeId = existing.external_id;
+      const beforeEtag = existing.external_etag;
+      const beforeSyncedAt = existing.external_synced_at?.toISOString() ?? null;
 
       const [row] = await tx
         .update(plans)
-        .set(setFields)
+        .set({
+          external_source: 'native',
+          external_id: null,
+          external_etag: null,
+          external_synced_at: null,
+          updated_at: new Date(),
+          version: existing.version + 1,
+        })
         .where(eq(plans.id, input.plan_id))
         .returning();
       if (!row) throw new PlannerError('VALIDATION', 'Update returned no row');
-      updated = row;
+      resultRow = row;
 
+      const before: Partial<Record<PlanFieldKey, unknown>> = {
+        external_source: beforeSource,
+        external_id: beforeId,
+        external_etag: beforeEtag,
+        external_synced_at: beforeSyncedAt,
+      };
+      const after: Partial<Record<PlanFieldKey, unknown>> = {
+        external_source: 'native',
+        external_id: null,
+        external_etag: null,
+        external_synced_at: null,
+      };
       await emitPlannerPlanUpdated({
         actor: { type: 'user', user_id: input.session.user_id },
         tenant_id: existing.tenant_id,
-        plan_id: existing.id,
         group_id: existing.group_id,
+        plan_id: existing.id,
         before,
         after,
-        changed_fields: changed,
+        changed_fields: ['external_source', 'external_id', 'external_etag', 'external_synced_at'],
         version_before: existing.version,
         version_after: existing.version + 1,
       });
     },
   );
 
-  return rowToDto(updated);
+  return rowToDto(resultRow);
 }
 
 function rowToDto(row: PlanDbRow): PlanRow {
