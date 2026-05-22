@@ -1,20 +1,17 @@
 /**
- * Integration test — Demo journey step 5.
- *
- * Pins the flagship demo: three tasks are seeded (one terraform-tagged, two
- * unrelated), all are embedded, and a natural-language query for
- * "tasks about terraform needing review" must rank the terraform task first.
- *
- * The hybrid retriever combines FTS + vector via RRF. "terraform" is a
- * distinct keyword that appears only in the first task's title, description,
- * and skill_tags, so FTS ensures it wins the RRF merge regardless of fake
- * vector cosine scores.
+ * End-to-end pin for the search_tasks_semantic + hybrid (FTS + vector) RRF
+ * pipeline: three tasks are seeded (one terraform-tagged, two unrelated),
+ * all are embedded, and a query for "tasks about terraform needing review"
+ * must rank the terraform task first. A distinct FTS keyword present only
+ * on one task is the strongest signal RRF can use, so this fails fast if
+ * keyword recall regresses regardless of how vector cosine scores shake out.
  */
 
 import { RequestContext } from '@mastra/core/request-context';
 import { embedTask } from '@seta/copilot/testing/embed';
 import { resetCoreDb } from '@seta/core/internal/test-support';
 import { closePools, initPools } from '@seta/shared-db';
+import { NoopReranker } from '@seta/shared-rerank';
 import { FakeEmbeddingProvider, withTestDb } from '@seta/shared-testing';
 import { describe, expect, it } from 'vitest';
 import { seedTaskForTest } from '../../../planner/tests/helpers/seed.ts';
@@ -96,6 +93,7 @@ describe('Demo journey step 5 — find tasks needing review on terraform', () =>
       const tool = searchTasksSemanticTool({
         provider,
         pool,
+        reranker: new NoopReranker(),
         sessionProvider: makeSessionProvider(tenant_id),
       });
 
