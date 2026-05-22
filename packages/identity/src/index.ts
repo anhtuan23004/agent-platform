@@ -15,6 +15,8 @@ export type { UserGrant } from './backend/domain/get-user-grants.ts';
 export { getUserGrants } from './backend/domain/get-user-grants.ts';
 export type { UserProfile } from './backend/domain/get-user-profile.ts';
 export { getUserProfile } from './backend/domain/get-user-profile.ts';
+export type { UserProfileForEmbedding } from './backend/domain/get-user-profile-for-embedding.ts';
+export { getUserProfileForEmbedding } from './backend/domain/get-user-profile-for-embedding.ts';
 export { getUserSignInMethods } from './backend/domain/get-user-sign-in-methods.ts';
 export type { GrantRoleInput } from './backend/domain/grant-role.ts';
 export { grantRole } from './backend/domain/grant-role.ts';
@@ -45,6 +47,13 @@ export type {
 export { listUserSessions } from './backend/domain/list-user-sessions.ts';
 export type { AdminUserRow, ListUsersOpts } from './backend/domain/list-users.ts';
 export { listUsers } from './backend/domain/list-users.ts';
+export type {
+  ListUsersForBackfillInput,
+  UserBackfillRow,
+} from './backend/domain/list-users-for-embedding-backfill.ts';
+export { listUsersForBackfill } from './backend/domain/list-users-for-embedding-backfill.ts';
+export type { MatchUsersToTopicInput, UserMatch } from './backend/domain/match-users-to-topic.ts';
+export { matchUsersToTopic } from './backend/domain/match-users-to-topic.ts';
 export { reactivateUser } from './backend/domain/reactivate-user.ts';
 export type { RecordSsoConsentInput } from './backend/domain/record-sso-consent.ts';
 export { recordSsoConsent } from './backend/domain/record-sso-consent.ts';
@@ -74,6 +83,8 @@ export { IdentityError } from './backend/rbac.ts';
 export { buildAdminConsentUrl } from './backend/sso/consent-url.ts';
 export type { ProviderRow as SsoProviderRow } from './backend/sso/helpers.ts';
 export { requireProviderRow } from './backend/sso/helpers.ts';
+export type { UserProfileSourceInput } from './embeddings/source.ts';
+export { buildUserProfileSource } from './embeddings/source.ts';
 export type { IdentityEvent } from './events/index.ts';
 export type { TenantRoleSlug } from './roles.ts';
 export { A2_PERMISSIONS, type A2Permission, TENANT_ROLE_SLUGS } from './roles.ts';
