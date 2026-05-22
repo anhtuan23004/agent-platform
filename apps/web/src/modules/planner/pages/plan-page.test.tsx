@@ -26,11 +26,26 @@ const planFixture = {
   tenant_id: 't',
   group_id: 'g1',
   name: 'Q3 Launch',
+  category_descriptions: {},
+  external_source: 'native',
+  external_id: null,
+  external_etag: null,
+  external_synced_at: null,
+  sync_status: 'idle',
+  last_error: null,
   created_by: 'u',
   created_at: '',
   updated_at: '',
   deleted_at: null,
   version: 1,
+};
+
+const m365LinkedPlanFixture = {
+  ...planFixture,
+  external_source: 'm365',
+  external_id: 'ext-plan-123',
+  external_synced_at: '2026-05-22T10:00:00Z',
+  sync_status: 'idle',
 };
 
 const bucketTodo = {
@@ -205,6 +220,125 @@ describe('PlanPage', () => {
 
     expect(await screen.findByText('Ship the release notes by Friday')).toBeInTheDocument();
     expect(screen.getByText('picked from description')).toBeInTheDocument();
+  });
+
+  it('renders SyncBadge in header when plan is linked to m365', async () => {
+    server.use(
+      http.get('*/api/planner/v1/plans/p1', () => HttpResponse.json(m365LinkedPlanFixture)),
+      http.get('*/api/planner/v1/plans/p1/buckets', () =>
+        HttpResponse.json({ buckets: [bucketTodo, bucketDone] }),
+      ),
+      http.get('*/api/planner/v1/tasks', () => HttpResponse.json({ tasks: [taskOne] })),
+      http.get('*/api/planner/v1/plans/p1/labels', () => HttpResponse.json({ labels: [] })),
+    );
+    renderWith(
+      <PlanPage
+        planId="p1"
+        filters={EMPTY_FILTERS}
+        onFiltersChange={() => {}}
+        onOpenTask={() => {}}
+        view="board"
+        onViewChange={() => {}}
+      />,
+    );
+    expect(await screen.findByText(/synced/i)).toBeInTheDocument();
+  });
+
+  it('renders no sync banners or pulling empty state when plan is idle', async () => {
+    server.use(...seedBoardHandlers());
+    renderWith(
+      <PlanPage
+        planId="p1"
+        filters={EMPTY_FILTERS}
+        onFiltersChange={() => {}}
+        onOpenTask={() => {}}
+        view="board"
+        onViewChange={() => {}}
+      />,
+    );
+    await screen.findByText('To do');
+    expect(screen.queryByTestId('plan-sync-error-banner')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('plan-sync-conflict-banner')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Syncing from M365 Planner/)).not.toBeInTheDocument();
+  });
+
+  it('renders an error banner with humanized message and a Retry sync button when sync_status=error', async () => {
+    server.use(
+      http.get('*/api/planner/v1/plans/p1', () =>
+        HttpResponse.json({
+          ...m365LinkedPlanFixture,
+          sync_status: 'error',
+          last_error: 'Network unreachable',
+        }),
+      ),
+      http.get('*/api/planner/v1/plans/p1/buckets', () =>
+        HttpResponse.json({ buckets: [bucketTodo, bucketDone] }),
+      ),
+      http.get('*/api/planner/v1/tasks', () => HttpResponse.json({ tasks: [taskOne] })),
+      http.get('*/api/planner/v1/plans/p1/labels', () => HttpResponse.json({ labels: [] })),
+    );
+    renderWith(
+      <PlanPage
+        planId="p1"
+        filters={EMPTY_FILTERS}
+        onFiltersChange={() => {}}
+        onOpenTask={() => {}}
+        view="board"
+        onViewChange={() => {}}
+      />,
+    );
+    const banner = await screen.findByTestId('plan-sync-error-banner');
+    expect(banner).toHaveTextContent('Sync failed: Network unreachable');
+    expect(screen.getByRole('button', { name: 'Retry sync' })).toBeInTheDocument();
+  });
+
+  it('renders a conflict banner with a Resolve now button that opens the conflicts dialog', async () => {
+    server.use(
+      http.get('*/api/planner/v1/plans/p1', () =>
+        HttpResponse.json({ ...m365LinkedPlanFixture, sync_status: 'conflict' }),
+      ),
+      http.get('*/api/planner/v1/plans/p1/buckets', () =>
+        HttpResponse.json({ buckets: [bucketTodo, bucketDone] }),
+      ),
+      http.get('*/api/planner/v1/tasks', () => HttpResponse.json({ tasks: [taskOne] })),
+      http.get('*/api/planner/v1/plans/p1/labels', () => HttpResponse.json({ labels: [] })),
+    );
+    renderWith(
+      <PlanPage
+        planId="p1"
+        filters={EMPTY_FILTERS}
+        onFiltersChange={() => {}}
+        onOpenTask={() => {}}
+        view="board"
+        onViewChange={() => {}}
+      />,
+    );
+    expect(await screen.findByTestId('plan-sync-conflict-banner')).toBeInTheDocument();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Resolve now' }));
+    expect(await screen.findByText('Resolve sync conflicts')).toBeInTheDocument();
+  });
+
+  it('renders the pulling empty state when sync_status=pulling and tasks are empty', async () => {
+    server.use(
+      http.get('*/api/planner/v1/plans/p1', () =>
+        HttpResponse.json({ ...m365LinkedPlanFixture, sync_status: 'pulling' }),
+      ),
+      http.get('*/api/planner/v1/plans/p1/buckets', () => HttpResponse.json({ buckets: [] })),
+      http.get('*/api/planner/v1/tasks', () => HttpResponse.json({ tasks: [] })),
+      http.get('*/api/planner/v1/plans/p1/labels', () => HttpResponse.json({ labels: [] })),
+    );
+    renderWith(
+      <PlanPage
+        planId="p1"
+        filters={EMPTY_FILTERS}
+        onFiltersChange={() => {}}
+        onOpenTask={() => {}}
+        view="board"
+        onViewChange={() => {}}
+      />,
+    );
+    expect(await screen.findByText(/Syncing from M365 Planner/)).toBeInTheDocument();
   });
 
   it('quick-create on a bucket fires createTask with the typed title', async () => {

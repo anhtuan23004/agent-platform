@@ -16,6 +16,7 @@ export * from './composites/copilot-panel';
 export * from './composites/data-table';
 export * from './composites/dropzone';
 export * from './composites/empty-state';
+export * from './composites/field-conflict-row';
 export * from './composites/filter-pill';
 export * from './composites/group-tile';
 export * from './composites/inbox-list';
@@ -30,10 +31,12 @@ export * from './composites/notification-list-item';
 export * from './composites/page-chrome';
 export * from './composites/priority-icon';
 export * from './composites/progress-bar';
+export * from './composites/resolve-plan-conflicts-dialog';
 export * from './composites/segmented-control';
 export * from './composites/side-panel';
 export * from './composites/status-pill';
 export * from './composites/sync-badge';
+export * from './composites/task-conflict-group';
 export * from './composites/task-grid';
 export * from './composites/top-bar';
 // Icons
@@ -71,6 +74,8 @@ export * from './primitives/tabs';
 export * from './primitives/textarea';
 export * from './primitives/toast';
 export * from './primitives/tooltip';
+// Sync
+export * from './sync/m365-error-messages';
 // Task
 export * from './task/add-reference-combobox';
 export * from './task/date-pill';
