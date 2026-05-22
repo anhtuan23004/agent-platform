@@ -1,7 +1,9 @@
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { SubscriberDef } from '@seta/shared-types';
 import type { ContributionRegistry } from './composition/registry.ts';
 import * as schema from './db/schema/index.ts';
+import { coreNotifierSubscriber } from './notifications/index.ts';
 import { invalidateUserSessions } from './session/invalidate.ts';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -53,6 +55,7 @@ export function registerCoreContributions(reg: ContributionRegistry): void {
         await invalidateUserSessions((e.payload as { user_id: string }).user_id);
       },
     },
+    coreNotifierSubscriber() as SubscriberDef,
   ]);
   reg.publicApi('core', {});
 }
