@@ -9,6 +9,7 @@ import { resetKnowledgeDb } from '@seta/knowledge/testing';
 import { closePools, initPools } from '@seta/shared-db';
 import { withTestDb } from '@seta/shared-testing';
 import { describe, expect, it, vi } from 'vitest';
+import { buildTestSession } from '../helpers/session.ts';
 
 const withDb = <T>(fn: (ctx: { pool: import('pg').Pool }) => Promise<T>) =>
   withTestDb(
@@ -31,10 +32,10 @@ const withDb = <T>(fn: (ctx: { pool: import('pg').Pool }) => Promise<T>) =>
   );
 
 describe('knowledge file lifecycle', () => {
-  it('flips status to parsing and enqueues parse job on markProcessed', () =>
+  it('enqueues scan job on markProcessed; status stays uploading until scan clears', () =>
     withDb(async ({ pool }) => {
       const presign = vi.fn(async () => 'https://signed');
-      const enqueueParseJob = vi.fn(async () => {});
+      const enqueueScanJob = vi.fn(async () => {});
       const tenantId = crypto.randomUUID();
       const { file_id } = await requestKnowledgeUpload(
         {
@@ -44,24 +45,35 @@ describe('knowledge file lifecycle', () => {
           mime_type: 'application/pdf',
           size_bytes: 100,
         },
-        { bucket: 'b', presign: presign as never },
+        {
+          bucket: 'b',
+          session: buildTestSession({ tenant_id: tenantId }),
+          presign: presign as never,
+        },
       );
 
-      await markKnowledgeFileProcessed({ tenant_id: tenantId, file_id }, { enqueueParseJob });
+      await markKnowledgeFileProcessed(
+        { tenant_id: tenantId, file_id },
+        { session: buildTestSession({ tenant_id: tenantId }), enqueueScanJob },
+      );
 
       const row = await pool.query<{ status: string }>(
         `SELECT status FROM knowledge.files WHERE id = $1`,
         [file_id],
       );
-      expect(row.rows[0]?.status).toBe('parsing');
-      expect(enqueueParseJob).toHaveBeenCalledOnce();
-      expect(enqueueParseJob).toHaveBeenCalledWith({ tenant_id: tenantId, file_id });
+      expect(row.rows[0]?.status).toBe('uploading');
+      expect(enqueueScanJob).toHaveBeenCalledOnce();
+      expect(enqueueScanJob).toHaveBeenCalledWith({
+        tenant_id: tenantId,
+        file_id,
+        s3_key: expect.stringContaining('x.pdf'),
+      });
     }));
 
   it('does NOT enqueue when status was not uploading (row already past uploading)', () =>
     withDb(async ({ pool }) => {
       const presign = vi.fn(async () => 'https://signed');
-      const enqueueParseJob = vi.fn(async () => {});
+      const enqueueScanJob = vi.fn(async () => {});
       const tenantId = crypto.randomUUID();
       const { file_id } = await requestKnowledgeUpload(
         {
@@ -71,15 +83,22 @@ describe('knowledge file lifecycle', () => {
           mime_type: 'application/pdf',
           size_bytes: 100,
         },
-        { bucket: 'b', presign: presign as never },
+        {
+          bucket: 'b',
+          session: buildTestSession({ tenant_id: tenantId }),
+          presign: presign as never,
+        },
       );
 
-      // Manually set status to 'parsing' so the UPDATE WHERE status='uploading' won't match
+      // Manually set status to 'parsing' so the guard skips
       await pool.query(`UPDATE knowledge.files SET status = 'parsing' WHERE id = $1`, [file_id]);
 
-      await markKnowledgeFileProcessed({ tenant_id: tenantId, file_id }, { enqueueParseJob });
+      await markKnowledgeFileProcessed(
+        { tenant_id: tenantId, file_id },
+        { session: buildTestSession({ tenant_id: tenantId }), enqueueScanJob },
+      );
 
-      expect(enqueueParseJob).not.toHaveBeenCalled();
+      expect(enqueueScanJob).not.toHaveBeenCalled();
     }));
 
   it('lists files ordered by created_at DESC', () =>
@@ -94,7 +113,11 @@ describe('knowledge file lifecycle', () => {
           mime_type: 'application/pdf',
           size_bytes: 1,
         },
-        { bucket: 'b', presign: presign as never },
+        {
+          bucket: 'b',
+          session: buildTestSession({ tenant_id: tenantId }),
+          presign: presign as never,
+        },
       );
       const b = await requestKnowledgeUpload(
         {
@@ -104,7 +127,11 @@ describe('knowledge file lifecycle', () => {
           mime_type: 'application/pdf',
           size_bytes: 1,
         },
-        { bucket: 'b', presign: presign as never },
+        {
+          bucket: 'b',
+          session: buildTestSession({ tenant_id: tenantId }),
+          presign: presign as never,
+        },
       );
 
       const list = await listKnowledgeFiles({ tenant_id: tenantId, limit: 10 });
@@ -123,10 +150,17 @@ describe('knowledge file lifecycle', () => {
           mime_type: 'application/pdf',
           size_bytes: 1,
         },
-        { bucket: 'b', presign: presign as never },
+        {
+          bucket: 'b',
+          session: buildTestSession({ tenant_id: tenantId }),
+          presign: presign as never,
+        },
       );
 
-      await deleteKnowledgeFile({ tenant_id: tenantId, file_id });
+      await deleteKnowledgeFile(
+        { tenant_id: tenantId, file_id },
+        { session: buildTestSession({ tenant_id: tenantId }) },
+      );
 
       const list = await listKnowledgeFiles({ tenant_id: tenantId, limit: 10 });
       expect(list).toEqual([]);

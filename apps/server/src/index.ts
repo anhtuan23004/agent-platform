@@ -26,6 +26,7 @@ import pino from 'pino';
 import { buildServerApp, registerAppContributions } from './build.ts';
 import { parseEnv } from './env.ts';
 import { failedLoginAlertSubscriber } from './subscribers/failed-login-alert.ts';
+import { revokeSessionsOnDeactivationSubscriber } from './subscribers/revoke-sessions-on-deactivation.ts';
 
 const log = pino({
   name: 'apps/server',
@@ -127,6 +128,7 @@ const rt = buildRuntime(env, {
     failedLoginAlertSubscriber({
       getMailer,
     }) as import('@seta/shared-types').SubscriberDef,
+    revokeSessionsOnDeactivationSubscriber() as import('@seta/shared-types').SubscriberDef,
     ...copilotSubscribers,
   ],
   extraJobs: inDev
@@ -163,6 +165,7 @@ const rt = buildRuntime(env, {
       workers,
       readinessSnapshot: () => dispatcher.health(),
       streams,
+      corsOrigins: env.CORS_ORIGINS,
       copilot,
     });
     return app;
