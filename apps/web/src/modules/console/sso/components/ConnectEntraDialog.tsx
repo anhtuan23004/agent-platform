@@ -48,7 +48,7 @@ export function ConnectEntraDialog({ onConnected }: { onConnected: () => void })
 
   async function submit() {
     if (!isUuid(entraTenantId)) {
-      setError('Entra tenant ID must be a valid UUID.');
+      setError("That doesn't look like an Entra tenant ID. Paste the UUID from your Azure portal.");
       return;
     }
     if (domains.length === 0) {

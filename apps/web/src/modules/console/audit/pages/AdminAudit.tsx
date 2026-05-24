@@ -27,7 +27,7 @@ const EVENT_TYPE_OPTIONS = [
   { value: 'identity.user.deactivated', label: 'User deactivated' },
   { value: 'identity.user.reactivated', label: 'User reactivated' },
   { value: 'identity.role_grant.changed', label: 'Role grant changed' },
-  { value: 'core.tenant.created', label: 'Tenant created' },
+  { value: 'core.tenant.created', label: 'Organization created' },
 ] as const;
 
 type DateRange = '24h' | '7d' | '30d';

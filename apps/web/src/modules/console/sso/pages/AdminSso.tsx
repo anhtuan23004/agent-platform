@@ -17,7 +17,7 @@ function summarize(providers: SsoProviderRowDto[] | null): string {
   if (providers === null) return 'Loading…';
   const total = providers.length;
   const active = providers.filter((p) => p.enabled).length;
-  if (total === 0) return 'No providers configured';
+  if (total === 0) return 'No providers connected yet';
   const noun = total === 1 ? 'provider' : 'providers';
   return `${total} ${noun} · ${active} active`;
 }
@@ -75,12 +75,16 @@ export function AdminSso({ status, error }: AdminSsoProps) {
       <div className="mx-auto max-w-[880px] space-y-4 p-6">
         {status === 'consent_granted' && (
           <Alert>
-            <AlertDescription>Admin consent granted successfully.</AlertDescription>
+            <AlertDescription>
+              Admin consent granted. The provider is ready to enable.
+            </AlertDescription>
           </Alert>
         )}
         {status === 'consent_failed' && (
           <Alert variant="destructive">
-            <AlertDescription>Admin consent failed{error ? `: ${error}` : '.'}</AlertDescription>
+            <AlertDescription>
+              Admin consent didn&apos;t go through{error ? `: ${error}` : '.'}
+            </AlertDescription>
           </Alert>
         )}
         {fetchError && (

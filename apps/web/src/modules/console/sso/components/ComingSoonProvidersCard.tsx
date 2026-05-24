@@ -9,19 +9,19 @@ const PROVIDERS: ReadonlyArray<PreviewProvider> = [
   {
     id: 'google',
     name: 'Google Workspace',
-    description: 'OpenID Connect via Google.',
+    description: 'Sign in with Google Workspace accounts.',
     badge: { initials: 'G', bg: '#fef2f2', ink: '#c53030' },
   },
   {
     id: 'okta',
     name: 'Okta',
-    description: 'SAML 2.0 or OIDC via Okta.',
+    description: 'Sign in with Okta.',
     badge: { initials: 'O', bg: '#eef1f4', ink: '#0b0b0d' },
   },
   {
     id: 'saml',
     name: 'Generic SAML 2.0',
-    description: 'Custom enterprise IdP.',
+    description: 'Connect any SAML 2.0 provider.',
     badge: { initials: 'S', bg: '#ecf1ff', ink: '#0034c0' },
   },
 ];

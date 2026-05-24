@@ -150,7 +150,7 @@ export function UserDetailHeader({
             onClick={() =>
               prev && navigate({ to: '/admin/users/$userId', params: { userId: prev } })
             }
-            title={prev ? 'Previous user (K)' : 'Open the user list to enable J/K nav'}
+            title={prev ? 'Previous user (K)' : 'Open the user list to enable arrow-key navigation'}
           >
             <ChevronLeft className="size-3" />K
           </Button>
@@ -161,7 +161,7 @@ export function UserDetailHeader({
             onClick={() =>
               next && navigate({ to: '/admin/users/$userId', params: { userId: next } })
             }
-            title={next ? 'Next user (J)' : 'Open the user list to enable J/K nav'}
+            title={next ? 'Next user (J)' : 'Open the user list to enable arrow-key navigation'}
           >
             J
             <ChevronRight className="size-3" />

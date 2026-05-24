@@ -61,11 +61,11 @@ export function RolesTab({
     <Card className="p-5 space-y-5">
       <section>
         <div className="text-[11px] uppercase tracking-wider text-ink-muted mb-2">
-          Tenant-scoped
+          Across the organization
         </div>
         <div className="flex flex-col gap-2">
           {tenant.length === 0 && (
-            <span className="text-sm text-ink-muted">No tenant-scoped roles</span>
+            <span className="text-sm text-ink-muted">No organization-wide roles yet</span>
           )}
           {tenant.map((g) => (
             <RoleRow key={g.id} g={g} onChange={onChange} />
@@ -75,7 +75,7 @@ export function RolesTab({
       {groupBuckets.size > 0 && (
         <section>
           <div className="text-[11px] uppercase tracking-wider text-ink-muted mb-2">
-            Group-scoped
+            Within specific groups
           </div>
           {[...groupBuckets].map(([groupLabel, rows]) => (
             <div key={groupLabel} className="mb-3">

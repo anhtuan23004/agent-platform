@@ -34,7 +34,7 @@ export function SessionsTab({ userId, onCount }: { userId: string; onCount: (n: 
   if (loading) return <Card className="p-5 text-sm text-ink-muted">Loading…</Card>;
   if (error) return <Card className="p-5 text-sm text-destructive">{error}</Card>;
   if (rows.length === 0)
-    return <Card className="p-5 text-sm text-ink-muted">No active sessions</Card>;
+    return <Card className="p-5 text-sm text-ink-muted">Not signed in anywhere right now.</Card>;
 
   return (
     <Card className="p-5">
@@ -63,9 +63,11 @@ export function SessionsTab({ userId, onCount }: { userId: string; onCount: (n: 
                 size="sm"
                 variant="secondary"
                 disabled={s.is_current}
-                title={s.is_current ? 'Use the user menu to sign yourself out.' : 'Revoke session'}
+                title={
+                  s.is_current ? 'Use the user menu to sign yourself out.' : 'Sign this device out'
+                }
                 onClick={async () => {
-                  if (!confirm('Sign this user out of this session?')) return;
+                  if (!confirm('Sign this user out of this device?')) return;
                   await revokeUserSessionApi(userId, s.session_id);
                   await refresh();
                 }}

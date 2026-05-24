@@ -207,11 +207,11 @@ export function AdminUsersTable({ refreshKey }: { refreshKey: number }) {
           onChange={(v) => setSearchField({ status: v ?? undefined })}
         />
         <FilterPill
-          label="Source"
+          label="Sign-in"
           value={signInMethod}
           options={[
             { value: 'credential', label: 'Password' },
-            { value: 'microsoft', label: 'SSO Entra' },
+            { value: 'microsoft', label: 'Microsoft' },
             { value: 'both', label: 'Both' },
           ]}
           onChange={(v) => setSearchField({ sign_in_method: v ?? undefined })}

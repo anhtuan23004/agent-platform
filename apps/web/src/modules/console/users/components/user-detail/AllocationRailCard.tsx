@@ -15,9 +15,7 @@ const DASH = <span className="font-mono text-sm text-ink-tertiary">{'\u2014'}</s
 export function AllocationRailCard() {
   return (
     <Card className="p-4">
-      <div className="text-[11px] uppercase tracking-wider text-ink-muted mb-2">
-        Allocation rollup
-      </div>
+      <div className="text-[11px] uppercase tracking-wider text-ink-muted mb-2">Workload</div>
       <Row label="Projects">{DASH}</Row>
       <Row label="Total allocation">{DASH}</Row>
       <Row label="Available capacity">{DASH}</Row>

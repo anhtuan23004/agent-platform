@@ -10,13 +10,13 @@ export function AdminNotificationPrefs() {
     <PageChrome
       breadcrumb={['Admin']}
       title="Notifications"
-      subtitle="Choose which events generate notifications for everyone in this workspace."
+      subtitle="Choose what your team gets notified about, and where."
     >
       <div className="mx-auto max-w-[880px] space-y-4 p-6">
         {error && (
           <Alert variant="destructive">
             <AlertDescription>
-              Failed to load notification settings: {(error as Error).message}
+              Couldn&apos;t load notification settings: {(error as Error).message}
             </AlertDescription>
           </Alert>
         )}
@@ -27,10 +27,10 @@ export function AdminNotificationPrefs() {
           <section className="overflow-hidden rounded-lg border border-hairline bg-canvas">
             <header className="border-b border-hairline-tertiary px-5 py-4">
               <h2 className="m-0 text-section-title font-semibold tracking-tight text-ink">
-                Workspace event notifications
+                Events
               </h2>
               <p className="m-0 mt-0.5 text-body-sm text-ink-subtle">
-                Pick the delivery channel for each event.
+                Pick how each event reaches your team.
               </p>
             </header>
 

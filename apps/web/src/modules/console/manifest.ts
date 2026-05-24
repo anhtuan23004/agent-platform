@@ -18,6 +18,6 @@ export const consoleNavManifest: NavManifest = {
       label: 'Notifications',
       to: '/admin/notifications',
     },
-    { id: 'console.tenant', icon: Sliders, label: 'Tenant settings', to: '/admin/tenant' },
+    { id: 'console.tenant', icon: Sliders, label: 'Organization', to: '/admin/tenant' },
   ],
 };

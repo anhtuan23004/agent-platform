@@ -5,7 +5,7 @@ export function SkillsRailCard({ skills }: { skills: string[] }) {
     <Card className="p-4">
       <div className="text-[11px] uppercase tracking-wider text-ink-muted mb-2">Skills</div>
       {skills.length === 0 ? (
-        <span className="text-sm text-ink-muted">No skills set</span>
+        <span className="text-sm text-ink-muted">No skills added yet</span>
       ) : (
         <div className="flex flex-wrap gap-1.5">
           {skills.map((s) => (

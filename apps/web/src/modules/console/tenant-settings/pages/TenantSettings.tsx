@@ -23,7 +23,7 @@ export function TenantSettings() {
   });
 
   return (
-    <PageChrome breadcrumb={['Admin']} title="Tenant settings">
+    <PageChrome breadcrumb={['Admin']} title="Organization">
       {error && (
         <Alert variant="destructive">
           <AlertDescription>{(error as Error).message}</AlertDescription>
@@ -32,10 +32,10 @@ export function TenantSettings() {
       <Card className="p-5">
         <div className="flex items-start justify-between gap-6">
           <div className="min-w-0 flex-1">
-            <div className="font-medium text-ink">Disable local password sign-in</div>
+            <div className="font-medium text-ink">Require SSO for sign-in</div>
             <p className="mt-1 text-body-sm text-ink-muted">
-              When enabled, all users must sign in via configured SSO providers. Existing local
-              passwords are kept but cannot be used to authenticate.
+              Turn on to make everyone sign in through a connected SSO provider. Existing passwords
+              are kept on file but stop working.
             </p>
             {toggle.error && (
               <div className="mt-2 text-body-sm text-destructive">
@@ -50,7 +50,7 @@ export function TenantSettings() {
               checked={data.local_password_disabled}
               onCheckedChange={(next) => toggle.mutate(next)}
               disabled={toggle.isPending}
-              aria-label="Disable local password sign-in"
+              aria-label="Require SSO for sign-in"
             />
           )}
         </div>

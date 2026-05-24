@@ -72,7 +72,7 @@ const columns: ColumnDef<EntraImportableUserDto>[] = [
       if (u.already_in_seta)
         return (
           <Badge variant="secondary" className="text-xs">
-            Already in Seta
+            Already added
           </Badge>
         );
       return (
@@ -159,7 +159,7 @@ export function ImportFromEntraDialog({
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>{trigger}</TooltipTrigger>
-            <TooltipContent>Connect and enable Entra ID first</TooltipContent>
+            <TooltipContent>Connect and turn on Microsoft Entra ID first</TooltipContent>
           </Tooltip>
         </TooltipProvider>
       )}
@@ -175,15 +175,15 @@ export function ImportFromEntraDialog({
               <div className="space-y-3">
                 <Alert>
                   <AlertDescription>
-                    Imported <strong>{result.imported.length}</strong> user
-                    {result.imported.length !== 1 ? 's' : ''} successfully.
+                    Added <strong>{result.imported.length}</strong>{' '}
+                    {result.imported.length === 1 ? 'person' : 'people'} to your organization.
                   </AlertDescription>
                 </Alert>
 
                 {result.skipped.length > 0 && (
                   <details className="text-sm">
                     <summary className="cursor-pointer text-muted-foreground">
-                      {result.skipped.length} skipped
+                      {result.skipped.length} couldn&apos;t be added
                     </summary>
                     <ul className="mt-2 space-y-1 pl-4">
                       {result.skipped.map((s) => {
@@ -256,10 +256,10 @@ export function ImportFromEntraDialog({
                     disabled={submitting || selectedOids.length === 0}
                   >
                     {submitting
-                      ? 'Importing…'
+                      ? 'Adding…'
                       : selectedOids.length > 0
-                        ? `Import ${selectedOids.length} user${selectedOids.length !== 1 ? 's' : ''}`
-                        : 'Select users to import'}
+                        ? `Add ${selectedOids.length} ${selectedOids.length === 1 ? 'person' : 'people'}`
+                        : 'Select people to add'}
                   </Button>
                 </div>
               </>

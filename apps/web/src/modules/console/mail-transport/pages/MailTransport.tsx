@@ -151,7 +151,7 @@ export function MailTransport() {
       subtitle={
         enabled
           ? `Active · ${data?.kind === 'graph' ? 'Microsoft Graph' : 'SMTP'}`
-          : 'Not configured'
+          : 'Not set up yet'
       }
     >
       {error && (
@@ -211,8 +211,8 @@ export function MailTransport() {
             <div className="min-w-0">
               <div className="font-medium text-ink">Application access policy is in place</div>
               <p className="text-body-sm text-ink-muted">
-                Confirm that an ApplicationAccessPolicy restricts the Entra app to sending only as
-                this mailbox. Required to enable Graph send.
+                Confirm an ApplicationAccessPolicy limits the Entra app to sending only from this
+                mailbox. Required before you can turn on Graph send.
               </p>
             </div>
           </div>
@@ -308,9 +308,9 @@ export function MailTransport() {
 
       <Card className="p-5 space-y-3">
         <div>
-          <div className="font-medium text-ink">Send a verification email</div>
+          <div className="font-medium text-ink">Send a test email</div>
           <p className="text-body-sm text-ink-muted">
-            Sends a test message to confirm the configured transport actually delivers.
+            Send yourself a message to make sure your setup actually delivers.
           </p>
         </div>
         <div className="flex gap-2">

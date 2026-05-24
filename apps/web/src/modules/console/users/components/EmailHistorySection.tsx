@@ -47,7 +47,7 @@ export function EmailHistorySection({ userId }: { userId: string }) {
         {error && <p className="text-destructive text-xs">{error}</p>}
         {rows === null && !error && <p className="text-muted-foreground text-xs">Loading…</p>}
         {rows !== null && rows.length === 0 && (
-          <p className="text-muted-foreground text-xs">No email changes recorded.</p>
+          <p className="text-muted-foreground text-xs">No email changes yet.</p>
         )}
         {rows?.map((row) => {
           const oldEmail = row.payload?.old_email ?? '—';

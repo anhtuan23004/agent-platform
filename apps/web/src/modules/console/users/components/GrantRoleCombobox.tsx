@@ -79,15 +79,15 @@ export function GrantRoleCombobox({
       {isPlanner && (
         <div className="flex flex-col gap-2 rounded-md border border-input p-3 text-sm">
           {tenantWide ? (
-            <p className="text-muted-foreground">Granting tenant-wide.</p>
+            <p className="text-muted-foreground">Granting across the whole organization.</p>
           ) : groupsError ? (
-            <p className="text-destructive">Failed to load groups: {groupsError}</p>
+            <p className="text-destructive">Couldn&apos;t load groups: {groupsError}</p>
           ) : groups === null ? (
             <p className="text-muted-foreground">Loading groups…</p>
           ) : groups.length === 0 ? (
             <p className="text-muted-foreground">
-              No groups exist yet; create one via the <code>seta planner group-create</code> CLI or
-              contact your admin.
+              No groups yet. Create one with the <code>seta planner group-create</code> CLI, or ask
+              your admin.
             </p>
           ) : (
             <label className="flex flex-col gap-1">
@@ -113,7 +113,9 @@ export function GrantRoleCombobox({
               checked={tenantWide}
               onChange={(e) => setTenantWide(e.target.checked)}
             />
-            <span className="text-muted-foreground">Tenant-wide grant (rare, bootstrap only)</span>
+            <span className="text-muted-foreground">
+              Apply across the whole organization (rare, bootstrap only)
+            </span>
           </label>
         </div>
       )}

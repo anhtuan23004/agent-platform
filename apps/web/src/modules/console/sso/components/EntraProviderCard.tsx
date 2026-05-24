@@ -21,8 +21,8 @@ function deriveStatus(row: SsoProviderRowDto | null): Status {
 
 const STATUS_LABEL: Record<Status, string> = {
   not_connected: 'Not connected',
-  consent_pending: 'Consent pending',
-  consent_granted: 'Ready to enable',
+  consent_pending: 'Waiting on consent',
+  consent_granted: 'Ready to turn on',
   active: 'Active',
 };
 
@@ -116,7 +116,9 @@ export function EntraProviderCard({ row, onChanged }: EntraProviderCardProps) {
 
   async function handleDisconnect() {
     if (
-      !window.confirm('Disconnect the Microsoft Entra ID provider? SSO sign-in will stop working.')
+      !window.confirm(
+        "Disconnect Microsoft Entra ID? Your team won't be able to sign in with Microsoft until you reconnect.",
+      )
     )
       return;
     setBusy(true);
@@ -143,7 +145,7 @@ export function EntraProviderCard({ row, onChanged }: EntraProviderCardProps) {
               Microsoft Entra ID
             </h2>
             <p className="m-0 mt-0.5 text-body-sm text-ink-subtle">
-              Federated identity via OpenID Connect.
+              Let your team sign in with their Microsoft work account.
               {row?.updated_at && (
                 <span className="ml-1">
                   Updated <time dateTime={row.updated_at}>{relativeTime(row.updated_at)}</time>.
@@ -168,10 +170,11 @@ export function EntraProviderCard({ row, onChanged }: EntraProviderCardProps) {
             <Plug aria-hidden className="mt-0.5 size-4 flex-none text-ink-subtle" />
             <div className="min-w-0 flex-1">
               <p className="m-0 text-body-sm text-ink">
-                Connect your Entra tenant to let members sign in with their Microsoft work account.
+                Connect your Microsoft tenant so your team can sign in with their work account.
               </p>
               <p className="m-0 mt-1 text-caption text-ink-subtle">
-                Admin pre-provisioning is required. New SSO logins must match an existing user.
+                Invite people first — Microsoft sign-in only works for users who already have a Seta
+                account.
               </p>
             </div>
             <ConnectEntraDialog onConnected={onChanged} />
@@ -186,7 +189,7 @@ export function EntraProviderCard({ row, onChanged }: EntraProviderCardProps) {
             <MetaRow label="Email domains">
               <div className="flex flex-wrap items-center gap-1.5">
                 {row.email_domains.length === 0 ? (
-                  <span className="text-ink-subtle">None configured</span>
+                  <span className="text-ink-subtle">No domains added yet</span>
                 ) : (
                   row.email_domains.map((d) => (
                     <span
@@ -227,7 +230,7 @@ export function EntraProviderCard({ row, onChanged }: EntraProviderCardProps) {
                 <span className="inline-flex items-center gap-1.5">
                   <ShieldCheck aria-hidden className="size-3.5 text-warning" />
                   <span className="text-body-sm text-ink-muted">
-                    Pending: grant consent in Microsoft to activate.
+                    Grant admin consent in Microsoft to finish activating.
                   </span>
                 </span>
               )}
@@ -243,12 +246,12 @@ export function EntraProviderCard({ row, onChanged }: EntraProviderCardProps) {
               )}
               {status === 'consent_granted' && (
                 <Button onClick={handleEnable} disabled={busy} size="sm">
-                  Enable SSO
+                  Turn on Microsoft sign-in
                 </Button>
               )}
               {status === 'active' && (
                 <Button variant="secondary" onClick={handleDisable} disabled={busy} size="sm">
-                  Disable
+                  Turn off
                 </Button>
               )}
             </div>

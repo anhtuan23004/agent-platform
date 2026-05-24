@@ -74,9 +74,7 @@ export function SignInMethodsCard({
     } catch (e) {
       const msg = (e as Error).message;
       setError(
-        msg.includes('404') || msg.includes('HTTP 404')
-          ? 'Password sign-in toggle is not available yet.'
-          : msg,
+        msg.includes('404') || msg.includes('HTTP 404') ? "This setting isn't available yet." : msg,
       );
     } finally {
       setBusy(false);
@@ -93,7 +91,7 @@ export function SignInMethodsCard({
           Sign-in methods
         </h2>
         <p className="m-0 mt-0.5 text-body-sm text-ink-subtle">
-          Control which authentication paths tenant members may use.
+          Choose how people in your organization sign in.
         </p>
       </header>
 
@@ -103,8 +101,8 @@ export function SignInMethodsCard({
           title="Password sign-in"
           description={
             localDisableBlocked
-              ? 'Connect a Microsoft Entra ID provider before disabling password sign-in.'
-              : 'Members may sign in with email + password. Disable to enforce SSO-only.'
+              ? 'Connect Microsoft Entra ID first, then you can turn off password sign-in.'
+              : 'People can sign in with email and password. Turn off to require SSO.'
           }
           enabled={localEnabled}
           disabledSwitch={localDisableBlocked && localEnabled}
@@ -116,8 +114,8 @@ export function SignInMethodsCard({
           title="Single sign-on"
           description={
             hasEnabledProvider
-              ? 'Members sign in via the connected identity provider.'
-              : 'Enable a provider above to allow SSO sign-in.'
+              ? 'People sign in through your connected provider.'
+              : 'Connect a provider above to turn this on.'
           }
           enabled={hasEnabledProvider}
           disabledSwitch

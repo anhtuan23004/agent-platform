@@ -15,9 +15,9 @@ function authLabel(methods?: string[]): string {
   if (!methods || methods.length === 0) return '—';
   const c = methods.includes('credential');
   const m = methods.includes('microsoft');
-  if (c && m) return 'Password + SSO';
+  if (c && m) return 'Password + Microsoft';
   if (c) return 'Password';
-  if (m) return 'SSO Entra';
+  if (m) return 'Microsoft';
   return methods.join(', ');
 }
 
@@ -34,7 +34,7 @@ export function IdentityRailCard({ detail }: { detail: AdminUserDetail }) {
           {detail.profile.email}
         </span>
       </Row>
-      <Row label="Auth">
+      <Row label="Sign-in">
         <span className="text-sm">{authLabel(detail.sign_in_methods)}</span>
       </Row>
       <Row label="Joined">

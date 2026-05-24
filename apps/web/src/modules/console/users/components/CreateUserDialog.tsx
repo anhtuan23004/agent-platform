@@ -90,7 +90,7 @@ export function CreateUserDialog({
           <div className="space-y-3">
             <Alert>
               <AlertDescription>
-                Password (one-time display):{' '}
+                Copy this password now — it won&apos;t be shown again.{' '}
                 <code className="break-all font-mono">{createdPassword}</code>
               </AlertDescription>
             </Alert>
@@ -125,14 +125,14 @@ export function CreateUserDialog({
               </Button>
             </div>
             <div className="space-y-1">
-              <Label htmlFor="create-user-role">Initial role (optional)</Label>
+              <Label htmlFor="create-user-role">Starting role (optional)</Label>
               <select
                 id="create-user-role"
                 value={role}
                 onChange={(e) => setRole(e.target.value)}
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               >
-                <option value="">No role</option>
+                <option value="">No role yet</option>
                 {TENANT_ROLE_SLUGS.map((r) => (
                   <option key={r} value={r}>
                     {r}

@@ -52,7 +52,7 @@ export function EditDomainsDialog({
 
   async function submit() {
     if (domains.length === 0) {
-      setError('At least one email domain is required.');
+      setError('Add at least one email domain.');
       return;
     }
     setSubmitting(true);

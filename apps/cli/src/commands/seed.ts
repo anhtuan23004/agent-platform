@@ -14,17 +14,28 @@ import { sql } from 'drizzle-orm';
 import pino from 'pino';
 import { mapPriorityNumber, mapStatusFields, parseCsvs, splitIds } from './lib/csv-parser.ts';
 import { resolveTenantId, UUID_RE } from './lib/tenant-resolve.ts';
+import { tenantCreateCommand } from './tenant-create.ts';
 
-const log = pino({ name: 'cli/import-csv' });
+const log = pino({ name: 'cli/seed' });
 
 const KNOWN_ROLES = new Set(['org.admin', 'planner.contributor', 'planner.viewer']);
 
-export interface ImportCsvOpts {
+export interface SeedOpts {
   tenant: string;
+  tenantName?: string;
   dir: string;
-  as: string;
+  adminEmail: string;
+  adminName?: string;
   password?: string;
   only?: string;
+}
+
+async function resolveTenantIdOrNull(input: string): Promise<string | null> {
+  try {
+    return await resolveTenantId(input);
+  } catch {
+    return null;
+  }
 }
 
 type Module = 'users' | 'planner' | 'availability';
@@ -71,10 +82,33 @@ async function buildAdminSession(tenantId: string, adminEmail: string): Promise<
   };
 }
 
-export async function importCsvCommand(opts: ImportCsvOpts): Promise<void> {
-  const tenantId = await resolveTenantId(opts.tenant);
-  const session = await buildAdminSession(tenantId, opts.as);
+export async function seedCommand(opts: SeedOpts): Promise<void> {
   const password = opts.password ?? 'ChangeMe@2026';
+
+  // Auto-create tenant + admin if the slug doesn't resolve. UUIDs are treated as
+  // pre-existing — we only bootstrap when a fresh slug is supplied.
+  let tenantId = await resolveTenantIdOrNull(opts.tenant);
+  if (!tenantId) {
+    if (UUID_RE.test(opts.tenant)) {
+      throw new Error(`Tenant ${opts.tenant} not found and cannot be created from a UUID`);
+    }
+    const tenantName =
+      opts.tenantName ?? (opts.tenant === 'setafutureorg' ? 'SETA Future Org' : opts.tenant);
+    log.info(
+      { slug: opts.tenant, name: tenantName, admin: opts.adminEmail },
+      'tenant missing, creating',
+    );
+    await tenantCreateCommand({
+      name: tenantName,
+      slug: opts.tenant,
+      adminEmail: opts.adminEmail,
+      adminName: opts.adminName,
+      adminPassword: password,
+    });
+    tenantId = await resolveTenantId(opts.tenant);
+  }
+
+  const session = await buildAdminSession(tenantId, opts.adminEmail);
   const modules = parseModules(opts.only);
 
   // Phase 1 — Parse all CSVs
@@ -366,5 +400,5 @@ export async function importCsvCommand(opts: ImportCsvOpts): Promise<void> {
     );
   }
 
-  log.info({ tenant_id: tenantId, modules: [...modules] }, 'import-csv: complete');
+  log.info({ tenant_id: tenantId, modules: [...modules] }, 'seed: complete');
 }
