@@ -1,4 +1,5 @@
 // biome-ignore-all lint/a11y/useSemanticElements: cannot use <button> — @hello-pangea/dnd blocks drag on native interactive elements, so the card uses div + role="button" with keyboard activation.
+import { CheckSquare } from 'lucide-react';
 import type { CSSProperties, HTMLAttributes, KeyboardEvent, ReactNode } from 'react';
 import { AvatarStack } from './avatar-stack';
 import { LabelChip } from './label-chip';
@@ -18,6 +19,8 @@ export interface KanbanCardTask {
   external_source?: 'native' | 'm365';
   sync_status?: SyncState | null;
   external_synced_at?: string | null;
+  /** Compact checklist progress shown on the card meta row when total > 0. */
+  checklist_summary?: { total: number; checked: number };
 }
 
 export interface KanbanCardProps {
@@ -83,6 +86,12 @@ export function KanbanCard({ task, onOpen, selected, previewSlot, draggable }: K
         <PriorityIcon level={task.priority} />
         {task.label && <LabelChip name={task.label.name} color={task.label.color} />}
         {task.due_label && <span className="kanban-card__due">{task.due_label}</span>}
+        {task.checklist_summary && task.checklist_summary.total > 0 && (
+          <ChecklistChip
+            total={task.checklist_summary.total}
+            checked={task.checklist_summary.checked}
+          />
+        )}
         <AvatarStack assignees={task.assignees} />
       </div>
       {task.saving && (
@@ -102,5 +111,19 @@ export function KanbanCard({ task, onOpen, selected, previewSlot, draggable }: K
         </span>
       )}
     </div>
+  );
+}
+
+function ChecklistChip({ total, checked }: { total: number; checked: number }) {
+  const complete = checked >= total;
+  return (
+    <span
+      role="img"
+      aria-label={`Checklist ${checked} of ${total} done`}
+      className={`kanban-card__checklist-chip ${complete ? 'kanban-card__checklist-chip--complete' : ''}`}
+    >
+      <CheckSquare className="size-3" aria-hidden />
+      {checked}/{total}
+    </span>
   );
 }
