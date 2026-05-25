@@ -57,6 +57,14 @@ export function applyPlannerEvent(qc: QueryClient, event: StreamEvent): void {
     });
   }
 
+  if (event.eventType.startsWith('planner.comment.')) {
+    const commentTaskId = asString(event.payload.task_id);
+    if (commentTaskId) {
+      qc.invalidateQueries({ queryKey: plannerKeys.taskComments(commentTaskId) });
+    }
+    return;
+  }
+
   const p = event.payload;
   const groupId = payloadField(p, 'group_id');
   const planId = payloadField(p, 'plan_id');

@@ -35,6 +35,9 @@ const EVENT_TYPES: readonly string[] = [
   'planner.label.deleted',
   'planner.label.applied',
   'planner.label.unapplied',
+  'planner.comment.created',
+  'planner.comment.updated',
+  'planner.comment.deleted',
 ];
 
 export function useBoardStream(accessibleGroupIds: string[]): void {

@@ -854,6 +854,44 @@ describe('applyPlannerEvent', () => {
     });
   });
 
+  describe('planner.comment.*', () => {
+    it.each([
+      ['planner.comment.created'],
+      ['planner.comment.updated'],
+      ['planner.comment.deleted'],
+    ])('%s invalidates plannerKeys.taskComments(task_id)', (type) => {
+      const spy = vi.spyOn(qc, 'invalidateQueries');
+      applyPlannerEvent(
+        qc,
+        makeEvent({
+          eventType: type,
+          aggregateType: 'planner.comment',
+          payload: {
+            actor: { type: 'user', user_id: 'u1' },
+            comment_id: 'c1',
+            task_id: 't1',
+            plan_id: PLAN,
+            group_id: 'g1',
+          },
+        }),
+      );
+      expect(spy).toHaveBeenCalledWith({ queryKey: plannerKeys.taskComments('t1') });
+    });
+
+    it('ignores comment events without a task_id', () => {
+      const spy = vi.spyOn(qc, 'invalidateQueries');
+      applyPlannerEvent(
+        qc,
+        makeEvent({
+          eventType: 'planner.comment.created',
+          aggregateType: 'planner.comment',
+          payload: { actor: { type: 'user', user_id: 'u1' }, group_id: 'g1' },
+        }),
+      );
+      expect(spy).not.toHaveBeenCalledWith({ queryKey: plannerKeys.taskComments('t1') });
+    });
+  });
+
   describe('myTasks invalidation on planner.task.* events', () => {
     it.each([
       ['planner.task.created'],
