@@ -30,6 +30,7 @@ COPY apps/cli/package.json    apps/cli/package.json
 COPY apps/worker/package.json apps/worker/package.json
 COPY apps/web/package.json    apps/web/package.json
 COPY packages/                packages/
+COPY sdks/                    sdks/
 
 # LEFTHOOK=0 short-circuits the `prepare: lefthook install` script so we
 # don't end up with a stray hook config in the image.
