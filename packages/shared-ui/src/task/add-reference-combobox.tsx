@@ -9,6 +9,14 @@ export interface ClassifiedReference {
   host: string;
 }
 
+/** True if `host` is exactly `domain` or a subdomain of it, compared by segments. */
+function isHostOf(host: string, domain: string): boolean {
+  const h = host.split('.');
+  const d = domain.split('.');
+  if (h.length < d.length) return false;
+  return d.every((seg, i) => seg === h[h.length - d.length + i]);
+}
+
 export function classifyUrl(raw: string): ClassifiedReference | null {
   let u: URL;
   try {
@@ -24,7 +32,7 @@ export function classifyUrl(raw: string): ClassifiedReference | null {
   else if (ext?.startsWith('ppt')) type = 'powerPoint';
   else if (ext?.startsWith('vsd')) type = 'visio';
   else if (ext === 'one') type = 'oneNote';
-  else if (u.host.endsWith('sharepoint.com')) type = 'sharePoint';
+  else if (isHostOf(u.hostname, 'sharepoint.com')) type = 'sharePoint';
   const last = u.pathname.split('/').filter(Boolean).at(-1) ?? u.host;
   const alias = decodeURIComponent(last);
   return { url: raw, type, alias, host: u.host };
