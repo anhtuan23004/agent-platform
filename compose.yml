@@ -144,6 +144,12 @@ services:
         condition: service_healthy
       migrator:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "/entrypoint.sh health || exit 1"]
+      interval: 30s
+      timeout: 20s
+      start_period: 30s
+      retries: 3
     read_only: true
     tmpfs:
       - /tmp

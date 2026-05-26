@@ -183,8 +183,21 @@ jobs:
             REPO_RAW="https://raw.githubusercontent.com/Seta-International/agent-platform/main"
             curl -fsSL "$REPO_RAW/compose.yml" -o compose.yml
 
+            # Fetch Traefik config and substitute the domain placeholder
+            mkdir -p infra/traefik/dynamic
+            curl -fsSL "$REPO_RAW/infra/traefik/traefik.yml"        -o infra/traefik/traefik.yml
+            curl -fsSL "$REPO_RAW/infra/traefik/dynamic/routes.yml" -o infra/traefik/dynamic/routes.yml
+            curl -fsSL "$REPO_RAW/infra/traefik/jaeger-auth"        -o infra/traefik/jaeger-auth
+            sed -i "s/DOMAIN_PLACEHOLDER/$APP_DOMAIN/g" infra/traefik/dynamic/routes.yml
+
+            # First-run guard: disable host nginx so Traefik can own ports 80/443
+            if systemctl is-active --quiet nginx; then
+              sudo systemctl stop nginx
+              sudo systemctl disable nginx
+            fi
+
             docker compose --env-file /opt/seta/.env pull server web worker
-            docker compose --env-file /opt/seta/.env up -d --no-deps --remove-orphans server web worker
+            docker compose --env-file /opt/seta/.env up -d --no-deps --remove-orphans proxy server web worker
             docker compose --env-file /opt/seta/.env run --rm migrator
 
             # Remove dangling images left by previous deploys

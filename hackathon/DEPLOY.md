@@ -36,6 +36,7 @@ Go to `https://github.com/Seta-International/agent-platform` → **Fork**.
 | `ECR_REPOSITORY` | ECR repository name from organizer |
 | `AWS_REGION` | `ap-southeast-1` |
 | `APP_DOMAIN` | Your subdomain from organizer |
+| `ACME_EMAIL` | Email for Let's Encrypt TLS cert notifications |
 | `EC2_HOST` | EC2 public IP from organizer |
 | `EC2_USER` | `ubuntu` |
 
@@ -48,17 +49,41 @@ Go to `https://github.com/Seta-International/agent-platform` → **Fork**.
 | `AWS_ECR_ACCESS_KEY_ID` | AWS access key from organizer |
 | `AWS_ECR_SECRET_ACCESS_KEY` | AWS secret key from organizer |
 | `EC2_SSH_PRIVATE_KEY` | Full content of the `.pem` file (including `-----BEGIN...-----`) |
+| `POSTGRES_PASSWORD` | Strong random password: `openssl rand -hex 16` |
+| `BETTER_AUTH_SECRET` | Strong random secret: `openssl rand -hex 32` |
+| `CRYPTO_LOCAL_MASTER_KEY` | Strong random key: `openssl rand -hex 32` |
+| `OPENAI_API_KEY` | OpenAI API key from organizer |
 
 ### 4. Verify EC2 is ready
 
-SSH in to confirm Docker and the app stack are running:
+If the organizer provisioned the EC2 with the Terraform stack, everything is pre-configured — skip to [Deploy](#deploy).
+
+If you are using a **plain Ubuntu 24.04 instance**, SSH in and run the one-time bootstrap:
 
 ```bash
 ssh -i your-key.pem ubuntu@<EC2_HOST>
-docker compose -f /opt/platform/compose.yml ps
-```
 
-If the stack is not yet running, contact the organizer to bootstrap the EC2.
+# 1. Install Docker
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker ubuntu
+newgrp docker
+
+# 2. Install AWS CLI v2
+curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o awscliv2.zip
+unzip awscliv2.zip && sudo ./aws/install && rm -rf aws awscliv2.zip
+
+# 3. Create deploy directories
+sudo mkdir -p /opt/platform /opt/seta
+sudo chown ubuntu:ubuntu /opt/platform /opt/seta
+
+# 4. Stop host nginx — Traefik owns ports 80 and 443
+sudo systemctl stop nginx 2>/dev/null || true
+sudo systemctl disable nginx 2>/dev/null || true
+sudo apt-get purge -y nginx nginx-common 2>/dev/null || true
+
+# 5. Verify
+docker --version && aws --version
+```
 
 ---
 
@@ -114,7 +139,9 @@ docker compose --env-file /opt/seta/.env run --rm migrator
 | Problem | Fix |
 |---------|-----|
 | Workflow fails at ECR login | Check `AWS_ECR_ACCESS_KEY_ID` and `AWS_ECR_SECRET_ACCESS_KEY` secrets |
-| Workflow fails at SSH | Check `EC2_SSH_PRIVATE_KEY`, `EC2_HOST`, `EC2_USER` |
-| App not reachable | Check DNS — your subdomain must point to the EC2 IP |
+| Workflow fails at SSH | Check `EC2_SSH_PRIVATE_KEY`, `EC2_HOST`, `EC2_USER`; ensure port 22 is open in the EC2 security group |
+| App not reachable after deploy | Check DNS — your subdomain must point to the EC2 IP |
 | `PLATFORM_IMAGE_SERVER` not updating | Confirm `/opt/seta/.env` exists on EC2 |
-| Database errors | Run migrations: `docker compose run --rm migrator` on EC2 |
+| Port 80/443 already in use | Run `sudo systemctl stop nginx && sudo systemctl disable nginx` on EC2 |
+| Database errors | Run migrations: `docker compose --env-file /opt/seta/.env run --rm migrator` on EC2 |
+| `proxy` container not starting | Check `docker logs seta-proxy-1` — often a bad Traefik config mount or port conflict |
