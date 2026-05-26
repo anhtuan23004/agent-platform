@@ -50,6 +50,7 @@
     "@seta/shared-types": "workspace:^",
     "csv-parse": "^6.2.1",
     "drizzle-orm": "^0.45.2",
+    "exceljs": "^4.4.0",
     "file-type": "^22.0.1",
     "graphile-worker": "^0.16.6",
     "hono": "^4.12.21",
@@ -57,7 +58,6 @@
     "pg": "^8.21.0",
     "pino": "^10.3.1",
     "unpdf": "^1.6.2",
-    "xlsx": "^0.18.5",
     "zod": "^4.4.3"
   }
 }

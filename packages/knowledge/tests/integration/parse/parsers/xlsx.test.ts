@@ -1,23 +1,23 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { mkdirSync } from 'node:fs';
+import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import ExcelJS from 'exceljs';
 import { beforeAll, describe, expect, it } from 'vitest';
-import * as XLSX from 'xlsx';
 import { xlsxParser } from '../../../../src/backend/parse/parsers/xlsx.ts';
 
 const FIXTURES = resolve(import.meta.dirname, 'fixtures');
 
-beforeAll(() => {
+beforeAll(async () => {
   mkdirSync(FIXTURES, { recursive: true });
-  const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.aoa_to_sheet([
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Sheet1');
+  ws.addRows([
     ['name', 'role'],
     ['Alice', 'terraform'],
     ['Bob', 'react'],
   ]);
-  XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
-  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
-  writeFileSync(resolve(FIXTURES, 'small.xlsx'), buf);
+  const buf = await wb.xlsx.writeBuffer();
+  await writeFile(resolve(FIXTURES, 'small.xlsx'), Buffer.from(buf));
 });
 
 describe('xlsxParser', () => {
