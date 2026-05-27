@@ -41,8 +41,9 @@ export function plannerFindSimilarTasksTool(deps: PlannerFindSimilarTasksToolDep
     id: 'planner_findSimilarTasks',
     name: 'Find Similar Tasks',
     description:
-      'Semantic search across past tasks. Use for dedup-on-create reasoning and ' +
-      'for "who has done similar work" reasoning when picking an assignee.',
+      'Semantic search across tasks using natural language. Use for: (1) task discovery — ' +
+      'when a user asks to find, list, or search tasks by topic, keyword, or theme; ' +
+      '(2) dedup-on-create reasoning; (3) "who has done similar work" reasoning when picking an assignee.',
     input: plannerFindSimilarTasksInputSchema,
     output: plannerFindSimilarTasksOutputSchema,
     rbac: 'planner.task.read',
