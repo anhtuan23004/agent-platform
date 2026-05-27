@@ -10,16 +10,23 @@ export const plannerFindSimilarTasksInputSchema = z.object({
   text: z.string().min(3).max(500),
   scope: z.enum(['recent-week', 'recent-month', 'all-open', 'all']).default('recent-month'),
   limit: z.number().int().min(1).max(20).default(10),
+  reviewState: z
+    .enum(['needs_review'])
+    .optional()
+    .describe('Filter to only tasks flagged for review'),
 });
 
 export const plannerFindSimilarTasksOutputSchema = z.object({
   results: z.array(
     z.object({
       taskId: z.string().uuid(),
+      groupId: z.string().uuid(),
       title: z.string(),
       score: z.number(),
       assigneeUserIds: z.array(z.string().uuid()),
       status: z.string(),
+      reviewState: z.enum(['needs_review']).nullable(),
+      skillTags: z.array(z.string()),
       createdAt: z.string(),
     }),
   ),
@@ -66,6 +73,7 @@ export function plannerFindSimilarTasksTool(deps: PlannerFindSimilarTasksToolDep
           text: input.text,
           scope: input.scope,
           limit: input.limit,
+          reviewState: input.reviewState,
         },
         { provider: deps.provider, pgVector },
       );

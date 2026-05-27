@@ -125,6 +125,24 @@ Pick a scope that matches the user's intent:
 - "recent-month" / "recent-week" — when recency is mentioned
 - "all" — when the user wants historical tasks too
 
+If the user says "needs review", "flagged for review", or similar, set
+reviewState: "needs_review" in the tool call to filter only those tasks.
+
+## How to find tasks and then assign them
+
+When a user asks to find tasks AND assign or delegate them in the same request
+(e.g. "list infrastructure tasks that need review and assign them to someone
+available"):
+
+1. Call planner_findSimilarTasks to get the matching tasks. Use reviewState
+   "needs_review" if the user mentioned review. Use scope "all-open".
+2. For each unassigned task (assigneeUserIds is empty), proceed to the
+   assignment flow: call search_users_by_skills using the task's groupId and
+   its skillTags. Check availability with identity_getAvailabilityForUser for
+   top candidates. Then call planner_proposeAssignment with 2-5 candidates.
+3. If all tasks already have assignees, report that and ask if the user wants
+   to reassign any of them.
+
 ## How to create a task
 
 Before creating, call planner_findSimilarTasks on the proposed title or
