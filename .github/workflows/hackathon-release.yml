@@ -115,7 +115,7 @@ jobs:
     name: Deploy ${{ needs.prepare.outputs.tag }} to EC2
     runs-on: ubuntu-latest
     needs: [prepare, build]
-    timeout-minutes: 15
+    timeout-minutes: 30
     environment: production
 
     steps:
@@ -135,10 +135,11 @@ jobs:
           OPENAI_API_KEY:        ${{ secrets.OPENAI_API_KEY }}
           ACME_EMAIL:            ${{ vars.ACME_EMAIL }}
         with:
-          host:     ${{ vars.EC2_HOST }}
-          username: ${{ vars.EC2_USER }}
-          key:      ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-          envs:     ECR_REGISTRY,ECR_REPOSITORY,IMAGE_TAG,AWS_REGION,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,APP_DOMAIN,POSTGRES_PASSWORD,BETTER_AUTH_SECRET,CRYPTO_MASTER_KEY,OPENAI_API_KEY,ACME_EMAIL
+          host:            ${{ vars.EC2_HOST }}
+          username:        ${{ vars.EC2_USER }}
+          key:             ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          command_timeout: 25m
+          envs:            ECR_REGISTRY,ECR_REPOSITORY,IMAGE_TAG,AWS_REGION,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,APP_DOMAIN,POSTGRES_PASSWORD,BETTER_AUTH_SECRET,CRYPTO_MASTER_KEY,OPENAI_API_KEY,ACME_EMAIL
           script: |
             set -euo pipefail
             echo "=== Deploying tag: $IMAGE_TAG ==="
@@ -188,10 +189,6 @@ jobs:
             curl -fsSL "$REPO_RAW/infra/traefik/traefik.yml"        -o infra/traefik/traefik.yml
             curl -fsSL "$REPO_RAW/infra/traefik/dynamic/routes.yml" -o infra/traefik/dynamic/routes.yml
             sed -i "s/DOMAIN_PLACEHOLDER/$APP_DOMAIN/g" infra/traefik/dynamic/routes.yml
-            # jaeger-auth is not in the repo; create a default only on first deploy
-            if [ ! -f infra/traefik/jaeger-auth ]; then
-              printf 'admin:%s\n' "$(openssl passwd -apr1 'hackathon')" > infra/traefik/jaeger-auth
-            fi
 
             # First-run guard: disable host nginx so Traefik can own ports 80/443
             if systemctl is-active --quiet nginx; then
@@ -199,23 +196,36 @@ jobs:
               sudo systemctl disable nginx
             fi
 
+            # 1. Free memory before pulling: stop app containers (postgres + proxy stay up).
+            #    The 4GB host cannot hold old + new server/worker images concurrently
+            #    with the runtime stack — pulling while running causes OOM.
+            echo "=== Stopping app containers to free memory for image pull ==="
+            docker compose --env-file /opt/seta/.env stop server worker web 2>/dev/null || true
+            docker compose --env-file /opt/seta/.env rm -f server worker web 2>/dev/null || true
+
+            # 2. Pull fresh images.
             docker compose --env-file /opt/seta/.env pull server web worker
 
-            # 1. Run migrations BEFORE starting app containers so the server
+            # 3. Prune unused images NOW (before starting the new stack) so the
+            #    next deploy has room. -f skips the confirmation prompt.
+            docker image prune -af --filter "until=24h" || true
+
+            # 4. Run migrations BEFORE starting app containers so the server
             #    never boots against a schema that's behind.
             docker compose --env-file /opt/seta/.env run --rm migrator
 
-            # 2. Start app containers and wait until every healthcheck passes
-            #    (or fail fast if any container becomes unhealthy).
+            # 5. Start app containers and wait until every healthcheck passes.
             docker compose --env-file /opt/seta/.env up -d \
-              --no-deps --remove-orphans --wait --wait-timeout 120 \
+              --remove-orphans --wait --wait-timeout 180 \
               proxy server web worker
 
-            # 3. Smoke-test: verify the API health endpoint responds 200.
+            # 6. Smoke-test: verify the public /health/ready endpoint responds 200.
+            #    /api/health requires auth — /health/ready is the unauthenticated probe.
             echo "=== Smoke test ==="
-            for i in $(seq 1 10); do
+            code=000
+            for i in $(seq 1 12); do
               code=$(curl -s -o /dev/null -w "%{http_code}" \
-                --max-time 5 "https://$APP_DOMAIN/api/health" || true)
+                --max-time 5 "https://$APP_DOMAIN/health/ready" || true)
               [ "$code" = "200" ] && break
               echo "  attempt $i: got $code, retrying in 5s…"
               sleep 5
@@ -223,8 +233,5 @@ jobs:
             [ "$code" = "200" ] \
               || { echo "❌ Smoke test failed (last status: $code)"; exit 1; }
             echo "✅ Smoke test passed"
-
-            # Remove dangling images left by previous deploys
-            docker image prune -f
 
             echo "=== Deploy complete: $IMAGE_TAG ==="

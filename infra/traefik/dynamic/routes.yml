@@ -11,11 +11,16 @@
 # to its default self-signed cert.
 
 http:
-  middlewares:
-    jaeger-auth:
-      basicAuth:
-        usersFile: /etc/traefik/jaeger-auth
-        realm: "Seta Traces"
+  # ── Observability — disabled on the hackathon host ──────────────────────────
+  # The jaeger-auth middleware and traces/metrics routers below depend on the
+  # jaeger / prometheus / grafana services in compose.yml, which are currently
+  # commented out to fit the 4GB EC2 host. Re-enable both sides together.
+  #
+  # middlewares:
+  #   jaeger-auth:
+  #     basicAuth:
+  #       usersFile: /etc/traefik/jaeger-auth
+  #       realm: "Seta Traces"
 
   routers:
     # ── Local HTTP (no TLS) — for Docker smoke tests on port 7080 ────────────
@@ -32,22 +37,22 @@ http:
       service: web
 
     # ── Production HTTPS routers ──────────────────────────────────────────────
-    traces:
-      rule: "Host(`traces.DOMAIN_PLACEHOLDER`)"
-      entryPoints:
-        - websecure
-      service: traces
-      middlewares:
-        - jaeger-auth
-      tls:
-        certResolver: letsencrypt
-    metrics:
-      rule: "Host(`metrics.DOMAIN_PLACEHOLDER`)"
-      entryPoints:
-        - websecure
-      service: metrics
-      tls:
-        certResolver: letsencrypt
+    # traces:
+    #   rule: "Host(`traces.DOMAIN_PLACEHOLDER`)"
+    #   entryPoints:
+    #     - websecure
+    #   service: traces
+    #   middlewares:
+    #     - jaeger-auth
+    #   tls:
+    #     certResolver: letsencrypt
+    # metrics:
+    #   rule: "Host(`metrics.DOMAIN_PLACEHOLDER`)"
+    #   entryPoints:
+    #     - websecure
+    #   service: metrics
+    #   tls:
+    #     certResolver: letsencrypt
     api:
       rule: "PathPrefix(`/api`) || PathPrefix(`/health`)"
       entryPoints:
@@ -63,14 +68,14 @@ http:
       tls: {}
 
   services:
-    traces:
-      loadBalancer:
-        servers:
-          - url: "http://jaeger:16686"
-    metrics:
-      loadBalancer:
-        servers:
-          - url: "http://grafana:3000"
+    # traces:
+    #   loadBalancer:
+    #     servers:
+    #       - url: "http://jaeger:16686"
+    # metrics:
+    #   loadBalancer:
+    #     servers:
+    #       - url: "http://grafana:3000"
     api:
       loadBalancer:
         servers:
