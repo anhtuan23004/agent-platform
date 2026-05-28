@@ -189,6 +189,13 @@ export function registerAgentRoutes(app: Hono<AgentRouteEnv>, deps: AgentRouteDe
     const userText = lastUserText(effectiveMessages);
     const estimatedTokensIn = Math.min(2_000, Math.max(50, userText.length * 4));
 
+    console.log('[agent.chat] ← request', {
+      userId: session.user_id,
+      threadId: parsed.data.id ?? '(new)',
+      userText: userText.slice(0, 120),
+      messageCount: messages.length,
+    });
+
     let reservation: Awaited<ReturnType<typeof reserveTurn>>;
     try {
       reservation = await reserveTurn({
@@ -274,6 +281,11 @@ export function registerAgentRoutes(app: Hono<AgentRouteEnv>, deps: AgentRouteDe
       lookup,
     });
 
+    console.log('[agent.chat] → routed to agent', {
+      agentId: (agent as { id?: string }).id ?? 'unknown',
+      threadId: threadId ?? '(new)',
+      cachedDomain: cacheWriteDomain ?? '(none)',
+    });
     deps.log?.warn(
       {
         subsystem: 'agent.chat',
@@ -674,6 +686,15 @@ export function registerAgentRoutes(app: Hono<AgentRouteEnv>, deps: AgentRouteDe
       );
     }
 
+    console.log('[agent.chat.approve] ← HITL decision', {
+      runId: parsed.data.runId,
+      toolCallId: parsed.data.toolCallId,
+      approved: parsed.data.approved,
+      hasResumeData: parsed.data.resumeData !== undefined,
+      resumeDataKind: (parsed.data.resumeData as { kind?: string } | undefined)?.kind ?? null,
+      userId: session.user_id,
+    });
+
     const requestContext = new RequestContext();
     requestContext.set('actor', {
       type: 'user' as const,
@@ -817,6 +838,8 @@ export function registerAgentRoutes(app: Hono<AgentRouteEnv>, deps: AgentRouteDe
     let body: {
       decision: 'approve' | 'reject' | 'modify';
       overrideUserIds?: string[];
+      alternateIndex?: number;
+      alternateIndices?: number[];
       note?: string;
     };
     try {
@@ -838,12 +861,33 @@ export function registerAgentRoutes(app: Hono<AgentRouteEnv>, deps: AgentRouteDe
         return c.json({ error: 'invalid_body', message: 'overrideUserIds must be string[]' }, 400);
       }
     }
+    if (body.alternateIndex !== undefined) {
+      if (typeof body.alternateIndex !== 'number' || body.alternateIndex < 0) {
+        return c.json(
+          { error: 'invalid_body', message: 'alternateIndex must be a non-negative number' },
+          400,
+        );
+      }
+    }
+    if (body.alternateIndices !== undefined) {
+      if (
+        !Array.isArray(body.alternateIndices) ||
+        body.alternateIndices.some((i) => typeof i !== 'number' || i < 0)
+      ) {
+        return c.json(
+          { error: 'invalid_body', message: 'alternateIndices must be non-negative number[]' },
+          400,
+        );
+      }
+    }
     try {
       const result = await decideApproval({
         session,
         approvalId: c.req.param('approvalId'),
         decision: body.decision,
         overrideUserIds: body.overrideUserIds,
+        alternateIndex: body.alternateIndex,
+        alternateIndices: body.alternateIndices,
         note: body.note,
         mastra: deps.mastra as Mastra,
         chatHitlDeciders: deps.chatHitlDeciders,
@@ -938,6 +982,11 @@ export function registerAgentRoutes(app: Hono<AgentRouteEnv>, deps: AgentRouteDe
       return c.json({ error: 'not_found', message: `unknown workflow id: ${workflowId}` }, 404);
     }
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    console.log('[workflow.start] ← request', {
+      workflowId,
+      userId: session.user_id,
+      inputKeys: Object.keys(body ?? {}),
+    });
     if (body && typeof body === 'object' && Object.hasOwn(body, 'session')) {
       return c.json(
         {
@@ -1025,6 +1074,11 @@ export function registerAgentRoutes(app: Hono<AgentRouteEnv>, deps: AgentRouteDe
             console.error('[agent.workflow.start.project-fail]', projErr);
           }
         });
+      });
+      console.log('[workflow.start] → run created', {
+        runId: run.runId,
+        workflowId: projectedWorkflowId,
+        userId: session.user_id,
       });
       return c.json({ runId: run.runId });
     } catch (err) {

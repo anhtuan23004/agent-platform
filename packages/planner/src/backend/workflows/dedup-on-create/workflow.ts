@@ -1,21 +1,12 @@
 import type { SessionScope } from '@seta/core';
-import type { Candidate, Classification, DedupOutput, LinkMode, TaskDraft } from './schemas.ts';
+import type { Candidate, Classification, DedupInput, DedupOutput, DupAction } from './schemas.ts';
 import { classifyByThreshold } from './steps/classify-by-threshold.ts';
-import { createTaskStep } from './steps/create-task.ts';
-import { embedDraft } from './steps/embed-draft.ts';
-import { linkToExisting } from './steps/link-to-existing.ts';
-import { normalizeDraft } from './steps/normalize-draft.ts';
 import { type SearchSimilarDeps, searchSimilar } from './steps/search-similar.ts';
-
-export type DupAction =
-  | { kind: 'create-new' }
-  | { kind: 'link'; existingId: string; mode: LinkMode }
-  | { kind: 'cancel' };
 
 export interface DupSearchResult {
   classification: Classification;
   candidates: Candidate[];
-  draft: TaskDraft;
+  task: DedupInput;
 }
 
 export interface DedupDeps extends SearchSimilarDeps {
@@ -23,46 +14,56 @@ export interface DedupDeps extends SearchSimilarDeps {
 }
 
 /**
- * Phase A — read-only: normalize the draft, search for similar tasks, and
- * classify the closeness. No DB writes, no HITL. Surfaced to agents as
- * `planner_findDupCandidates`.
+ * Phase A — read-only: search for similar tasks to the already-created task,
+ * classify the closeness. No DB writes, no HITL.
  */
 export async function findDupCandidates(
-  input: { draft: unknown; session: { tenantId: string; userId: string } },
+  input: { task: DedupInput; session: { tenantId: string; userId: string } },
   deps: DedupDeps,
 ): Promise<DupSearchResult> {
-  const draft = normalizeDraft(input.draft);
-  // Compute and discard the embed vector — searchTasks re-embeds the query
-  // internally (with its own cache). We embed here only so the dedup workflow
-  // can be replayed end-to-end with deterministic behavior in tests.
-  await embedDraft(draft, deps);
-  const queryText = `${draft.title}\n\n${draft.description}`.trim();
+  const queryText = `${input.task.title}\n\n${input.task.description}`.trim();
   const { candidates } = await searchSimilar({ tenantId: input.session.tenantId, queryText }, deps);
-  const { classification, top } = classifyByThreshold({ candidates }, deps.thresholds);
-  return { classification, candidates: top, draft };
+  // Filter out the task itself from candidates
+  const filtered = candidates.filter((c) => c.taskId !== input.task.taskId);
+  const { classification, top } = classifyByThreshold({ candidates: filtered }, deps.thresholds);
+  return { classification, candidates: top, task: input.task };
 }
 
 /**
- * Phase B — apply the user's decision. Called by `planner_createTask` after
- * the HITL approval card resolves (or directly when classification ==
- * 'no-match' and no HITL is needed).
+ * Phase B — apply the user's decision after HITL resolves.
+ * Task already exists; we either link it, delete it, or leave it alone.
  */
 export async function applyDupDecision(input: {
-  draft: TaskDraft;
+  taskId: string;
   action: DupAction;
   session: SessionScope;
 }): Promise<DedupOutput> {
-  if (input.action.kind === 'cancel') return { kind: 'cancelled' };
-
-  if (input.action.kind === 'create-new') {
-    const { taskId } = await createTaskStep({ draft: input.draft, session: input.session });
-    return { kind: 'created', taskId };
+  if (input.action.kind === 'leave') {
+    return { kind: 'kept', taskId: input.taskId };
   }
 
-  return linkToExisting({
-    existingId: input.action.existingId,
-    mode: input.action.mode,
-    draft: input.draft,
-    session: input.session,
-  });
+  if (input.action.kind === 'delete') {
+    const { deleteTask } = await import('../../domain/delete-task.ts');
+    const { getTask } = await import('../../domain/get-task.ts');
+    const task = await getTask({ task_id: input.taskId, session: input.session });
+    await deleteTask({
+      task_id: input.taskId,
+      expected_version: task.version,
+      session: input.session,
+    });
+    return { kind: 'deleted', taskId: input.taskId };
+  }
+
+  // 'link' — add task_references on the new task pointing to selected existing ones
+  const { addTaskReference } = await import('../../domain/add-task-reference.ts');
+  for (const existingId of input.action.existingIds) {
+    await addTaskReference({
+      task_id: input.taskId,
+      url: `seta://planner/tasks/${existingId}`,
+      alias: `Related: existing task ${existingId.slice(0, 8)}`,
+      type: 'link',
+      session: input.session,
+    });
+  }
+  return { kind: 'linked', taskId: input.taskId, linkedTo: input.action.existingIds };
 }

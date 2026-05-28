@@ -11,9 +11,9 @@ import { z } from 'zod';
 import { getPlannerVectorStore } from '../../embeddings/vector-store.ts';
 import {
   ClassificationSchema,
+  DedupInputSchema,
   DedupOutputSchema,
-  LinkModeSchema,
-  TaskDraftSchema,
+  DupActionSchema,
 } from './schemas.ts';
 import { buildConfirmNotDuplicateCard } from './steps/confirm-not-duplicate.ts';
 import { applyDupDecision, findDupCandidates } from './workflow.ts';
@@ -38,28 +38,23 @@ function getPgVector(): PgVector {
   return getPlannerVectorStore(databaseUrl);
 }
 
-const DupActionSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('create-new') }),
-  z.object({ kind: z.literal('link'), existingId: z.string().uuid(), mode: LinkModeSchema }),
-  z.object({ kind: z.literal('cancel') }),
-]);
-
 const SearchOutputSchema = z.object({
   classification: ClassificationSchema,
   candidates: z.array(z.unknown()),
-  draft: TaskDraftSchema,
+  task: DedupInputSchema,
 });
 
 const searchStep = createStep({
   id: 'dedupOnCreate.search',
-  description: 'Embeds the new task and searches for near-duplicate tasks using vector similarity.',
-  inputSchema: TaskDraftSchema,
+  description:
+    'Searches for near-duplicate tasks using vector similarity against the already-created task.',
+  inputSchema: DedupInputSchema,
   outputSchema: SearchOutputSchema,
   execute: async ({ inputData, requestContext }) => {
     const session = await sessionFromRequestContext(requestContext);
     const result = await findDupCandidates(
       {
-        draft: inputData,
+        task: inputData,
         session: { tenantId: session.tenantId, userId: session.userId },
       },
       {
@@ -72,7 +67,7 @@ const searchStep = createStep({
     return {
       classification: result.classification,
       candidates: result.candidates,
-      draft: result.draft,
+      task: result.task,
     };
   },
 });
@@ -80,7 +75,7 @@ const searchStep = createStep({
 const decideStep = createStep({
   id: 'dedupOnCreate.decide',
   description:
-    'Shows duplicate candidates to the user for review; suspends until a merge or keep decision is received.',
+    'Shows duplicate candidates to the user for review; suspends until user picks Link / Delete / Leave.',
   inputSchema: SearchOutputSchema,
   outputSchema: DedupOutputSchema,
   suspendSchema: ApprovalCardSchema,
@@ -91,26 +86,22 @@ const decideStep = createStep({
 
     if (resumeData) {
       return applyDupDecision({
-        draft: inputData.draft,
+        taskId: inputData.task.taskId,
         action: resumeData,
         session: fullSession,
       });
     }
 
-    // No-match: no duplicate, no HITL needed — create directly.
+    // No-match: no duplicate found — task stays as-is, no HITL needed.
     if (inputData.classification === 'no-match') {
-      return applyDupDecision({
-        draft: inputData.draft,
-        action: { kind: 'create-new' },
-        session: fullSession,
-      });
+      return { kind: 'kept' as const, taskId: inputData.task.taskId };
     }
 
     const card = buildConfirmNotDuplicateCard({
       classification: inputData.classification,
       // biome-ignore lint/suspicious/noExplicitAny: candidates passed through opaquely between steps
       candidates: inputData.candidates as any,
-      draft: inputData.draft,
+      task: inputData.task,
       session: { tenantId: fullSession.tenant_id, userId },
       toolCallId: `workflow:${runId}`,
     });
@@ -120,7 +111,7 @@ const decideStep = createStep({
 
 export const dedupOnCreateWorkflow = createWorkflow({
   id: 'planner.dedupOnCreate',
-  inputSchema: TaskDraftSchema,
+  inputSchema: DedupInputSchema,
   outputSchema: DedupOutputSchema,
 })
   .then(searchStep)
@@ -131,9 +122,9 @@ export const dedupOnCreateWorkflowSpec: WorkflowSpec = {
   domain: 'work',
   id: 'dedupOnCreate',
   description:
-    'Vector-search similar tasks before creating; HITL approval picks ' +
-    'create-new / link-as-related / link-as-sub-task / cancel.',
-  inputSchema: TaskDraftSchema,
+    'Checks for duplicate tasks after creation; HITL approval picks ' +
+    'Link (mark as related) / Delete this ticket / Leave it.',
+  inputSchema: DedupInputSchema,
   outputSchema: DedupOutputSchema,
   workflow: dedupOnCreateWorkflow,
   hitlSteps: ['dedupOnCreate.decide'],
