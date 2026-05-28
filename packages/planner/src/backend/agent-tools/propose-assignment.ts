@@ -5,10 +5,12 @@ import {
   defineAgentTool,
   getPendingAssignRunIdForTask,
   RC_CHAT_HITL_RECORDER,
+  recordEntityExposure,
 } from '@seta/agent-sdk';
 import { buildActorSession } from '@seta/identity';
 import { z } from 'zod';
 import { AssignBySkillOutputSchema } from '../workflows/assign-by-skill/schemas.ts';
+import { resolveTaskRef } from './resolve-task-ref.ts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // planner_proposeAssignment — CHAT-FLOW ONLY HITL tool
@@ -39,7 +41,15 @@ import { AssignBySkillOutputSchema } from '../workflows/assign-by-skill/schemas.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const ProposeAssignmentInputSchema = z.object({
-  taskId: z.string().uuid(),
+  taskRef: z
+    .string()
+    .trim()
+    .min(1)
+    .describe(
+      'Task UUID, or an ordinal reference into your working memory `recentTasks` list: ' +
+        '"#1" / "1" / "first" → most recent, "#2" / "second" → next, "last" → most recent. ' +
+        'Prefer ordinals when the user is referring to something you just discussed.',
+    ),
   candidates: z
     .array(
       z.object({
@@ -70,13 +80,14 @@ type ProposeAssignmentInput = z.infer<typeof ProposeAssignmentInputSchema>;
 
 function buildCard(
   input: ProposeAssignmentInput,
+  taskId: string,
   toolCallId: string,
   session: { tenantId: string; userId: string },
 ): ApprovalCard {
   const [top, ...rest] = input.candidates;
   return {
     toolCallId,
-    intent: `Assign task ${input.taskId} based on agent reasoning`,
+    intent: `Assign task ${taskId} based on agent reasoning`,
     riskBadge: 'write',
     summary: input.summary,
     details: [
@@ -95,12 +106,12 @@ function buildCard(
           label: `Assign to ${top.displayName}`,
           // taskId is embedded so ChatHitlDecider can retrieve the target task
           // without storing a separate column (it's read from proposed_payload).
-          argsPatch: { action: 'assign', assigneeUserIds: [top.userId], taskId: input.taskId },
+          argsPatch: { action: 'assign', assigneeUserIds: [top.userId], taskId },
         }
       : { label: 'No candidates' },
     alternates: rest.map((c) => ({
       label: `Assign to ${c.displayName}`,
-      argsPatch: { action: 'assign', assigneeUserIds: [c.userId], taskId: input.taskId },
+      argsPatch: { action: 'assign', assigneeUserIds: [c.userId], taskId },
     })),
     decline: { label: 'Leave unassigned' },
     meta: {
@@ -128,24 +139,26 @@ export const plannerProposeAssignmentTool = defineAgentTool({
     const actor = actorFromContext(ctx);
     const session = await buildActorSession(actor);
 
+    const { taskId } = await resolveTaskRef(ctx as never, input.taskRef);
+
     // Mutex: check if there's already a pending proposal for this task
     // (from another thread or the assignBySkill workflow). Prevents competing
     // proposals that could lead to race conditions on approval.
     const existingRunId = await getPendingAssignRunIdForTask({
-      taskId: input.taskId,
+      taskId,
       tenantId: session.tenant_id,
     });
     if (existingRunId) {
       return {
         kind: 'already-pending' as const,
-        taskId: input.taskId,
+        taskId,
         message:
           'Another assignment proposal is already pending for this task. ' +
           'Please wait for that to be resolved or cancel it first.',
       } as never;
     }
 
-    const card = buildCard(input, ctx.agent?.toolCallId ?? 'unknown', {
+    const card = buildCard(input, taskId, ctx.agent?.toolCallId ?? 'unknown', {
       tenantId: session.tenant_id,
       userId: actor.user_id,
     });
@@ -162,6 +175,11 @@ export const plannerProposeAssignmentTool = defineAgentTool({
 
     const { approvalId } = await recorder(card);
 
-    return { kind: 'pending-approval' as const, taskId: input.taskId, approvalId };
+    await recordEntityExposure(ctx as never, {
+      lastDiscussedTaskId: taskId,
+      lastProposedCandidateUserId: input.candidates[0]?.userId ?? null,
+    });
+
+    return { kind: 'pending-approval' as const, taskId, approvalId };
   },
 });

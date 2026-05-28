@@ -100,7 +100,7 @@ describe('planner_proposeAssignment', () => {
 
       const suspendResult = await tool.execute!(
         {
-          taskId: task.id,
+          taskRef: task.id,
           candidates: candidates.map((c, i) => ({
             userId: c.user_id,
             displayName: c.name,
@@ -253,7 +253,7 @@ describe('planner_proposeAssignment', () => {
 
       const result = await plannerProposeAssignmentTool.execute!(
         {
-          taskId: task.id,
+          taskRef: task.id,
           candidates: [
             {
               userId: nam.user_id,
