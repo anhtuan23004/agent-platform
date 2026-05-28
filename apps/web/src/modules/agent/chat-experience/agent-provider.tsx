@@ -227,16 +227,34 @@ function AgentRuntimeHost({ children }: { children: React.ReactNode }) {
   const historyReady = !selection.threadId || (!isLoading && Boolean(history));
   const initialMessages: UIMessage[] = selection.threadId ? (history?.messages ?? []) : [];
 
+  // Do NOT include `historyReady` in the remount key.
+  //
+  // Previously the key was `${threadId}::${revision}::${historyReady}` which
+  // caused a remount the moment history finished loading (false → true).  On
+  // remount, `useChatRuntime` / AI SDK generates a new internal thread ID
+  // (assistant-ui reads it from its own AUI store, ignoring any `id` we pass
+  // in options).  Subsequent messages were sent with the new internal ID
+  // instead of the URL thread ID, so HITL approval rows ended up in a
+  // different thread and the card never appeared.
+  //
+  // The fix: defer mounting until history is ready, then keep the runtime
+  // alive for the lifetime of that (threadId × approvalRevision) pair.
+  if (!historyReady) {
+    return (
+      <div className="flex h-full min-h-0 flex-1 items-center justify-center text-caption text-ink-subtle">
+        Loading chat…
+      </div>
+    );
+  }
+
   return (
     <AgentRuntimeHostInner
-      // Remount whenever the thread changes, an HITL approval resolves, OR the
-      // history finishes loading — that last bit guarantees the runtime is
-      // seeded with the real messages instead of an empty array.
-      key={`${selection.threadId ?? 'new'}::${approvalEvent.revision}::${historyReady ? 'ready' : 'pending'}`}
+      // Remount only when the thread changes or an HITL approval resolves.
+      key={`${selection.threadId ?? 'new'}::${approvalEvent.revision}`}
       threadId={selection.threadId}
       modelKey={selection.modelKey}
       initialMessages={initialMessages}
-      historyLoading={!historyReady}
+      historyLoading={false}
       pageContextRef={pageContextRef}
     >
       {children}

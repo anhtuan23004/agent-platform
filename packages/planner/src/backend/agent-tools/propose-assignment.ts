@@ -60,7 +60,7 @@ const ProposeAssignmentInputSchema = z.object({
           .optional(),
       }),
     )
-    .min(2)
+    .min(1)
     .max(5),
   summary: z.string().max(500),
 });
@@ -116,7 +116,7 @@ export const plannerProposeAssignmentTool = defineAgentTool({
   id: 'planner_proposeAssignment',
   name: 'Propose Assignment',
   description:
-    'Surface 2-5 candidate assignees with per-candidate rationale and confidence. ' +
+    'Surface 1-5 candidate assignees with per-candidate rationale and confidence. ' +
     'After gathering enough signal, call this tool to show the user an interactive ' +
     'approval card. It records the suggestion and returns immediately — the agent ' +
     'turn completes and the user picks an assignee from the card above.',

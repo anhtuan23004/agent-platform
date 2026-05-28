@@ -1,4 +1,4 @@
-import { Send } from 'lucide-react';
+import { Loader2, Send } from 'lucide-react';
 import { type KeyboardEvent, type ReactNode, useLayoutEffect, useRef } from 'react';
 import { cn } from '../lib/cn';
 
@@ -69,11 +69,15 @@ export function ChatComposer({
               type="button"
               onClick={() => !disabled && !pending && value.trim() && onSubmit()}
               disabled={disabled || pending || !value.trim()}
-              aria-label="Send"
-              title="Send  ⏎"
+              aria-label={pending ? 'Loading' : 'Send'}
+              title={pending ? undefined : 'Send  ⏎'}
               className="inline-flex size-7 flex-none items-center justify-center rounded-md bg-primary text-on-primary transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
             >
-              <Send className="size-3.5" aria-hidden />
+              {pending ? (
+                <Loader2 className="size-3.5 animate-spin" aria-hidden />
+              ) : (
+                <Send className="size-3.5" aria-hidden />
+              )}
             </button>
           </div>
         </div>

@@ -1,6 +1,8 @@
+import { useRemoteThreadListRuntime } from '@assistant-ui/react';
 import { AssistantChatTransport, useChatRuntime } from '@assistant-ui/react-ai-sdk';
 import type { UIMessage } from 'ai';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { mastraThreadListAdapter } from '../lib/mastra-thread-list-adapter';
 import { buildPageContextPart } from '../lib/page-context-part';
 import type { PageContext } from '../lib/page-context-types';
 
@@ -17,11 +19,16 @@ interface UseAgentRuntimeOpts {
   pageContextRef?: { current: { ctx: PageContext | null; suppressedFor: string | null } };
 }
 
-export function useAgentRuntime(opts: UseAgentRuntimeOpts) {
-  const modelRef = useRef(opts.modelKey);
+export function useAgentRuntime({
+  threadId,
+  modelKey,
+  initialMessages,
+  pageContextRef,
+}: UseAgentRuntimeOpts) {
+  const modelRef = useRef(modelKey);
   useEffect(() => {
-    modelRef.current = opts.modelKey;
-  }, [opts.modelKey]);
+    modelRef.current = modelKey;
+  }, [modelKey]);
 
   const readBody = useCallback(() => {
     const m = modelRef.current;
@@ -37,7 +44,6 @@ export function useAgentRuntime(opts: UseAgentRuntimeOpts) {
     });
   }, [readBody]);
 
-  const pageContextRef = opts.pageContextRef;
   const toCreateMessage = useCallback(
     (message: { role: string; content: ReadonlyArray<unknown> }) => {
       const parts: Array<{ type: string; [k: string]: unknown }> = [];
@@ -77,11 +83,22 @@ export function useAgentRuntime(opts: UseAgentRuntimeOpts) {
     [pageContextRef],
   );
 
-  /* eslint-disable react-hooks/refs -- toCreateMessage internally reads pageContextRef at send time, not during render; the rule's static analysis can't see that. */
-  return useChatRuntime({
-    transport,
-    ...(opts.initialMessages ? { messages: opts.initialMessages } : {}),
-    toCreateMessage,
+  // Capture values needed inside the runtimeHook via refs so the hook
+  // `initialMessages` is safe to close over directly: `AgentRuntimeHostInner`
+  // remounts whenever the thread changes (key includes threadId), so
+  // `initialMessages` is frozen for the full lifetime of this mount.
+  // No ref needed — using a ref here caused the react-compiler linter to
+  // flag every subsequent `opts.X` access as a "ref access during render".
+  return useRemoteThreadListRuntime({
+    adapter: mastraThreadListAdapter,
+    threadId,
+    runtimeHook: function MastraRuntimeHook() {
+      // biome-ignore lint/correctness/useHookAtTopLevel: MastraRuntimeHook is a named React component passed as runtimeHook, not a nested function call
+      return useChatRuntime({
+        transport,
+        ...(initialMessages ? { messages: initialMessages } : {}),
+        toCreateMessage,
+      });
+    },
   });
-  /* eslint-enable react-hooks/refs */
 }

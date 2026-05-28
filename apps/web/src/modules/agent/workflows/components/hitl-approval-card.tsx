@@ -197,15 +197,10 @@ export function HitlApprovalCard({
     }
   }
 
-  // Sort: selected first, then by score desc.
+  // Sort by score desc only — do NOT re-sort on selection change (causes layout jump).
   const ranked = useMemo(() => {
-    return [...candidates].sort((a, b) => {
-      const sa = selected.has(a.id) ? 1 : 0;
-      const sb = selected.has(b.id) ? 1 : 0;
-      if (sa !== sb) return sb - sa;
-      return (b.score ?? 0) - (a.score ?? 0);
-    });
-  }, [candidates, selected]);
+    return [...candidates].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  }, [candidates]);
 
   const cardIntent = card?.intent ?? 'Your input needed';
   const selectedRows = useMemo(

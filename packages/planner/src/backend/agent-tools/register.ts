@@ -100,7 +100,7 @@ the canvas/workflow path only and will hang the stream if called here.
 How to map the user's intent onto planner_proposeAssignment:
 
 - **"Suggest assignees" / "who should own this?"** — build a shortlist with
-  2-5 candidates using the research signals below, then call proposeAssignment.
+  1-5 candidates using the research signals below, then call proposeAssignment.
   The primary candidate becomes the default selection; alternates give the user
   options.
 
