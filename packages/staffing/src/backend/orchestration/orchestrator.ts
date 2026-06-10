@@ -86,7 +86,11 @@ const RECOMMEND_TASK_CAP = 5;
 
 function instructions(cap: number): string {
   return [
-    'You are a staffing assistant. Decide which tools to call to answer the user, then stop.',
+    'You are a staffing assistant.',
+    'For multi-step tasks (finding people for a task, recommending an assignee, looking up a',
+    'profile), FIRST write one short sentence describing what you are about to do — e.g.',
+    '"Let me find open React tasks." or "I\'ll look up Tuấn\'s profile." — THEN call the tools.',
+    'For simple single-tool lookups you may skip the preamble and call immediately.',
     '',
     'Get skills or tasks with callTaskAnalyzer, picking the intent that matches the request:',
     '- intent=resolve_task_skills (with the current taskRef): for "what skills does this task',
@@ -188,6 +192,9 @@ export function makeOrchestratorAgent(deps: OrchestratorDeps): SpecializedAgentS
               ...(ctx.userMemory ? { memory: ctx.userMemory.memory } : {}),
               inputProcessors: [new TokenLimiterProcessor({ limit: 100_000 })],
             });
+            // Emit LLM text-delta tokens that arrive BEFORE the first tool call
+            // so the user sees an acknowledgment while tools are executing.
+            let firstToolSeen = false;
             const r = await agent.generate(
               [
                 `User message: ${input.userText}`,
@@ -197,6 +204,17 @@ export function makeOrchestratorAgent(deps: OrchestratorDeps): SpecializedAgentS
                 requestContext: rc,
                 maxSteps: 12,
                 abortSignal: ctx.abortSignal,
+                onChunk: (chunk) => {
+                  if (
+                    chunk.type === 'tool-call' ||
+                    chunk.type === 'tool-call-input-streaming-end'
+                  ) {
+                    firstToolSeen = true;
+                  }
+                  if (!firstToolSeen && chunk.type === 'text-delta') {
+                    ctx.onEvent?.({ kind: 'text', text: (chunk.payload as { text: string }).text });
+                  }
+                },
                 // Restore supervisor parity: Mastra injects lastMessages history
                 // + semanticRecall and fires generateTitle. readOnly => it does
                 // NOT persist messages (our chat route persists via

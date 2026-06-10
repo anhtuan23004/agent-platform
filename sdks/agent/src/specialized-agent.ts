@@ -9,7 +9,9 @@ import type { AgentResult, TrustEnvelope } from './trust.ts';
  *  declared here so the SDK has no dependency on `@seta/shared-orchestration`. */
 export type SubStepEvent =
   | { kind: 'step-start'; stepId: string; agentId: string }
-  | { kind: 'step-done'; stepId: string; trust: TrustEnvelope };
+  | { kind: 'step-done'; stepId: string; trust: TrustEnvelope }
+  /** LLM text token streamed before the first tool call (pre-tool acknowledgment). */
+  | { kind: 'text'; text: string };
 
 /** Session-derived context passed into a specialized agent's `run`. */
 export interface SpecializedAgentRunCtx {

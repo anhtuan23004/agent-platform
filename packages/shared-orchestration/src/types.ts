@@ -64,6 +64,9 @@ export type RunStepPayload = z.infer<typeof RunStepPayloadSchema>;
 export type OrchestrationEvent =
   | { kind: 'step-start'; stepId: string; agentId: string }
   | { kind: 'step-done'; stepId: string; trust: TrustEnvelope }
+  /** LLM text token emitted before the first tool call — streams the agent's
+   *  opening acknowledgment to the user while tools are pending. */
+  | { kind: 'text'; text: string }
   | { kind: 'final'; result: unknown };
 
 /** graphile-worker `addJob` signature (injected; the kernel never opens a pool). */

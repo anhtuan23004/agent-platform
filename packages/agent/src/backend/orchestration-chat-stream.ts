@@ -170,8 +170,26 @@ export async function streamOrchestrationToUI(
   const agentByStep = new Map<string, string>();
   const assistantParts: OrchestrationAssistantPart[] = [];
   let finalResult: unknown;
+  // Pre-tool text: LLM acknowledgment streamed before the first tool call.
+  const preId = `${id}-pre`;
+  let preStarted = false;
+  let preAccum = '';
   for await (const ev of events) {
-    if (ev.kind === 'step-start') {
+    if (ev.kind === 'text') {
+      // Open the pre-tool text stream on the first delta.
+      if (!preStarted) {
+        writer.write({ type: 'text-start', id: preId });
+        preStarted = true;
+      }
+      writer.write({ type: 'text-delta', id: preId, delta: ev.text });
+      preAccum += ev.text;
+    } else if (ev.kind === 'step-start') {
+      // Close pre-tool text the moment tools begin (if any was emitted).
+      if (preStarted) {
+        writer.write({ type: 'text-end', id: preId });
+        assistantParts.push({ type: 'text', text: preAccum });
+        preStarted = false;
+      }
       if (ev.stepId === 'orchestrate') continue; // outer wrapper; sub-agent cards carry the trace
       agentByStep.set(ev.stepId, ev.agentId);
       writer.write({
@@ -192,6 +210,11 @@ export async function streamOrchestrationToUI(
     } else if (ev.kind === 'final') {
       finalResult = ev.result;
     }
+  }
+  // Close pre-tool stream if tools never ran (e.g. conversational turn, no tools called).
+  if (preStarted) {
+    writer.write({ type: 'text-end', id: preId });
+    assistantParts.push({ type: 'text', text: preAccum });
   }
   // The answer text part follows the timeline cards.
   const finalText = formatFinal(finalResult);
