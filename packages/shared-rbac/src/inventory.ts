@@ -389,6 +389,30 @@ export const INVENTORY: StatementSpec[] = [
       },
     ],
   },
+  {
+    module: 'pmo',
+    statement: {
+      'pmo.ingestion': ['upload', 'confirm', 'read'],
+      'pmo.data': ['read'],
+    },
+    roles: [
+      {
+        slug: 'pmo.operator',
+        description: 'Can upload files, confirm mappings, and read data',
+        permissions: [
+          'pmo.ingestion.upload',
+          'pmo.ingestion.confirm',
+          'pmo.ingestion.read',
+          'pmo.data.read',
+        ],
+      },
+      {
+        slug: 'pmo.viewer',
+        description: 'Read-only access to PMO data and ingestion status',
+        permissions: ['pmo.ingestion.read', 'pmo.data.read'],
+      },
+    ],
+  },
 ];
 
 export const IMPLICIT_PERMISSIONS: readonly string[] = [
@@ -436,3 +460,4 @@ export function inventoryToManifests(
     })),
   }));
 }
+// force CI cache invalidation

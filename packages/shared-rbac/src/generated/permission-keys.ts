@@ -94,6 +94,10 @@ export type PermissionKey =
   | 'planner.trash.empty'
   | 'planner.trash.read'
   | 'planner.trash.restore'
+  | 'pmo.data.read'
+  | 'pmo.ingestion.confirm'
+  | 'pmo.ingestion.read'
+  | 'pmo.ingestion.upload'
   | 'staffing.read'
   | 'staffing.workflow.cancel'
   | 'staffing.workflow.read'
@@ -194,6 +198,10 @@ export const ALL_PERMISSIONS: readonly PermissionKey[] = [
   'planner.trash.empty',
   'planner.trash.read',
   'planner.trash.restore',
+  'pmo.data.read',
+  'pmo.ingestion.confirm',
+  'pmo.ingestion.read',
+  'pmo.ingestion.upload',
   'staffing.read',
   'staffing.workflow.cancel',
   'staffing.workflow.read',

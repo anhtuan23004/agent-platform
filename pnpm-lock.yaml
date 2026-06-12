@@ -82,6 +82,9 @@ importers:
       '@seta/planner':
         specifier: workspace:^
         version: link:../../packages/planner
+      '@seta/pmo':
+        specifier: workspace:^
+        version: link:../../packages/pmo
       '@seta/shared-crypto':
         specifier: workspace:^
         version: link:../../packages/shared-crypto
@@ -170,6 +173,9 @@ importers:
       '@seta/planner':
         specifier: workspace:^
         version: link:../../packages/planner
+      '@seta/pmo':
+        specifier: workspace:^
+        version: link:../../packages/pmo
       '@seta/shared-crypto':
         specifier: workspace:^
         version: link:../../packages/shared-crypto
@@ -457,6 +463,9 @@ importers:
       '@seta/planner':
         specifier: workspace:^
         version: link:../../packages/planner
+      '@seta/pmo':
+        specifier: workspace:^
+        version: link:../../packages/pmo
       '@seta/shared-crypto':
         specifier: workspace:^
         version: link:../../packages/shared-crypto
@@ -1085,6 +1094,64 @@ importers:
         version: 6.0.3
       vitest:
         specifier: ^4.1.8
+        version: 4.1.8(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(@vitest/coverage-v8@4.1.8)(happy-dom@20.9.0)(jsdom@29.1.1(@noble/hashes@2.2.0))(msw@2.14.6(@types/node@25.9.3)(typescript@6.0.3))(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+
+  packages/pmo:
+    dependencies:
+      '@mastra/core':
+        specifier: ^1.42.0
+        version: 1.42.0(@grpc/grpc-js@1.14.4)(ai@6.0.200(zod@4.4.3))(express@5.2.1)(zod@4.4.3)
+      '@seta/agent-sdk':
+        specifier: workspace:^
+        version: link:../../sdks/agent
+      '@seta/core':
+        specifier: workspace:^
+        version: link:../core
+      '@seta/shared-db':
+        specifier: workspace:^
+        version: link:../shared-db
+      '@seta/shared-rbac':
+        specifier: workspace:^
+        version: link:../shared-rbac
+      '@seta/shared-types':
+        specifier: workspace:^
+        version: link:../shared-types
+      csv-parse:
+        specifier: ^6.2.1
+        version: 6.2.1
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(@opentelemetry/api@1.9.1)(@prisma/client@5.22.0)(@types/pg@8.20.0)(better-sqlite3@12.10.0)(kysely@0.29.2)(pg@8.21.0)
+      exceljs:
+        specifier: ^4.4.0
+        version: 4.4.0
+      pg:
+        specifier: ^8.21.0
+        version: 8.21.0
+      pino:
+        specifier: ^10.3.1
+        version: 10.3.1
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@seta/shared-config':
+        specifier: workspace:^
+        version: link:../shared-config
+      '@seta/shared-testing':
+        specifier: workspace:^
+        version: link:../shared-testing
+      '@types/pg':
+        specifier: ^8.20.0
+        version: 8.20.0
+      drizzle-kit:
+        specifier: ^0.31.10
+        version: 0.31.10
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^4.1.7
         version: 4.1.8(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(@vitest/coverage-v8@4.1.8)(happy-dom@20.9.0)(jsdom@29.1.1(@noble/hashes@2.2.0))(msw@2.14.6(@types/node@25.9.3)(typescript@6.0.3))(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
 
   packages/shared-config: {}
