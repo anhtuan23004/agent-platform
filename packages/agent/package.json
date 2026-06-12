@@ -42,6 +42,7 @@
     "@seta/agent-sdk": "workspace:^",
     "@seta/knowledge": "workspace:^",
     "@seta/planner": "workspace:^",
+    "@seta/pmo": "workspace:^",
     "@seta/shared-embeddings": "workspace:^",
     "@seta/shared-retrieval": "workspace:^",
     "@seta/shared-storage": "workspace:^",

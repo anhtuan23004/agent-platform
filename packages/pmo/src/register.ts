@@ -2,7 +2,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ContributionRegistry } from '@seta/core';
 import { pmoAgentSpecs } from './backend/agent-specs.ts';
-import { pmoAgentTools } from './backend/agent-tools.ts';
+import { pmoAgentTools } from './backend/agent-tools/register.ts';
 import * as schema from './backend/db/schema.ts';
 import { pmoWorkflows } from './backend/workflows/index.ts';
 import { PMO_EVENTS } from './events.ts';

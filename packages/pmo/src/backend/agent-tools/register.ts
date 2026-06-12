@@ -1,5 +1,5 @@
 import { AgentRegistry, type AgentTool } from '@seta/agent-sdk';
-import { ingestDataWorkflowSpec } from './workflows/ingest-data/spec.ts';
+import { ingestDataWorkflowSpec } from '../workflows/ingest-data/spec.ts';
 
 export const pmoAgentTools: AgentTool[] = [];
 

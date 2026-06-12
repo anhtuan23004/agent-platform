@@ -545,6 +545,9 @@ importers:
       '@seta/planner':
         specifier: workspace:^
         version: link:../planner
+      '@seta/pmo':
+        specifier: workspace:^
+        version: link:../pmo
       '@seta/shared-embeddings':
         specifier: workspace:^
         version: link:../shared-embeddings
