@@ -2,8 +2,11 @@ import { Button, PageChrome } from '@seta/shared-ui';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useCallback } from 'react';
+import type { WorkflowApprovalRow } from '../api/schemas.ts';
 import { workflowsApi } from '../api/workflows.ts';
+import { cardToolId } from '../components/decided-approval.ts';
 import { HitlApprovalCard } from '../components/hitl-approval-card.tsx';
+import { HitlCardHost } from '../components/hitl-card-host.tsx';
 import { RunRightPanel } from '../components/run-right-panel.tsx';
 import { RunStatusPill } from '../components/run-status-pill.tsx';
 import { WorkflowGraph } from '../components/workflow-graph.tsx';
@@ -141,6 +144,14 @@ export function WorkflowRunPage({ runId }: WorkflowRunPageProps) {
 
   const run = runQuery.data;
   const myApproval = approvalsQuery.data?.find((a) => a.runId === runId) ?? null;
+  const fallbackPayload = cardFromSnapshot(snapshotQuery.data);
+  const resolvedPayload = myApproval?.proposedPayload ?? fallbackPayload;
+  const toolId = cardToolId(resolvedPayload);
+  const isPmoApprovalCard = typeof toolId === 'string' && toolId.startsWith('pmo_');
+  const hostApproval: WorkflowApprovalRow | null =
+    myApproval && resolvedPayload !== myApproval.proposedPayload
+      ? ({ ...myApproval, proposedPayload: resolvedPayload } as WorkflowApprovalRow)
+      : myApproval;
   const terminal = TERMINAL.has(run.status);
 
   return (
@@ -181,18 +192,28 @@ export function WorkflowRunPage({ runId }: WorkflowRunPageProps) {
           {run.status === 'paused' && myApproval ? (
             <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-4">
               <div className="pointer-events-auto w-full max-w-xl">
-                <HitlApprovalCard
-                  approval={myApproval}
-                  // Snapshot fallback: legacy approval rows have empty
-                  // proposed_payload because the adapter wasn't extracting the
-                  // suspend payload. The Mastra snapshot still has the full card
-                  // under .result.suspendPayload (and .context[step].suspendPayload),
-                  // so the UI can recover the candidate list from there.
-                  proposedPayloadFallback={cardFromSnapshot(snapshotQuery.data)}
-                  canAct
-                  pending={decide.isPending}
-                  onDecide={(args) => decide.mutate({ approvalId: myApproval.approvalId, ...args })}
-                />
+                {isPmoApprovalCard && hostApproval ? (
+                  <HitlCardHost
+                    approval={hostApproval}
+                    canAct
+                    threadId={hostApproval.surfaceChatThreadId ?? undefined}
+                  />
+                ) : (
+                  <HitlApprovalCard
+                    approval={myApproval}
+                    // Snapshot fallback: legacy approval rows have empty
+                    // proposed_payload because the adapter wasn't extracting the
+                    // suspend payload. The Mastra snapshot still has the full card
+                    // under .result.suspendPayload (and .context[step].suspendPayload),
+                    // so the UI can recover the candidate list from there.
+                    proposedPayloadFallback={fallbackPayload}
+                    canAct
+                    pending={decide.isPending}
+                    onDecide={(args) =>
+                      decide.mutate({ approvalId: myApproval.approvalId, ...args })
+                    }
+                  />
+                )}
               </div>
             </div>
           ) : null}

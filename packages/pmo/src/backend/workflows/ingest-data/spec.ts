@@ -2,6 +2,7 @@ import { createStep } from '@mastra/core/workflows';
 import { createWorkflow } from '@mastra/core/workflows/evented';
 import type { WorkflowSpec } from '@seta/agent-sdk';
 import type { z } from 'zod';
+import { PMO_CANONICAL_SCHEMA } from '../../ingestion/canonical-schema.ts';
 import { detectSchema } from '../../ingestion/detect-schema.ts';
 import { normalizeRows } from '../../ingestion/normalize-rows.ts';
 import { parseWorkbook } from '../../ingestion/parse-workbook.ts';
@@ -13,7 +14,12 @@ import {
   type StagedRow,
   shouldBlockDuplicateInUpload,
 } from '../../ingestion/stage-changes.ts';
-import { buildMappingReviewCard, buildPublishReviewCard } from './cards.ts';
+import {
+  buildMappingItemReviewCard,
+  buildPublishReviewCard,
+  collectMappingReviewItems,
+} from './cards.ts';
+import { shouldBlockPublishApprove } from './review-gates.ts';
 import {
   ConfirmOutputSchema,
   DetectOutputSchema,
@@ -25,6 +31,20 @@ import {
   PublishReviewCardSchema,
   StagingOutputSchema,
 } from './schemas.ts';
+
+type BlockingIssue = z.infer<typeof StagingOutputSchema>['blockingIssues'][number];
+
+const REQUIRED_FIELDS_BY_TABLE = new Map<string, string[]>(
+  PMO_CANONICAL_SCHEMA.tables.map((table) => [
+    table.id,
+    table.fields.filter((field) => field.required).map((field) => field.name),
+  ]),
+);
+
+function isMissingRequiredValue(value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  return typeof value === 'string' && value.trim() === '';
+}
 
 function resolveCardIdentity(requestContext: { get: (key: string) => unknown }): {
   tenantId: string;
@@ -87,8 +107,10 @@ const confirmMappingStep = createStep({
   suspendSchema: MappingCardSchema,
   resumeSchema: MappingDecisionSchema,
   execute: async ({ inputData, resumeData, suspend, requestContext, runId }) => {
+    const reviewItems = collectMappingReviewItems(inputData.tableMappings);
+
     if (!resumeData) {
-      if (inputData.validationStatus === 'confirmed') {
+      if (inputData.validationStatus === 'confirmed' || reviewItems.length === 0) {
         return {
           ingestionSessionId: inputData.ingestionSessionId,
           fileKey: inputData.fileKey,
@@ -96,14 +118,19 @@ const confirmMappingStep = createStep({
         };
       }
 
-      const allowApprove = inputData.validationStatus !== 'blocked';
+      const firstItem = reviewItems[0];
+      if (!firstItem) {
+        throw new Error('mapping_review_items_empty');
+      }
+
       return suspend(
-        buildMappingReviewCard({
+        buildMappingItemReviewCard({
           ingestionSessionId: inputData.ingestionSessionId,
           workbookConfidence: inputData.workbookConfidence,
           validationStatus: inputData.validationStatus,
-          tableMappings: inputData.tableMappings,
-          allowApprove,
+          reviewItems,
+          approvedItemIds: [],
+          currentItemId: firstItem.id,
           identity: resolveCardIdentity(requestContext),
           toolCallId: `workflow:${runId}:pmo_confirmMapping`,
         }),
@@ -113,8 +140,34 @@ const confirmMappingStep = createStep({
     if (resumeData.decision === 'reject') {
       throw new Error('rejected_by_user');
     }
-    if (inputData.validationStatus === 'blocked') {
-      throw new Error('cannot_approve_blocked_mapping');
+
+    const validIds = new Set(reviewItems.map((item) => item.id));
+    const approved = new Set<string>();
+    for (const id of resumeData.approvedItemKeys ?? []) {
+      if (validIds.has(id)) approved.add(id);
+    }
+    if (resumeData.approvedItemKey && validIds.has(resumeData.approvedItemKey)) {
+      approved.add(resumeData.approvedItemKey);
+    }
+
+    if (reviewItems.length > 0 && approved.size < reviewItems.length) {
+      const nextItem = reviewItems.find((item) => !approved.has(item.id));
+      if (!nextItem) {
+        throw new Error('next_mapping_item_not_found');
+      }
+
+      return suspend(
+        buildMappingItemReviewCard({
+          ingestionSessionId: inputData.ingestionSessionId,
+          workbookConfidence: inputData.workbookConfidence,
+          validationStatus: inputData.validationStatus,
+          reviewItems,
+          approvedItemIds: [...approved],
+          currentItemId: nextItem.id,
+          identity: resolveCardIdentity(requestContext),
+          toolCallId: `workflow:${runId}:pmo_confirmMapping`,
+        }),
+      );
     }
 
     return {
@@ -159,6 +212,13 @@ const normalizeToStagingStep = createStep({
       })),
     }));
     const normResult = normalizeRows(parseResult.sheets, tableMappings);
+    const blockingIssueMap = new Map<string, BlockingIssue>();
+    const addBlockingIssue = (issue: BlockingIssue): void => {
+      const key = `${issue.tableId}|${issue.sourceRow}|${issue.field}|${issue.reason}`;
+      if (blockingIssueMap.has(key)) return;
+      if (blockingIssueMap.size >= 200) return;
+      blockingIssueMap.set(key, issue);
+    };
 
     const { pmoDb } = await import('../../db/client.ts');
     const {
@@ -212,12 +272,41 @@ const normalizeToStagingStep = createStep({
     }> = [];
 
     for (const [tableId, rows] of Object.entries(normResult.tables)) {
+      const requiredFields = REQUIRED_FIELDS_BY_TABLE.get(tableId) ?? [];
+      for (const row of rows) {
+        for (const parseError of row.parseErrors) {
+          addBlockingIssue({
+            tableId,
+            sourceRow: row.sourceRow,
+            field: parseError.field,
+            reason: parseError.error,
+          });
+        }
+
+        for (const field of requiredFields) {
+          if (!isMissingRequiredValue(row.values[field])) continue;
+          addBlockingIssue({
+            tableId,
+            sourceRow: row.sourceRow,
+            field,
+            reason: 'required value missing after normalization',
+          });
+        }
+      }
+
       const processedRows = tableId === 'timesheet' ? aggregateTimesheetRows(tenantId, rows) : rows;
 
       let activeRecords: ActiveRecord[] = [];
       const tableSchema = tableToSchema[tableId];
       if (tableSchema) {
-        const results = await (db as never as { select: Function })
+        const dynamicDb = db as unknown as {
+          select: (fields: Record<string, unknown>) => {
+            from: (table: unknown) => {
+              where: (condition: unknown) => Promise<unknown>;
+            };
+          };
+        };
+        const results = await dynamicDb
           .select({
             natural_key_hash: (tableSchema as { natural_key_hash: unknown }).natural_key_hash,
             source_row_hash: (tableSchema as { source_row_hash: unknown }).source_row_hash,
@@ -282,12 +371,16 @@ const normalizeToStagingStep = createStep({
         t.counts.updated_records > 0 ||
         (t.counts.duplicates_in_upload > 0 && shouldBlockDuplicateInUpload(t.tableId)),
     );
+    const blockingIssues = [...blockingIssueMap.values()];
+    const hasBlockingIssues = blockingIssues.length > 0;
 
     return {
       ingestionSessionId: sessionId,
       changeSummary: changeSummary as z.infer<typeof StagingOutputSchema>['changeSummary'],
+      blockingIssues,
+      hasBlockingIssues,
       hasUpdates,
-      requiresReview: hasUpdates,
+      requiresReview: hasUpdates || hasBlockingIssues,
     };
   },
 });
@@ -314,14 +407,16 @@ const reviewChangesStep = createStep({
         };
       }
 
-      const hasDuplicatesInUpload = inputData.changeSummary.some(
-        (t) => t.counts.duplicates_in_upload > 0,
-      );
+      const blockedByReviewGate = shouldBlockPublishApprove({
+        changeSummary: inputData.changeSummary,
+        hasBlockingIssues: inputData.hasBlockingIssues,
+      });
       return suspend(
         buildPublishReviewCard({
           ingestionSessionId: inputData.ingestionSessionId,
           changeSummary: inputData.changeSummary,
-          allowApprove: !hasDuplicatesInUpload,
+          blockingIssues: inputData.blockingIssues,
+          allowApprove: !blockedByReviewGate,
           identity: resolveCardIdentity(requestContext),
           toolCallId: `workflow:${runId}:pmo_confirmPublish`,
         }),
@@ -338,10 +433,11 @@ const reviewChangesStep = createStep({
       };
     }
 
-    const hasDuplicatesInUpload = inputData.changeSummary.some(
-      (t) => t.counts.duplicates_in_upload > 0,
-    );
-    if (hasDuplicatesInUpload) {
+    const blockedByReviewGate = shouldBlockPublishApprove({
+      changeSummary: inputData.changeSummary,
+      hasBlockingIssues: inputData.hasBlockingIssues,
+    });
+    if (blockedByReviewGate) {
       throw new Error('cannot_approve_blocked_publish');
     }
 

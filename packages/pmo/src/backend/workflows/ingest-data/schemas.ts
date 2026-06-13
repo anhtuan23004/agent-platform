@@ -31,14 +31,6 @@ const TableMappingSchema = z.object({
   ambiguous: z.array(z.string()),
 });
 
-const ValidationIssueSchema = z.object({
-  severity: z.enum(['error', 'warning', 'info']),
-  tableId: z.string(),
-  field: z.string().nullable(),
-  code: z.string(),
-  message: z.string(),
-});
-
 // ── Step outputs ─────────────────────────────────────────────────────────────
 
 export const DetectOutputSchema = z.object({
@@ -55,6 +47,8 @@ export const MappingCardSchema = ApprovalCardSchema;
 
 export const MappingDecisionSchema = z.object({
   decision: z.enum(['approve', 'reject']),
+  approvedItemKey: z.string().optional(),
+  approvedItemKeys: z.array(z.string()).optional(),
   note: z.string().optional(),
 });
 
@@ -92,9 +86,18 @@ const ChangeSummaryTableSchema = z.object({
   ),
 });
 
+const BlockingIssueSchema = z.object({
+  tableId: z.string(),
+  sourceRow: z.number().int().positive(),
+  field: z.string(),
+  reason: z.string(),
+});
+
 export const StagingOutputSchema = z.object({
   ingestionSessionId: z.string().uuid(),
   changeSummary: z.array(ChangeSummaryTableSchema),
+  blockingIssues: z.array(BlockingIssueSchema).default([]),
+  hasBlockingIssues: z.boolean(),
   hasUpdates: z.boolean(),
   requiresReview: z.boolean(),
 });

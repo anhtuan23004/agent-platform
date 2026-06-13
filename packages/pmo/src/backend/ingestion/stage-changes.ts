@@ -99,8 +99,7 @@ export function classifyRows(
   const seenInUpload = new Map<string, number>(); // hash → first index
   const staged: StagedRow[] = [];
 
-  for (let i = 0; i < normalizedRows.length; i++) {
-    const row = normalizedRows[i]!;
+  for (const [i, row] of normalizedRows.entries()) {
     const naturalKeyHash = computeNaturalKeyHash(tableId, tenantId, row.values);
     const sourceRowHash = computeSourceRowHash(tableId, row.values);
 
