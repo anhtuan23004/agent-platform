@@ -23,7 +23,7 @@ function kvTables(details: unknown[]): KvTableBlock[] {
 
 describe('PMO ingest review cards', () => {
   it('builds mapping item card with per-item approve progress', () => {
-    const reviewItems = collectMappingReviewItems([
+    const tableMappings = [
       {
         tableId: 'resource_allocation',
         sourceSheet: 'DS01',
@@ -40,7 +40,8 @@ describe('PMO ingest review cards', () => {
         unmappedRequired: ['start_date'],
         ambiguous: ['end_date'],
       },
-    ]);
+    ] satisfies Parameters<typeof collectMappingReviewItems>[0];
+    const reviewItems = collectMappingReviewItems(tableMappings);
 
     expect(reviewItems).toHaveLength(3);
 
@@ -48,6 +49,7 @@ describe('PMO ingest review cards', () => {
       ingestionSessionId: 'f56e9152-7856-44e9-b2d7-4f21d86cdffd',
       workbookConfidence: 0.87,
       validationStatus: 'needs_review',
+      tableMappings,
       reviewItems,
       approvedItemIds: [reviewItems[0]!.id],
       approvedByByItemKey: { [reviewItems[0]!.id]: 'user-1' },
@@ -74,7 +76,7 @@ describe('PMO ingest review cards', () => {
   });
 
   it('emits mapping alternates for direct modify flow', () => {
-    const reviewItems = collectMappingReviewItems([
+    const tableMappings = [
       {
         tableId: 'overbook_idle_config',
         sourceSheet: 'Config',
@@ -95,12 +97,14 @@ describe('PMO ingest review cards', () => {
         unmappedRequired: [],
         ambiguous: [],
       },
-    ]);
+    ] satisfies Parameters<typeof collectMappingReviewItems>[0];
+    const reviewItems = collectMappingReviewItems(tableMappings);
 
     const card = buildMappingItemReviewCard({
       ingestionSessionId: 'f56e9152-7856-44e9-b2d7-4f21d86cdffd',
       workbookConfidence: 0.91,
       validationStatus: 'needs_review',
+      tableMappings,
       reviewItems,
       approvedItemIds: [],
       approvedByByItemKey: {},
@@ -122,8 +126,72 @@ describe('PMO ingest review cards', () => {
     });
   });
 
+  it('includes auto_accept mappings in list with modify-only action', () => {
+    const tableMappings = [
+      {
+        tableId: 'resource_allocation',
+        sourceSheet: 'DS01',
+        headerRow: 1,
+        tableConfidence: 0.9,
+        mappings: [
+          {
+            sourceColumn: 'Member ID',
+            canonicalField: 'member_id',
+            confidence: 0.98,
+            status: 'auto_accept',
+            candidates: [
+              { sourceColumn: 'Member ID', confidence: 0.98, blocked: false },
+              { sourceColumn: 'MemberId', confidence: 0.91, blocked: false },
+            ],
+          },
+          {
+            sourceColumn: 'Role',
+            canonicalField: 'role',
+            confidence: 0.74,
+            status: 'needs_review',
+            candidates: [
+              { sourceColumn: 'Role', confidence: 0.74, blocked: false },
+              { sourceColumn: 'Role Name', confidence: 0.69, blocked: false },
+            ],
+          },
+        ],
+        unmappedRequired: [],
+        ambiguous: [],
+      },
+    ] satisfies Parameters<typeof collectMappingReviewItems>[0];
+    const reviewItems = collectMappingReviewItems(tableMappings);
+
+    const card = buildMappingItemReviewCard({
+      ingestionSessionId: 'f56e9152-7856-44e9-b2d7-4f21d86cdffd',
+      workbookConfidence: 0.91,
+      validationStatus: 'needs_review',
+      tableMappings,
+      reviewItems,
+      approvedItemIds: [],
+      approvedByByItemKey: {},
+      mappingOverrides: [],
+      currentItemId: reviewItems[0]!.id,
+      identity: { tenantId: 'tenant-1', userId: 'user-1' },
+      toolCallId: 'workflow:test:pmo_confirmMapping',
+    });
+
+    const tables = kvTables(card.details as unknown[]);
+    const progressRows = tables[tables.length - 1]?.rows ?? [];
+    const autoRow = progressRows.find((row) => row.k === 'resource_allocation.member_id');
+
+    expect(autoRow?.v).toContain('auto_accept');
+    expect(autoRow?.v).toContain('modify_only');
+    expect(
+      card.alternates.some(
+        (alternate) =>
+          (alternate.argsPatch?.mappingOverride as { field?: string } | undefined)?.field ===
+          'member_id',
+      ),
+    ).toBe(true);
+  });
+
   it('builds final next-step gate card after all mapping items are approved', () => {
-    const reviewItems = collectMappingReviewItems([
+    const tableMappings = [
       {
         tableId: 'resource_allocation',
         sourceSheet: 'DS01',
@@ -140,13 +208,15 @@ describe('PMO ingest review cards', () => {
         unmappedRequired: [],
         ambiguous: [],
       },
-    ]);
+    ] satisfies Parameters<typeof collectMappingReviewItems>[0];
+    const reviewItems = collectMappingReviewItems(tableMappings);
 
     const itemId = reviewItems[0]!.id;
     const card = buildMappingItemReviewCard({
       ingestionSessionId: 'f56e9152-7856-44e9-b2d7-4f21d86cdffd',
       workbookConfidence: 0.91,
       validationStatus: 'needs_review',
+      tableMappings,
       reviewItems,
       approvedItemIds: [itemId],
       approvedByByItemKey: { [itemId]: 'user-1' },

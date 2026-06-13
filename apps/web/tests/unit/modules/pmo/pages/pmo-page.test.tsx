@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@tanstack/react-router', () => ({
@@ -406,6 +406,379 @@ describe('PmoPage', () => {
       expect(screen.getByText('Review column mappings')).toBeInTheDocument();
       expect(screen.getAllByRole('button', { name: 'Approve' }).length).toBeGreaterThan(0);
       expect(screen.getByRole('button', { name: 'Next step' })).toBeDisabled();
+    });
+  });
+
+  it('groups mapping rows by sheet and renders modify-only action for auto_accept rows', async () => {
+    const fetchMock = createFetchMock({
+      runRows: [
+        makeRunRow({
+          runId: 'run-mapping-grouped',
+          status: 'paused',
+          inputSummary: {
+            ingestionSessionId: '629d3033-67df-4d5b-a270-77d690c43c13',
+            fileKey: 'tenant/pmo/session/pmo_2025-w35.xlsx',
+            reportingPeriodKey: '2026-W24',
+          },
+        }),
+      ],
+      pendingApprovals: [
+        {
+          approvalId: 'approval-mapping-grouped',
+          runId: 'run-mapping-grouped',
+          stepId: 'confirmMapping',
+          proposedPayload: {
+            toolCallId: 'workflow:run-mapping-grouped:pmo_confirmMapping',
+            intent: 'Approve mapping item',
+            riskBadge: 'write',
+            summary: 'Review mapping item 1/1. Approve each item to continue.',
+            details: [
+              {
+                kind: 'kvTable',
+                rows: [
+                  { k: 'Ingestion session', v: '889fca56-3ad8-432a-be92-27d4ab1ea1d5' },
+                  { k: 'Validation status', v: 'needs_review' },
+                  { k: 'Workbook confidence', v: '95.0%' },
+                  { k: 'Approved items', v: '0/1' },
+                ],
+              },
+              {
+                kind: 'kvTable',
+                rows: [
+                  { k: 'Issue type', v: 'needs_review' },
+                  { k: 'Table', v: 'resource_allocation' },
+                  { k: 'Sheet', v: 'DS01' },
+                  { k: 'Field', v: 'role' },
+                  { k: 'Source column', v: 'Role' },
+                  { k: 'Confidence', v: '75.0%' },
+                  { k: 'Issue', v: 'needs_review <- Role (75.0%)' },
+                ],
+              },
+              {
+                kind: 'kvTable',
+                rows: [
+                  {
+                    k: 'resource_allocation.member_id',
+                    v: 'approved | auto_accept | Account_ID | 97.0% | - | DS01 | modify_only',
+                  },
+                  {
+                    k: 'resource_allocation.role',
+                    v: 'current review | needs_review | Role | 75.0% | - | DS01 | approve_and_modify',
+                  },
+                ],
+              },
+            ],
+            primary: {
+              label: 'Approve item 1/1',
+              argsPatch: {
+                decision: 'approve',
+                approvedItemKey: 'resource_allocation|mapping|role|Role|needs_review',
+                approvedItemKeys: [],
+                mappingOverrides: [],
+              },
+            },
+            alternates: [
+              {
+                label: 'Use DS01.AccountId for resource_allocation.member_id',
+                argsPatch: {
+                  decision: 'modify',
+                  approvedItemKeys: [],
+                  mappingOverride: {
+                    tableId: 'resource_allocation',
+                    field: 'member_id',
+                    sourceColumn: 'AccountId',
+                    confidence: 0.91,
+                    blocked: false,
+                  },
+                  mappingOverrides: [
+                    {
+                      tableId: 'resource_allocation',
+                      field: 'member_id',
+                      sourceColumn: 'AccountId',
+                      confidence: 0.91,
+                      blocked: false,
+                    },
+                  ],
+                },
+              },
+            ],
+            decline: { label: 'Reject upload', argsPatch: { decision: 'reject' } },
+            meta: {
+              tenantId: '11111111-1111-4111-8111-111111111111',
+              userId: '22222222-2222-4222-8222-222222222222',
+              agentPath: ['supervisor', 'work', 'pmo'],
+              toolId: 'pmo_confirmMapping',
+              ts: '2026-06-13T08:00:00.000Z',
+            },
+          },
+          approverUserId: '22222222-2222-4222-8222-222222222222',
+          surfaceCanvas: true,
+          surfaceChatThreadId: null,
+          agentic: false,
+          expiresAt: '2099-01-01T00:00:00.000Z',
+          createdAt: '2026-06-13T08:00:00.000Z',
+        },
+      ],
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(withQuery(<PmoPage />));
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/Needs review/i).length).toBeGreaterThan(0);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Review now' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Sheet: DS01')).toBeInTheDocument();
+    });
+
+    const autoRow = screen.getByText('Account_ID').closest('tr');
+    expect(autoRow).not.toBeNull();
+    if (!autoRow) throw new Error('Expected auto_accept row to exist');
+
+    expect(within(autoRow).queryByRole('button', { name: 'Approve' })).toBeNull();
+    expect(within(autoRow).getByRole('button', { name: 'Modify' })).toBeInTheDocument();
+  });
+
+  it('keeps selected run when another run has pending approvals', async () => {
+    const fetchMock = createFetchMock({
+      runRows: [
+        makeRunRow({
+          runId: 'run-summary',
+          status: 'running',
+          startedAt: '2026-06-14T10:00:00.000Z',
+          inputSummary: {
+            ingestionSessionId: '11111111-1111-4111-8111-111111111111',
+            fileKey: 'tenant/pmo/session/summary.xlsx',
+            reportingPeriodKey: '2026-W24',
+          },
+          latestApprovalKind: null,
+        }),
+        makeRunRow({
+          runId: 'run-pending',
+          status: 'paused',
+          startedAt: '2026-06-14T09:00:00.000Z',
+          inputSummary: {
+            ingestionSessionId: '22222222-2222-4222-8222-222222222222',
+            fileKey: 'tenant/pmo/session/pending.xlsx',
+            reportingPeriodKey: '2026-W24',
+          },
+        }),
+      ],
+      pendingApprovals: [
+        {
+          approvalId: 'approval-pending-1',
+          runId: 'run-pending',
+          stepId: 'confirmMapping',
+          proposedPayload: {
+            toolCallId: 'workflow:run-pending:pmo_confirmMapping',
+            intent: 'Approve mapping item',
+            riskBadge: 'write',
+            summary: 'Review mapping item 1/1. Approve each item to continue.',
+            details: [
+              {
+                kind: 'kvTable',
+                rows: [
+                  { k: 'Ingestion session', v: '889fca56-3ad8-432a-be92-27d4ab1ea1d5' },
+                  { k: 'Validation status', v: 'needs_review' },
+                  { k: 'Workbook confidence', v: '95.0%' },
+                  { k: 'Approved items', v: '0/1' },
+                ],
+              },
+              {
+                kind: 'kvTable',
+                rows: [
+                  { k: 'Issue type', v: 'needs_review' },
+                  { k: 'Table', v: 'overbook_idle_config' },
+                  { k: 'Field', v: 'overbook_threshold' },
+                  { k: 'Source column', v: 'Overbook_threshold' },
+                ],
+              },
+              {
+                kind: 'kvTable',
+                rows: [
+                  {
+                    k: 'overbook_idle_config.overbook_threshold',
+                    v: 'current review | needs_review | Overbook_threshold | 94.0% | -',
+                  },
+                ],
+              },
+            ],
+            primary: {
+              label: 'Approve item 1/1',
+              argsPatch: {
+                decision: 'approve',
+                approvedItemKey:
+                  'overbook_idle_config|mapping|overbook_threshold|Overbook_threshold|needs_review',
+                approvedItemKeys: [],
+              },
+            },
+            alternates: [],
+            decline: { label: 'Reject upload', argsPatch: { decision: 'reject' } },
+            meta: {
+              tenantId: '11111111-1111-4111-8111-111111111111',
+              userId: '22222222-2222-4222-8222-222222222222',
+              agentPath: ['supervisor', 'work', 'pmo'],
+              toolId: 'pmo_confirmMapping',
+              ts: '2026-06-13T08:00:00.000Z',
+            },
+          },
+          approverUserId: '22222222-2222-4222-8222-222222222222',
+          surfaceCanvas: true,
+          surfaceChatThreadId: null,
+          agentic: false,
+          expiresAt: '2099-01-01T00:00:00.000Z',
+          createdAt: '2026-06-13T08:00:00.000Z',
+        },
+      ],
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(withQuery(<PmoPage />));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Review now' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'View' })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'View' }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          'Summary view is available after mapping and DB review approvals are completed.',
+        ),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it('prioritizes db stage when run has both mapping and db approvals', async () => {
+    const fetchMock = createFetchMock({
+      runRows: [
+        makeRunRow({
+          runId: 'run-db-priority',
+          status: 'paused',
+          inputSummary: {
+            ingestionSessionId: '629d3033-67df-4d5b-a270-77d690c43c13',
+            fileKey: 'tenant/pmo/session/pmo_2025-w35.xlsx',
+            reportingPeriodKey: '2026-W24',
+          },
+        }),
+      ],
+      pendingApprovals: [
+        {
+          approvalId: 'approval-mapping-stale',
+          runId: 'run-db-priority',
+          stepId: 'confirmMapping',
+          proposedPayload: {
+            toolCallId: 'workflow:run-db-priority:pmo_confirmMapping',
+            intent: 'Approve mapping item',
+            riskBadge: 'write',
+            summary: 'Review mapping item 1/1. Approve each item to continue.',
+            details: [
+              {
+                kind: 'kvTable',
+                rows: [{ k: 'Approved items', v: '0/1' }],
+              },
+              {
+                kind: 'kvTable',
+                rows: [
+                  { k: 'Table', v: 'overbook_idle_config' },
+                  { k: 'Field', v: 'overbook_threshold' },
+                ],
+              },
+              {
+                kind: 'kvTable',
+                rows: [
+                  {
+                    k: 'overbook_idle_config.overbook_threshold',
+                    v: 'current review | needs_review | Overbook_threshold | 94.0% | -',
+                  },
+                ],
+              },
+            ],
+            primary: {
+              label: 'Approve item 1/1',
+              argsPatch: { decision: 'approve' },
+            },
+            alternates: [],
+            decline: { label: 'Reject upload', argsPatch: { decision: 'reject' } },
+            meta: {
+              tenantId: '11111111-1111-4111-8111-111111111111',
+              userId: '22222222-2222-4222-8222-222222222222',
+              agentPath: ['supervisor', 'work', 'pmo'],
+              toolId: 'pmo_confirmMapping',
+              ts: '2026-06-13T08:00:00.000Z',
+            },
+          },
+          approverUserId: '22222222-2222-4222-8222-222222222222',
+          surfaceCanvas: true,
+          surfaceChatThreadId: null,
+          agentic: false,
+          expiresAt: '2099-01-01T00:00:00.000Z',
+          createdAt: '2026-06-13T08:00:00.000Z',
+        },
+        {
+          approvalId: 'approval-db-current',
+          runId: 'run-db-priority',
+          stepId: 'pmo.ingest.reviewChanges',
+          proposedPayload: {
+            toolCallId: 'workflow:run-db-priority:pmo_confirmPublish',
+            intent: 'Review staging changes before publish',
+            riskBadge: 'write',
+            summary: 'Ready to publish 1200 effective change(s).',
+            details: [
+              {
+                kind: 'kvTable',
+                rows: [
+                  { k: 'Rows to upsert', v: '11' },
+                  { k: 'Rows to skip', v: '1' },
+                  { k: 'New rows', v: '8' },
+                  { k: 'Updated rows', v: '3' },
+                  { k: 'Exact duplicates', v: '0' },
+                  { k: 'Duplicates in upload', v: '1' },
+                  { k: 'Blocking issues', v: '0' },
+                ],
+              },
+              {
+                kind: 'kvTable',
+                rows: [
+                  {
+                    k: 'resource_allocation',
+                    v: 'upsert=11 | skip=1 | new=8 | updated=3 | exact_dup=0 | dup_in_upload=1',
+                  },
+                ],
+              },
+            ],
+            primary: { label: 'Approve publish', argsPatch: { decision: 'approve' } },
+            alternates: [],
+            decline: { label: 'Reject publish', argsPatch: { decision: 'reject' } },
+            meta: {
+              tenantId: '11111111-1111-4111-8111-111111111111',
+              userId: '22222222-2222-4222-8222-222222222222',
+              agentPath: ['supervisor', 'work', 'pmo'],
+              toolId: 'pmo_confirmPublish',
+              ts: '2026-06-13T08:00:00.000Z',
+            },
+          },
+          approverUserId: '22222222-2222-4222-8222-222222222222',
+          surfaceCanvas: true,
+          surfaceChatThreadId: null,
+          agentic: false,
+          expiresAt: '2099-01-01T00:00:00.000Z',
+          createdAt: '2026-06-13T08:00:01.000Z',
+        },
+      ],
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(withQuery(<PmoPage />));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /DB changes/i })).toBeEnabled();
+      expect(screen.getAllByText('Review changes').length).toBeGreaterThan(0);
     });
   });
 

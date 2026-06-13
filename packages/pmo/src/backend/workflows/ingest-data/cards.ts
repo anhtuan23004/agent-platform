@@ -47,10 +47,22 @@ export interface MappingReviewItem {
   note: string;
 }
 
+export interface MappingDisplayItem {
+  tableId: string;
+  sourceSheet: string;
+  field: string;
+  issueType: MappingReviewItem['issueType'] | 'auto_accept';
+  sourceColumn?: string;
+  confidence?: number;
+  candidates: MappingCandidateOption[];
+  reviewItemId: string | null;
+}
+
 interface MappingItemCardInput {
   ingestionSessionId: string;
   workbookConfidence: number;
   validationStatus: 'confirmed' | 'needs_review' | 'blocked';
+  tableMappings: TableMapping[];
   reviewItems: MappingReviewItem[];
   approvedItemIds: string[];
   approvedByByItemKey: Record<string, string>;
@@ -189,6 +201,7 @@ function mergeMappingOverrides(overrides: MappingOverride[]): MappingOverride[] 
 }
 
 interface BuildMappingReviewRowsInput {
+  displayItems: MappingDisplayItem[];
   reviewItems: MappingReviewItem[];
   approvedItemIds: string[];
   approvedByByItemKey: Record<string, string>;
@@ -199,24 +212,34 @@ interface BuildMappingReviewRowsInput {
 
 export function buildMappingReviewRows(input: BuildMappingReviewRowsInput): KvRow[] {
   const approvedSet = new Set(input.approvedItemIds);
+  const reviewByKey = new Map<string, MappingReviewItem>();
+  for (const reviewItem of input.reviewItems) {
+    reviewByKey.set(reviewItemKey(reviewItem), reviewItem);
+  }
 
-  return input.reviewItems.map((item) => {
-    const isApproved = approvedSet.has(item.id);
+  return input.displayItems.map((item) => {
+    const reviewItem = reviewByKey.get(reviewItemKey(item));
+    const reviewItemId = reviewItem?.id ?? item.reviewItemId;
+    const isReviewItem = reviewItemId !== null;
+    const isApproved = isReviewItem ? approvedSet.has(reviewItemId) : true;
     const isCurrent =
       !input.awaitingNextStep &&
+      isReviewItem &&
       !isApproved &&
       input.currentItemId !== null &&
-      item.id === input.currentItemId;
+      reviewItemId === input.currentItemId;
     const state = isApproved ? 'approved' : isCurrent ? 'current review' : 'pending review';
     const sourceColumn = item.sourceColumn ?? '-';
     const confidence = typeof item.confidence === 'number' ? percent(item.confidence) : '-';
-    const approvedBy = isApproved
-      ? (input.approvedByByItemKey[item.id] ?? input.fallbackApprovedBy)
-      : '-';
+    const approvedBy =
+      isReviewItem && isApproved
+        ? (input.approvedByByItemKey[reviewItemId] ?? input.fallbackApprovedBy)
+        : '-';
+    const actionType = isReviewItem ? 'approve_and_modify' : 'modify_only';
 
     return {
       k: `${item.tableId}.${item.field}`,
-      v: `${state} | ${item.issueType} | ${sourceColumn} | ${confidence} | ${approvedBy}`,
+      v: `${state} | ${item.issueType} | ${sourceColumn} | ${confidence} | ${approvedBy} | ${item.sourceSheet} | ${actionType}`,
     };
   });
 }
@@ -319,6 +342,73 @@ export function collectMappingReviewItems(tableMappings: TableMapping[]): Mappin
   return out;
 }
 
+function compareDisplayItems(a: MappingDisplayItem, b: MappingDisplayItem): number {
+  if (a.sourceSheet !== b.sourceSheet) return a.sourceSheet.localeCompare(b.sourceSheet);
+  if (a.tableId !== b.tableId) return a.tableId.localeCompare(b.tableId);
+  return a.field.localeCompare(b.field);
+}
+
+function reviewItemToDisplayItem(item: MappingReviewItem): MappingDisplayItem {
+  return {
+    tableId: item.tableId,
+    sourceSheet: item.sourceSheet,
+    field: item.field,
+    issueType: item.issueType,
+    sourceColumn: item.sourceColumn,
+    confidence: item.confidence,
+    candidates: item.candidates,
+    reviewItemId: item.id,
+  };
+}
+
+export function collectMappingDisplayItems(
+  tableMappings: TableMapping[],
+  reviewItems: MappingReviewItem[],
+): MappingDisplayItem[] {
+  const reviewByKey = new Map<string, MappingReviewItem>();
+  for (const reviewItem of reviewItems) {
+    reviewByKey.set(reviewItemKey(reviewItem), reviewItem);
+  }
+
+  const out: MappingDisplayItem[] = [];
+  const seenKeys = new Set<string>();
+
+  for (const table of tableMappings) {
+    for (const mapping of table.mappings) {
+      const key = reviewItemKey({ tableId: table.tableId, field: mapping.canonicalField });
+      if (seenKeys.has(key)) continue;
+
+      const mergedReviewItem = reviewByKey.get(key);
+      if (mergedReviewItem) {
+        seenKeys.add(key);
+        out.push(reviewItemToDisplayItem(mergedReviewItem));
+        continue;
+      }
+
+      seenKeys.add(key);
+      out.push({
+        tableId: table.tableId,
+        sourceSheet: table.sourceSheet,
+        field: mapping.canonicalField,
+        issueType: 'auto_accept',
+        sourceColumn: mapping.sourceColumn,
+        confidence: mapping.confidence,
+        candidates: [...(mapping.candidates ?? [])].sort((a, b) => b.confidence - a.confidence),
+        reviewItemId: null,
+      });
+    }
+  }
+
+  for (const reviewItem of reviewItems) {
+    const key = reviewItemKey(reviewItem);
+    if (seenKeys.has(key)) continue;
+    seenKeys.add(key);
+    out.push(reviewItemToDisplayItem(reviewItem));
+  }
+
+  return out.sort(compareDisplayItems);
+}
+
 export function buildMappingItemReviewCard(input: MappingItemCardInput): ApprovalCard {
   const totalItems = input.reviewItems.length;
   const safeApproved = input.approvedItemIds.filter((id) =>
@@ -340,35 +430,38 @@ export function buildMappingItemReviewCard(input: MappingItemCardInput): Approva
   const approvedCount = safeApproved.length;
   const itemOrdinal = Math.min(approvedCount + 1, Math.max(totalItems, 1));
   const safeOverrides = mergeMappingOverrides(input.mappingOverrides);
+  const displayItems = collectMappingDisplayItems(input.tableMappings, input.reviewItems);
   const summary = awaitingNextStep
     ? 'All mapping items are approved. Click Next step to continue to DB changes review.'
     : `Review mapping item ${itemOrdinal}/${totalItems}. Approve each item to continue.`;
-  const alternateCandidates = awaitingNextStep
+  const alternates = awaitingNextStep
     ? []
-    : currentItem.candidates.filter(
-        (candidate) => candidate.sourceColumn !== currentItem.sourceColumn,
-      );
+    : displayItems.flatMap((item) => {
+        const candidates = item.candidates.filter(
+          (candidate) => candidate.sourceColumn !== item.sourceColumn,
+        );
 
-  const alternates = alternateCandidates.map((candidate) => {
-    const override: MappingOverride = {
-      tableId: currentItem.tableId,
-      field: currentItem.field,
-      sourceColumn: candidate.sourceColumn,
-      confidence: candidate.confidence,
-      blocked: candidate.blocked,
-    };
+        return candidates.map((candidate) => {
+          const override: MappingOverride = {
+            tableId: item.tableId,
+            field: item.field,
+            sourceColumn: candidate.sourceColumn,
+            confidence: candidate.confidence,
+            blocked: candidate.blocked,
+          };
 
-    return {
-      label: `Use ${candidate.sourceColumn}${candidate.blocked ? ' (blocked)' : ''}`,
-      argsPatch: {
-        decision: 'modify',
-        approvedItemKeys: safeApproved,
-        approvedByByItemKey: safeApprovedByByItemKey,
-        mappingOverride: override,
-        mappingOverrides: upsertMappingOverride(safeOverrides, override),
-      },
-    };
-  });
+          return {
+            label: `Use ${item.sourceSheet}.${candidate.sourceColumn} for ${item.tableId}.${item.field}${candidate.blocked ? ' (blocked)' : ''}`,
+            argsPatch: {
+              decision: 'modify' as const,
+              approvedItemKeys: safeApproved,
+              approvedByByItemKey: safeApprovedByByItemKey,
+              mappingOverride: override,
+              mappingOverrides: upsertMappingOverride(safeOverrides, override),
+            },
+          };
+        });
+      });
 
   const candidateItems = awaitingNextStep
     ? []
@@ -383,6 +476,7 @@ export function buildMappingItemReviewCard(input: MappingItemCardInput): Approva
 
   const reviewProgressRows = capRows(
     buildMappingReviewRows({
+      displayItems,
       reviewItems: input.reviewItems,
       approvedItemIds: safeApproved,
       approvedByByItemKey: safeApprovedByByItemKey,
@@ -390,7 +484,7 @@ export function buildMappingItemReviewCard(input: MappingItemCardInput): Approva
       currentItemId: currentItem.id,
       awaitingNextStep,
     }),
-    30,
+    200,
   );
 
   return {
@@ -469,7 +563,7 @@ export function buildMappingItemReviewCard(input: MappingItemCardInput): Approva
         ...(awaitingNextStep ? { proceedToNextStep: true } : { approvedItemKey: currentItem.id }),
       },
     },
-    alternates: awaitingNextStep ? [] : alternates,
+    alternates,
     decline: {
       label: 'Reject upload',
       argsPatch: {

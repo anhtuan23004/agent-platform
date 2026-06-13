@@ -18,6 +18,7 @@ import {
   buildMappingItemReviewCard,
   buildMappingReviewRows,
   buildPublishReviewCard,
+  collectMappingDisplayItems,
   collectMappingReviewItems,
 } from './cards.ts';
 import { shouldBlockPublishApprove } from './review-gates.ts';
@@ -248,8 +249,10 @@ const confirmMappingStep = createStep({
 
     if (!resumeData) {
       const reviewItems = collectMappingReviewItems(inputData.tableMappings);
+      const displayItems = collectMappingDisplayItems(inputData.tableMappings, reviewItems);
       if (inputData.validationStatus === 'confirmed' || reviewItems.length === 0) {
         const mappingReviewRows: MappingReviewRow[] = buildMappingReviewRows({
+          displayItems,
           reviewItems,
           approvedItemIds: reviewItems.map((item) => item.id),
           approvedByByItemKey: {},
@@ -276,6 +279,7 @@ const confirmMappingStep = createStep({
           ingestionSessionId: inputData.ingestionSessionId,
           workbookConfidence: inputData.workbookConfidence,
           validationStatus: inputData.validationStatus,
+          tableMappings: inputData.tableMappings,
           reviewItems,
           approvedItemIds: [],
           approvedByByItemKey: {},
@@ -297,6 +301,7 @@ const confirmMappingStep = createStep({
     );
     const effectiveMappings = applyMappingOverrides(inputData.tableMappings, mergedOverrides);
     const reviewItems = collectMappingReviewItems(effectiveMappings);
+    const displayItems = collectMappingDisplayItems(effectiveMappings, reviewItems);
     const approvedByByItemKey: Record<string, string> = {
       ...(resumeData.approvedByByItemKey ?? {}),
     };
@@ -324,6 +329,7 @@ const confirmMappingStep = createStep({
           ingestionSessionId: inputData.ingestionSessionId,
           workbookConfidence: inputData.workbookConfidence,
           validationStatus: inputData.validationStatus,
+          tableMappings: effectiveMappings,
           reviewItems,
           approvedItemIds: [...approved],
           approvedByByItemKey,
@@ -346,6 +352,7 @@ const confirmMappingStep = createStep({
           ingestionSessionId: inputData.ingestionSessionId,
           workbookConfidence: inputData.workbookConfidence,
           validationStatus: inputData.validationStatus,
+          tableMappings: effectiveMappings,
           reviewItems,
           approvedItemIds: [...approved],
           approvedByByItemKey,
@@ -359,6 +366,7 @@ const confirmMappingStep = createStep({
     }
 
     const mappingReviewRows: MappingReviewRow[] = buildMappingReviewRows({
+      displayItems,
       reviewItems,
       approvedItemIds: reviewItems.map((item) => item.id),
       approvedByByItemKey,
