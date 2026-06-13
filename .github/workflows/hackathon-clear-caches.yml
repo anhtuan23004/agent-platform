@@ -1,0 +1,74 @@
+name: Hackathon — Clear Caches
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Which caches to clear'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - docker
+          - turbo
+          - actions
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  clear-caches:
+    name: Clear ${{ github.event.inputs.target }} caches
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Clear GitHub Actions cache
+        if: inputs.target == 'all' || inputs.target == 'actions'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const caches = await github.rest.actions.getActionsCacheList({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+            for (const cache of caches.data.actions_caches) {
+              console.log(`Deleting cache: ${cache.key} (${cache.size_in_bytes} bytes)`);
+              await github.rest.actions.deleteActionsCacheById({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                cache_id: cache.id,
+              });
+            }
+            console.log(`Deleted ${caches.data.total_count} caches`);
+
+      - name: Clear Docker build cache on EC2
+        if: inputs.target == 'all' || inputs.target == 'docker'
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ vars.EC2_HOST }}
+          username: ${{ vars.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          script: |
+            echo "=== Pruning Docker build cache ==="
+            docker builder prune -af
+            docker image prune -af
+            echo "=== Docker cache cleared ==="
+
+      - name: Clear Turbo cache on EC2
+        if: inputs.target == 'all' || inputs.target == 'turbo'
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ vars.EC2_HOST }}
+          username: ${{ vars.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          script: |
+            echo "=== Clearing Turbo cache ==="
+            rm -rf /opt/platform/.turbo
+            rm -rf /opt/platform/node_modules/.cache/turbo
+            echo "=== Turbo cache cleared ==="
