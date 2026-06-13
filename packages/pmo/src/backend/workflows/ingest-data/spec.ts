@@ -38,7 +38,7 @@ const detectStep = createStep({
       (requestContext.get(
         'pmoFileStore',
       ) as import('../../ingestion/file-store.ts').PmoFileStore) ??
-      createS3FileStore(process.env.S3_BUCKET ?? 'seta-uploads');
+      createS3FileStore(process.env.S3_BUCKET ?? 'hackathon-team-2-assets-033484686020');
     const buffer = await fileStore.getBuffer(inputData.fileKey);
 
     const result = await detectSchema(buffer);
@@ -126,7 +126,7 @@ const normalizeToStagingStep = createStep({
       (requestContext.get(
         'pmoFileStore',
       ) as import('../../ingestion/file-store.ts').PmoFileStore) ??
-      createS3FileStore(process.env.S3_BUCKET ?? 'seta-uploads');
+      createS3FileStore(process.env.S3_BUCKET ?? 'hackathon-team-2-assets-033484686020');
     const sessionId = inputData.ingestionSessionId;
 
     // Re-parse file for row data — get fileKey from requestContext or derive from session

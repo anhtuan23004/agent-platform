@@ -28,7 +28,7 @@ export async function startIngestWorkflow(input: StartIngestWorkflowInput): Prom
   const run = await workflow.createRun();
 
   // Build requestContext with file store + actor info
-  const bucket = process.env.S3_BUCKET ?? 'seta-uploads';
+  const bucket = process.env.S3_BUCKET ?? 'hackathon-team-2-assets-033484686020';
   const requestContext = new RequestContext();
   requestContext.set('pmoFileStore', createS3FileStore(bucket));
   requestContext.set('fileKey', fileKey);

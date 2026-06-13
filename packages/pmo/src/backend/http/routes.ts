@@ -57,7 +57,7 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
     });
 
     // Generate presigned upload URL
-    const bucket = process.env.S3_BUCKET ?? 'seta-uploads';
+    const bucket = process.env.S3_BUCKET ?? 'hackathon-team-2-assets-033484686020';
     const upload_url = await presignedUploadUrl({
       bucket,
       key: s3Key,
@@ -119,7 +119,7 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
       });
 
       // Upload to S3
-      const bucket = process.env.S3_BUCKET ?? 'seta-uploads';
+      const bucket = process.env.S3_BUCKET ?? 'hackathon-team-2-assets-033484686020';
       const s3 = getS3Client();
       const buffer = Buffer.from(await file.arrayBuffer());
       await s3.send(
