@@ -88,9 +88,20 @@ function resumeDataFromDecision(
 ): Record<string, unknown> | undefined {
   const card = (ctx.proposedPayload ?? null) as ApprovalCardLike | null;
   if (!card) return undefined;
+
+  const selectedIndices =
+    alternateIndices ?? (alternateIndex !== undefined ? [alternateIndex] : []);
+
+  if (decision === 'modify' && selectedIndices.length > 0 && card.alternates) {
+    const first = selectedIndices[0];
+    if (first !== undefined) {
+      return card.alternates[first]?.argsPatch;
+    }
+  }
+
   if (decision === 'approve') {
     // Multi-select: merge existingId from each alternate into existingIds array
-    const indices = alternateIndices ?? (alternateIndex !== undefined ? [alternateIndex] : []);
+    const indices = selectedIndices;
     if (indices.length > 0 && card.alternates) {
       const existingIds: string[] = [];
       for (const idx of indices) {

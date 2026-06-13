@@ -8,6 +8,7 @@ import { workflowsApi } from '@/modules/agent/workflows/api/workflows';
 import { HitlCardHost } from '@/modules/agent/workflows/components/hitl-card-host';
 import { RunStatusPill } from '@/modules/agent/workflows/components/run-status-pill';
 import { usePendingApprovals } from '@/modules/agent/workflows/hooks/use-pending-approvals';
+import { useSubmitDecision } from '@/modules/agent/workflows/hooks/use-submit-decision';
 import { workflowsQueryKeys } from '@/modules/agent/workflows/state/query-keys';
 import { useStartPmoIngest } from '../hooks/use-start-pmo-ingest';
 
@@ -22,8 +23,17 @@ interface MappingProgressItem {
   key: string;
   table: string;
   field: string;
+  sourceColumn: string | null;
+  confidence: string | null;
   state: 'approved' | 'pending' | 'current';
   issueType: string;
+}
+
+interface MappingAlternateOption {
+  alternateIndex: number;
+  sourceColumn: string;
+  confidence: string | null;
+  blocked: boolean;
 }
 
 interface MappingViewModel {
@@ -32,6 +42,7 @@ interface MappingViewModel {
   items: MappingProgressItem[];
   current: Map<string, string>;
   currentKey: string | null;
+  currentAlternates: MappingAlternateOption[];
 }
 
 interface DbChangeRow {
@@ -135,6 +146,10 @@ function mapRows(rows: Array<{ k: string; v: string }>): Map<string, string> {
   return out;
 }
 
+function formatPercent(value: number): string {
+  return `${(value * 100).toFixed(1)}%`;
+}
+
 function isRenderableApprovalPayload(
   payload: unknown,
 ): payload is { details: unknown[]; primary: { label: string }; decline: { label: string } } {
@@ -218,6 +233,48 @@ function parseMappingView(approval: WorkflowApprovalRow | null): MappingViewMode
   const summary = mapRows(tables[0] ?? []);
   const current = mapRows(tables[1] ?? []);
   const progressRows = tables[tables.length - 1] ?? [];
+  const currentTable = current.get('Table') ?? null;
+  const currentField = current.get('Field') ?? null;
+  const currentKey = currentTable && currentField ? `${currentTable}.${currentField}` : null;
+  const currentSourceColumn = current.get('Source column') ?? null;
+  const currentConfidence = current.get('Confidence') ?? null;
+  const currentAlternates: MappingAlternateOption[] = [];
+
+  if (isRenderableApprovalPayload(approval.proposedPayload)) {
+    const alternates = (approval.proposedPayload as { alternates?: unknown }).alternates;
+    if (Array.isArray(alternates)) {
+      alternates.forEach((alternate, index) => {
+        if (!alternate || typeof alternate !== 'object') return;
+        const argsPatch = (alternate as { argsPatch?: unknown }).argsPatch;
+        if (!argsPatch || typeof argsPatch !== 'object') return;
+
+        const mappingOverride = (argsPatch as { mappingOverride?: unknown }).mappingOverride;
+        if (!mappingOverride || typeof mappingOverride !== 'object') return;
+
+        const tableId = (mappingOverride as { tableId?: unknown }).tableId;
+        const field = (mappingOverride as { field?: unknown }).field;
+        const sourceColumn = (mappingOverride as { sourceColumn?: unknown }).sourceColumn;
+        if (typeof tableId !== 'string' || typeof field !== 'string') return;
+        if (typeof sourceColumn !== 'string' || sourceColumn.length === 0) return;
+
+        const itemKey = `${tableId}.${field}`;
+        if (currentKey && itemKey !== currentKey) return;
+
+        const rawConfidence = (mappingOverride as { confidence?: unknown }).confidence;
+        const confidence = typeof rawConfidence === 'number' ? formatPercent(rawConfidence) : null;
+        const blocked =
+          (mappingOverride as { blocked?: unknown }).blocked === true ||
+          (mappingOverride as { blocked?: unknown }).blocked === 'true';
+
+        currentAlternates.push({
+          alternateIndex: index,
+          sourceColumn,
+          confidence,
+          blocked,
+        });
+      });
+    }
+  }
 
   const items: MappingProgressItem[] = [];
   for (const row of progressRows) {
@@ -228,17 +285,25 @@ function parseMappingView(approval: WorkflowApprovalRow | null): MappingViewMode
     const table = row.k.slice(0, dotIndex);
     const field = row.k.slice(dotIndex + 1);
 
-    const [statePartRaw = '', issueTypeRaw = ''] = row.v.split('|').map((v) => v.trim());
+    const [statePartRaw = '', issueTypeRaw = '', sourceColumnRaw = '', confidenceRaw = ''] = row.v
+      .split('|')
+      .map((v) => v.trim());
     const statePart = statePartRaw.toLowerCase();
+    const itemKey = `${table}.${field}`;
 
     let state: 'approved' | 'pending' | 'current' = 'pending';
     if (statePart.startsWith('approved')) state = 'approved';
     else if (statePart.startsWith('current')) state = 'current';
 
+    const sourceColumn = sourceColumnRaw || (itemKey === currentKey ? currentSourceColumn : null);
+    const confidence = confidenceRaw || (itemKey === currentKey ? currentConfidence : null);
+
     items.push({
-      key: row.k,
+      key: itemKey,
       table,
       field,
+      sourceColumn,
+      confidence,
       state,
       issueType: issueTypeRaw,
     });
@@ -248,16 +313,13 @@ function parseMappingView(approval: WorkflowApprovalRow | null): MappingViewMode
   const approved = fraction?.approved ?? items.filter((item) => item.state === 'approved').length;
   const total = fraction?.total ?? items.length;
 
-  const currentTable = current.get('Table') ?? null;
-  const currentField = current.get('Field') ?? null;
-  const currentKey = currentTable && currentField ? `${currentTable}.${currentField}` : null;
-
   return {
     approved,
     total,
     items,
     current,
     currentKey,
+    currentAlternates,
   };
 }
 
@@ -468,9 +530,12 @@ export function PmoPage() {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>('mapping');
   const [selectedDbTable, setSelectedDbTable] = useState<string | null>(null);
+  const [editingMappingKey, setEditingMappingKey] = useState<string | null>(null);
+  const [selectedMappingAlternate, setSelectedMappingAlternate] = useState<number | null>(null);
 
   const startIngest = useStartPmoIngest();
   const pendingApprovals = usePendingApprovals();
+  const submitDecision = useSubmitDecision();
 
   const runsQuery = useQuery({
     queryKey: PMO_RUNS_QUERY_KEY,
@@ -580,6 +645,8 @@ export function PmoPage() {
     if (!selectedViewStage) return;
     setActiveTab(defaultTabForStage(selectedViewStage));
     setSelectedDbTable(selectedViewFirstDbTable);
+    setEditingMappingKey(null);
+    setSelectedMappingAlternate(null);
   }, [selectedViewStage, selectedViewFirstDbTable]);
 
   const uploadError =
@@ -661,28 +728,84 @@ export function PmoPage() {
     );
   }, [selectedDbView, selectedDbTable]);
 
-  const mappingGroups = useMemo(() => {
-    const items = selectedMappingView?.items ?? [];
-    const grouped = new Map<string, { total: number; approved: number; pending: number }>();
-    for (const item of items) {
-      const row = grouped.get(item.table) ?? { total: 0, approved: 0, pending: 0 };
-      row.total += 1;
-      if (item.state === 'approved') row.approved += 1;
-      else row.pending += 1;
-      grouped.set(item.table, row);
-    }
+  const currentMappingAlternates = selectedMappingView?.currentAlternates ?? [];
 
-    return [...grouped.entries()].map(([table, stats]) => ({
-      table,
-      total: stats.total,
-      approved: stats.approved,
-      pending: stats.pending,
-    }));
-  }, [selectedMappingView?.items]);
+  const selectedAlternateOption = useMemo(
+    () =>
+      currentMappingAlternates.find(
+        (option) => option.alternateIndex === selectedMappingAlternate,
+      ) ?? null,
+    [currentMappingAlternates, selectedMappingAlternate],
+  );
 
   function refreshData() {
     void qc.invalidateQueries({ queryKey: PMO_RUNS_QUERY_KEY });
     void qc.invalidateQueries({ queryKey: workflowsQueryKeys.pendingApprovals() });
+    if (selectedRunIdValue) {
+      void qc.invalidateQueries({ queryKey: ['pmo', 'run-snapshot', selectedRunIdValue] });
+    }
+  }
+
+  function approveCurrentMappingItem() {
+    if (!selectedMappingApproval) return;
+    submitDecision.mutate(
+      {
+        approvalId: selectedMappingApproval.approvalId,
+        agentic: selectedMappingApproval.agentic,
+        decision: 'approve',
+      },
+      {
+        onSuccess: () => {
+          toast.success('Mapping item approved', {
+            description: 'The next mapping item is now ready for review.',
+          });
+          refreshData();
+        },
+        onError: (err) => {
+          toast.error('Failed to approve mapping item', {
+            description: err instanceof Error ? err.message : String(err),
+          });
+        },
+      },
+    );
+  }
+
+  function openMappingModify(itemKey: string) {
+    if (!selectedMappingView) return;
+    if (itemKey !== selectedMappingView.currentKey) return;
+    if (currentMappingAlternates.length === 0) return;
+
+    setEditingMappingKey(itemKey);
+    setSelectedMappingAlternate(currentMappingAlternates[0]?.alternateIndex ?? null);
+  }
+
+  function applyMappingModify() {
+    if (!selectedMappingApproval) return;
+    if (selectedMappingAlternate === null) return;
+
+    submitDecision.mutate(
+      {
+        approvalId: selectedMappingApproval.approvalId,
+        agentic: selectedMappingApproval.agentic,
+        decision: 'modify',
+        alternateIndices: [selectedMappingAlternate],
+      },
+      {
+        onSuccess: () => {
+          toast.success('Mapping updated', {
+            description: 'The selected source column has been applied for this review item.',
+          });
+          setEditingMappingKey(null);
+          setSelectedMappingAlternate(null);
+          refreshData();
+        },
+        onError: (err) => {
+          toast.error('Failed to update mapping', {
+            description: err instanceof Error ? err.message : String(err),
+          });
+        },
+      },
+    );
   }
 
   function openRun(runId: string, stage: StageKey) {
@@ -1023,83 +1146,55 @@ export function PmoPage() {
               {activeTab === 'mapping' ? (
                 <div className="space-y-3">
                   <div className="rounded-lg border border-warning-border bg-warning-tint/80 px-3 py-2 text-caption text-warning-ink">
-                    Continue is disabled until all mapping review items are approved.
+                    Mapping review is required. The workflow proceeds only after all mapping items
+                    are approved.
                   </div>
 
-                  <div className="grid gap-3 xl:grid-cols-[320px_minmax(0,1fr)]">
-                    <section className="rounded-lg border border-hairline bg-surface-1 p-3">
-                      <h4 className="text-body-sm font-semibold text-ink">Sub-sheets to review</h4>
-                      <p className="mt-1 text-caption text-ink-subtle">
-                        Each sub-sheet maps to a DB table. Pending count updates after every item
-                        approval.
-                      </p>
+                  <section className="rounded-lg border border-hairline bg-surface-1 p-3">
+                    <h4 className="text-body-sm font-semibold text-ink">Review column mappings</h4>
+                    <p className="mt-1 text-caption text-ink-subtle">
+                      Approve each mapping item individually. The workflow proceeds only after all
+                      mapping items are approved.
+                    </p>
 
-                      <div className="mt-3 overflow-x-auto">
-                        <table className="min-w-full text-left text-caption">
-                          <thead className="border-b border-hairline text-ink-subtle">
-                            <tr>
-                              <th className="px-2 py-1.5">Source sub-sheet</th>
-                              <th className="px-2 py-1.5">Target DB table</th>
-                              <th className="px-2 py-1.5">Review progress</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {mappingGroups.length > 0 ? (
-                              mappingGroups.map((group) => (
-                                <tr
-                                  key={group.table}
-                                  className="border-b border-hairline last:border-b-0"
-                                >
-                                  <td className="px-2 py-1.5 font-medium text-ink">
-                                    {group.table}
-                                  </td>
-                                  <td className="px-2 py-1.5 text-ink-subtle">dim_{group.table}</td>
-                                  <td className="px-2 py-1.5 text-ink-subtle">
-                                    {group.approved}/{group.total} ({group.pending} pending)
-                                  </td>
-                                </tr>
-                              ))
-                            ) : (
-                              <tr>
-                                <td className="px-2 py-2 text-ink-subtle" colSpan={3}>
-                                  No mapping review items in this session.
-                                </td>
-                              </tr>
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
-                    </section>
+                    <div className="mt-3 overflow-x-auto">
+                      <table className="min-w-full text-left text-caption">
+                        <thead className="border-b border-hairline text-ink-subtle">
+                          <tr>
+                            <th className="px-2 py-1.5">Source column</th>
+                            <th className="px-2 py-1.5">Target DB column</th>
+                            <th className="px-2 py-1.5">Issue type</th>
+                            <th className="px-2 py-1.5">Status</th>
+                            <th className="px-2 py-1.5">Confidence score</th>
+                            <th className="px-2 py-1.5">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedMappingView?.items.length ? (
+                            selectedMappingView.items.map((item) => {
+                              const isCurrent =
+                                item.key === selectedMappingView.currentKey ||
+                                item.state === 'current';
+                              const canApprove =
+                                Boolean(selectedMappingApproval) &&
+                                isCurrent &&
+                                !submitDecision.isPending;
+                              const canModify =
+                                Boolean(selectedMappingApproval) &&
+                                isCurrent &&
+                                currentMappingAlternates.length > 0 &&
+                                !submitDecision.isPending;
 
-                    <section className="rounded-lg border border-hairline bg-surface-1 p-3">
-                      <h4 className="text-body-sm font-semibold text-ink">
-                        Review column mappings
-                      </h4>
-                      <p className="mt-1 text-caption text-ink-subtle">
-                        Approve each mapping item individually. Workflow proceeds only after all
-                        items are approved.
-                      </p>
-
-                      <div className="mt-3 overflow-x-auto">
-                        <table className="min-w-full text-left text-caption">
-                          <thead className="border-b border-hairline text-ink-subtle">
-                            <tr>
-                              <th className="px-2 py-1.5">Source column</th>
-                              <th className="px-2 py-1.5">Target DB column</th>
-                              <th className="px-2 py-1.5">Issue type</th>
-                              <th className="px-2 py-1.5">Status</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {selectedMappingView?.items.length ? (
-                              selectedMappingView.items.map((item) => (
+                              return (
                                 <tr
                                   key={item.key}
                                   className="border-b border-hairline last:border-b-0"
                                 >
-                                  <td className="px-2 py-1.5 font-medium text-ink">{item.field}</td>
+                                  <td className="px-2 py-1.5 font-medium text-ink">
+                                    {item.sourceColumn ?? item.key}
+                                  </td>
                                   <td className="px-2 py-1.5 text-primary-ink">
-                                    {item.table}.{item.field}
+                                    dim_{item.table}.{item.field}
                                   </td>
                                   <td className="px-2 py-1.5 text-ink-subtle">
                                     {item.issueType || '-'}
@@ -1109,51 +1204,135 @@ export function PmoPage() {
                                       <span className="rounded-full bg-success-tint px-2 py-0.5 text-[11px] font-medium text-success-ink">
                                         Approved
                                       </span>
-                                    ) : item.state === 'current' ? (
-                                      <span className="rounded-full bg-warning-tint px-2 py-0.5 text-[11px] font-medium text-warning-ink">
-                                        Pending
-                                      </span>
                                     ) : (
-                                      <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-ink-subtle">
+                                      <span className="rounded-full bg-warning-tint px-2 py-0.5 text-[11px] font-medium text-warning-ink">
                                         Pending
                                       </span>
                                     )}
                                   </td>
+                                  <td className="px-2 py-1.5 text-ink-subtle">
+                                    {item.confidence ?? '-'}
+                                  </td>
+                                  <td className="px-2 py-1.5">
+                                    <div className="flex items-center gap-1.5">
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="secondary"
+                                        disabled={!canApprove}
+                                        onClick={approveCurrentMappingItem}
+                                      >
+                                        {submitDecision.isPending && isCurrent
+                                          ? 'Approving...'
+                                          : 'Approve'}
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="secondary"
+                                        type="button"
+                                        disabled={!canModify}
+                                        onClick={() => openMappingModify(item.key)}
+                                      >
+                                        Modify
+                                      </Button>
+                                    </div>
+                                  </td>
                                 </tr>
-                              ))
-                            ) : (
-                              <tr>
-                                <td className="px-2 py-2 text-ink-subtle" colSpan={4}>
-                                  No mapping review item for this session.
-                                </td>
-                              </tr>
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
+                              );
+                            })
+                          ) : (
+                            <tr>
+                              <td className="px-2 py-2 text-ink-subtle" colSpan={6}>
+                                No mapping review item for this session.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
 
-                      {selectedMappingApproval ? (
-                        <div className="mt-3 space-y-3">
-                          <div className="rounded-lg border border-hairline bg-canvas p-3">
-                            <p className="text-caption text-ink-subtle">
-                              {selectedMappingView?.approved ?? 0} of{' '}
-                              {selectedMappingView?.total ?? 0} mapping review items approved.
-                            </p>
-                          </div>
-
-                          <HitlCardHost
-                            approval={selectedMappingApproval}
-                            canAct
-                            threadId={selectedMappingApproval.surfaceChatThreadId ?? undefined}
-                          />
-                        </div>
-                      ) : (
-                        <p className="mt-3 text-caption text-ink-subtle">
-                          Mapping stage already approved for this session.
+                    {editingMappingKey && editingMappingKey === selectedMappingView?.currentKey ? (
+                      <div className="mt-3 rounded-lg border border-hairline bg-canvas p-3">
+                        <p className="text-caption font-medium text-ink">Modify current mapping</p>
+                        <p className="mt-1 text-caption text-ink-subtle">
+                          Select another source column for this field, then apply change.
                         </p>
-                      )}
-                    </section>
-                  </div>
+
+                        <div className="mt-2 flex flex-wrap items-end gap-2">
+                          <label className="flex min-w-[280px] flex-1 flex-col gap-1 text-caption text-ink-subtle">
+                            Candidate source column
+                            <select
+                              className="h-9 rounded-md border border-hairline bg-canvas px-2 text-body-sm text-ink"
+                              value={selectedMappingAlternate ?? ''}
+                              onChange={(event) => {
+                                const raw = event.target.value;
+                                setSelectedMappingAlternate(raw ? Number(raw) : null);
+                              }}
+                              disabled={submitDecision.isPending}
+                            >
+                              <option value="">Select candidate</option>
+                              {currentMappingAlternates.map((option) => (
+                                <option key={option.alternateIndex} value={option.alternateIndex}>
+                                  {option.sourceColumn}
+                                  {option.confidence ? ` • ${option.confidence}` : ''}
+                                  {option.blocked ? ' • blocked' : ''}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="primary"
+                            disabled={selectedMappingAlternate === null || submitDecision.isPending}
+                            onClick={applyMappingModify}
+                          >
+                            {submitDecision.isPending ? 'Applying...' : 'Apply change'}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            disabled={submitDecision.isPending}
+                            onClick={() => {
+                              setEditingMappingKey(null);
+                              setSelectedMappingAlternate(null);
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+
+                        {selectedAlternateOption ? (
+                          <p className="mt-2 text-caption text-ink-subtle">
+                            Selected: {selectedAlternateOption.sourceColumn}
+                            {selectedAlternateOption.confidence
+                              ? ` (${selectedAlternateOption.confidence})`
+                              : ''}
+                            {selectedAlternateOption.blocked ? ' • blocked candidate' : ''}
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
+
+                    <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-hairline bg-canvas p-3">
+                      <p className="text-caption text-ink-subtle">
+                        {selectedMappingView?.approved ?? 0} of {selectedMappingView?.total ?? 0}{' '}
+                        mapping review items approved.
+                      </p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="primary"
+                        className="ml-auto"
+                        onClick={() => setActiveTab('db')}
+                        disabled={Boolean(selectedMappingApproval)}
+                      >
+                        Next step
+                      </Button>
+                    </div>
+                  </section>
                 </div>
               ) : null}
 

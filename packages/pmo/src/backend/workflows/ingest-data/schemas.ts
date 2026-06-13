@@ -19,6 +19,15 @@ const ColumnMappingSchema = z.object({
   canonicalField: z.string(),
   confidence: z.number(),
   status: z.enum(['auto_accept', 'needs_review', 'blocked']),
+  candidates: z
+    .array(
+      z.object({
+        sourceColumn: z.string(),
+        confidence: z.number(),
+        blocked: z.boolean(),
+      }),
+    )
+    .optional(),
 });
 
 const TableMappingSchema = z.object({
@@ -45,10 +54,20 @@ export const DetectOutputSchema = z.object({
 
 export const MappingCardSchema = ApprovalCardSchema;
 
+const MappingOverrideSchema = z.object({
+  tableId: z.string(),
+  field: z.string(),
+  sourceColumn: z.string(),
+  confidence: z.number().optional(),
+  blocked: z.boolean().optional(),
+});
+
 export const MappingDecisionSchema = z.object({
-  decision: z.enum(['approve', 'reject']),
+  decision: z.enum(['approve', 'reject', 'modify']),
   approvedItemKey: z.string().optional(),
   approvedItemKeys: z.array(z.string()).optional(),
+  mappingOverride: MappingOverrideSchema.optional(),
+  mappingOverrides: z.array(MappingOverrideSchema).optional(),
   note: z.string().optional(),
 });
 

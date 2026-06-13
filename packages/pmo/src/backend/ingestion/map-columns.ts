@@ -16,6 +16,11 @@ export interface ColumnMapping {
   confidence: number;
   evidence: string;
   status: 'auto_accept' | 'needs_review' | 'blocked';
+  candidates?: Array<{
+    sourceColumn: string;
+    confidence: number;
+    blocked: boolean;
+  }>;
   scoringBreakdown: {
     headerSimilarity: number;
     valuePattern: number;
@@ -204,6 +209,20 @@ export function mapColumns(
   const mappings: ColumnMapping[] = [];
   const ambiguous: string[] = [];
 
+  const candidatesByField = new Map<
+    string,
+    Array<{ sourceColumn: string; confidence: number; blocked: boolean }>
+  >();
+  for (const candidate of allCandidates) {
+    const byField = candidatesByField.get(candidate.field.name) ?? [];
+    byField.push({
+      sourceColumn: candidate.sourceColumn,
+      confidence: candidate.confidence,
+      blocked: candidate.blocked,
+    });
+    candidatesByField.set(candidate.field.name, byField);
+  }
+
   // First pass: greedy assignment
   for (const candidate of allCandidates) {
     if (assignedColumns.has(candidate.sourceColumn)) continue;
@@ -248,6 +267,10 @@ export function mapColumns(
       confidence: candidate.confidence,
       evidence,
       status,
+      candidates: (candidatesByField.get(candidate.field.name) ?? [])
+        .slice()
+        .sort((a, b) => b.confidence - a.confidence)
+        .slice(0, 5),
       scoringBreakdown: candidate.breakdown,
     });
   }

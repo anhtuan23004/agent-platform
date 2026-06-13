@@ -33,6 +33,8 @@ import {
 } from './schemas.ts';
 
 type BlockingIssue = z.infer<typeof StagingOutputSchema>['blockingIssues'][number];
+type DetectTableMapping = z.infer<typeof DetectOutputSchema>['tableMappings'][number];
+type MappingOverride = NonNullable<z.infer<typeof MappingDecisionSchema>['mappingOverride']>;
 
 const REQUIRED_FIELDS_BY_TABLE = new Map<string, string[]>(
   PMO_CANONICAL_SCHEMA.tables.map((table) => [
@@ -54,6 +56,138 @@ function resolveCardIdentity(requestContext: { get: (key: string) => unknown }):
   const tenantId = (requestContext.get('tenant_id') as string | undefined) ?? '';
   const userId = actor?.user_id ?? '';
   return { tenantId, userId };
+}
+
+function mappingOverrideKey(override: Pick<MappingOverride, 'tableId' | 'field'>): string {
+  return `${override.tableId}|${override.field}`;
+}
+
+function mergeMappingOverrides(
+  existing: MappingOverride[],
+  incoming?: MappingOverride,
+): MappingOverride[] {
+  const byKey = new Map<string, MappingOverride>();
+  for (const override of existing) {
+    byKey.set(mappingOverrideKey(override), override);
+  }
+  if (incoming) {
+    byKey.set(mappingOverrideKey(incoming), incoming);
+  }
+  return [...byKey.values()];
+}
+
+function applyMappingOverrides(
+  tableMappings: DetectTableMapping[],
+  mappingOverrides: MappingOverride[],
+): DetectTableMapping[] {
+  if (mappingOverrides.length === 0) return tableMappings;
+
+  const overridesByTable = new Map<string, MappingOverride[]>();
+  for (const override of mappingOverrides) {
+    const list = overridesByTable.get(override.tableId) ?? [];
+    list.push(override);
+    overridesByTable.set(override.tableId, list);
+  }
+
+  return tableMappings.map((table) => {
+    const tableOverrides = overridesByTable.get(table.tableId) ?? [];
+    if (tableOverrides.length === 0) return table;
+
+    const overrideByField = new Map<string, MappingOverride>();
+    for (const override of tableOverrides) {
+      overrideByField.set(override.field, override);
+    }
+
+    const nextSourceByField = new Map<string, string>();
+    for (const mapping of table.mappings) {
+      const override = overrideByField.get(mapping.canonicalField);
+      nextSourceByField.set(mapping.canonicalField, override?.sourceColumn ?? mapping.sourceColumn);
+    }
+    for (const override of tableOverrides) {
+      if (!nextSourceByField.has(override.field)) {
+        nextSourceByField.set(override.field, override.sourceColumn);
+      }
+    }
+
+    const fieldBySourceColumn = new Map<string, string>();
+    for (const [field, sourceColumn] of nextSourceByField.entries()) {
+      const existingField = fieldBySourceColumn.get(sourceColumn);
+      if (existingField && existingField !== field) {
+        throw new Error(`mapping_override_conflict:${table.tableId}:${sourceColumn}`);
+      }
+      fieldBySourceColumn.set(sourceColumn, field);
+    }
+
+    const nextMappings: DetectTableMapping['mappings'] = table.mappings.map((mapping) => {
+      const override = overrideByField.get(mapping.canonicalField);
+      if (!override) return mapping;
+
+      if (
+        mapping.candidates?.length &&
+        !mapping.candidates.some((candidate) => candidate.sourceColumn === override.sourceColumn)
+      ) {
+        throw new Error(
+          `invalid_mapping_override_candidate:${table.tableId}:${mapping.canonicalField}:${override.sourceColumn}`,
+        );
+      }
+
+      const selectedCandidate = mapping.candidates?.find(
+        (candidate) => candidate.sourceColumn === override.sourceColumn,
+      );
+      const confidence = override.confidence ?? selectedCandidate?.confidence ?? mapping.confidence;
+      const blocked = override.blocked ?? selectedCandidate?.blocked ?? false;
+      const status: DetectTableMapping['mappings'][number]['status'] = blocked
+        ? 'blocked'
+        : 'needs_review';
+
+      return {
+        ...mapping,
+        sourceColumn: override.sourceColumn,
+        confidence,
+        status,
+      };
+    });
+
+    for (const override of tableOverrides) {
+      if (nextMappings.some((mapping) => mapping.canonicalField === override.field)) continue;
+
+      const status: DetectTableMapping['mappings'][number]['status'] = override.blocked
+        ? 'blocked'
+        : 'needs_review';
+      nextMappings.push({
+        sourceColumn: override.sourceColumn,
+        canonicalField: override.field,
+        confidence: override.confidence ?? 0.7,
+        status,
+        candidates: [
+          {
+            sourceColumn: override.sourceColumn,
+            confidence: override.confidence ?? 0.7,
+            blocked: Boolean(override.blocked),
+          },
+        ],
+      });
+    }
+
+    const mappedFields = new Set(nextMappings.map((mapping) => mapping.canonicalField));
+    const requiredFields = REQUIRED_FIELDS_BY_TABLE.get(table.tableId) ?? [];
+    const requiredConfidenceSum = requiredFields.reduce((sum, field) => {
+      const mapped = nextMappings.find((mapping) => mapping.canonicalField === field);
+      return sum + (mapped?.confidence ?? 0);
+    }, 0);
+    const tableConfidence =
+      requiredFields.length > 0
+        ? Math.round((requiredConfidenceSum / requiredFields.length) * 100) / 100
+        : table.tableConfidence;
+
+    return {
+      ...table,
+      tableConfidence,
+      mappings: nextMappings,
+      unmappedRequired: table.unmappedRequired.filter((field) => !mappedFields.has(field)),
+      ambiguous: table.ambiguous.filter((field) => !overrideByField.has(field)),
+    };
+  });
 }
 
 // ── Step 1: Detect schema ────────────────────────────────────────────────────
@@ -86,6 +220,7 @@ const detectStep = createStep({
           canonicalField: m.canonicalField,
           confidence: m.confidence,
           status: m.status,
+          candidates: m.candidates,
         })),
         unmappedRequired: t.unmappedRequired,
         ambiguous: t.ambiguous,
@@ -107,9 +242,8 @@ const confirmMappingStep = createStep({
   suspendSchema: MappingCardSchema,
   resumeSchema: MappingDecisionSchema,
   execute: async ({ inputData, resumeData, suspend, requestContext, runId }) => {
-    const reviewItems = collectMappingReviewItems(inputData.tableMappings);
-
     if (!resumeData) {
+      const reviewItems = collectMappingReviewItems(inputData.tableMappings);
       if (inputData.validationStatus === 'confirmed' || reviewItems.length === 0) {
         return {
           ingestionSessionId: inputData.ingestionSessionId,
@@ -130,6 +264,7 @@ const confirmMappingStep = createStep({
           validationStatus: inputData.validationStatus,
           reviewItems,
           approvedItemIds: [],
+          mappingOverrides: [],
           currentItemId: firstItem.id,
           identity: resolveCardIdentity(requestContext),
           toolCallId: `workflow:${runId}:pmo_confirmMapping`,
@@ -140,6 +275,13 @@ const confirmMappingStep = createStep({
     if (resumeData.decision === 'reject') {
       throw new Error('rejected_by_user');
     }
+
+    const mergedOverrides = mergeMappingOverrides(
+      resumeData.mappingOverrides ?? [],
+      resumeData.mappingOverride ?? undefined,
+    );
+    const effectiveMappings = applyMappingOverrides(inputData.tableMappings, mergedOverrides);
+    const reviewItems = collectMappingReviewItems(effectiveMappings);
 
     const validIds = new Set(reviewItems.map((item) => item.id));
     const approved = new Set<string>();
@@ -163,6 +305,7 @@ const confirmMappingStep = createStep({
           validationStatus: inputData.validationStatus,
           reviewItems,
           approvedItemIds: [...approved],
+          mappingOverrides: mergedOverrides,
           currentItemId: nextItem.id,
           identity: resolveCardIdentity(requestContext),
           toolCallId: `workflow:${runId}:pmo_confirmMapping`,
@@ -173,7 +316,7 @@ const confirmMappingStep = createStep({
     return {
       ingestionSessionId: inputData.ingestionSessionId,
       fileKey: inputData.fileKey,
-      confirmedMappings: inputData.tableMappings,
+      confirmedMappings: effectiveMappings,
     };
   },
 });

@@ -50,6 +50,7 @@ describe('PMO ingest review cards', () => {
       validationStatus: 'needs_review',
       reviewItems,
       approvedItemIds: [reviewItems[0]!.id],
+      mappingOverrides: [],
       currentItemId: reviewItems[1]!.id,
       identity: { tenantId: 'tenant-1', userId: 'user-1' },
       toolCallId: 'workflow:test:pmo_confirmMapping',
@@ -61,12 +62,87 @@ describe('PMO ingest review cards', () => {
       decision: 'approve',
       approvedItemKey: reviewItems[1]!.id,
       approvedItemKeys: [reviewItems[0]!.id],
+      mappingOverrides: [],
     });
 
     const progressTable = kvTables(card.details as unknown[])[0];
     expect(progressTable?.rows.some((row) => row.k === 'Approved items' && row.v === '1/3')).toBe(
       true,
     );
+  });
+
+  it('emits mapping alternates for direct modify flow', () => {
+    const reviewItems = collectMappingReviewItems([
+      {
+        tableId: 'overbook_idle_config',
+        sourceSheet: 'Config',
+        headerRow: 1,
+        tableConfidence: 0.88,
+        mappings: [
+          {
+            sourceColumn: 'Overbook_threshold',
+            canonicalField: 'overbook_threshold',
+            confidence: 0.94,
+            status: 'needs_review',
+            candidates: [
+              { sourceColumn: 'Overbook_threshold', confidence: 0.94, blocked: false },
+              { sourceColumn: 'Overbook Limit', confidence: 0.82, blocked: false },
+            ],
+          },
+        ],
+        unmappedRequired: [],
+        ambiguous: [],
+      },
+    ]);
+
+    const card = buildMappingItemReviewCard({
+      ingestionSessionId: 'f56e9152-7856-44e9-b2d7-4f21d86cdffd',
+      workbookConfidence: 0.91,
+      validationStatus: 'needs_review',
+      reviewItems,
+      approvedItemIds: [],
+      mappingOverrides: [],
+      currentItemId: reviewItems[0]!.id,
+      identity: { tenantId: 'tenant-1', userId: 'user-1' },
+      toolCallId: 'workflow:test:pmo_confirmMapping',
+    });
+
+    expect(card.alternates).toHaveLength(1);
+    expect(card.alternates[0]?.argsPatch).toMatchObject({
+      decision: 'modify',
+      mappingOverride: {
+        tableId: 'overbook_idle_config',
+        field: 'overbook_threshold',
+        sourceColumn: 'Overbook Limit',
+      },
+    });
+  });
+
+  it('dedupes ambiguous and needs_review issues for the same field', () => {
+    const reviewItems = collectMappingReviewItems([
+      {
+        tableId: 'overbook_idle_config',
+        sourceSheet: 'Config',
+        headerRow: 1,
+        tableConfidence: 0.86,
+        mappings: [
+          {
+            sourceColumn: 'Overbook Threshold',
+            canonicalField: 'overbook_threshold',
+            confidence: 0.78,
+            status: 'needs_review',
+          },
+        ],
+        unmappedRequired: [],
+        ambiguous: ['overbook_threshold'],
+      },
+    ]);
+
+    expect(reviewItems).toHaveLength(1);
+    expect(reviewItems[0]?.issueType).toBe('ambiguous');
+    expect(reviewItems[0]?.sourceColumn).toBe('Overbook Threshold');
+    expect(reviewItems[0]?.note).toContain('ambiguous mapping candidates');
+    expect(reviewItems[0]?.note).toContain('Overbook Threshold');
   });
 
   it('includes per-field mapping issues in mapping review card details', () => {
