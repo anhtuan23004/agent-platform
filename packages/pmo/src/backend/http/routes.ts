@@ -1,5 +1,6 @@
+import { PutObjectCommand } from '@aws-sdk/client-s3';
 import type { SessionEnv } from '@seta/core';
-import { buildTenantKey, presignedUploadUrl } from '@seta/shared-storage';
+import { buildTenantKey, getS3Client, presignedUploadUrl } from '@seta/shared-storage';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { pmoDb } from '../db/client.ts';
@@ -87,6 +88,67 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
       status: 'workflow_started',
       ingestion_session_id,
       message: 'Schema inference workflow has been queued.',
+    });
+  });
+
+  // POST /api/pmo/v1/upload
+  // Proxy upload: client sends file as multipart, server uploads to S3.
+  // Bypasses CORS issues with direct-to-S3 presigned URLs.
+  app.post('/api/pmo/v1/upload', async (c) => {
+    const session = c.get('user');
+    const body = await c.req.parseBody();
+    const file = body.file;
+
+    if (!file || !(file instanceof File)) {
+      return c.json({ error: 'file field required (multipart)' }, 400);
+    }
+
+    const filename = file.name || 'upload.xlsx';
+    const reportingPeriodKey = (body.reporting_period_key as string) || undefined;
+    const sessionId = crypto.randomUUID();
+    const mime_type =
+      file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+    // Build S3 key
+    const s3Key = buildTenantKey({
+      tenant_id: session.tenant_id,
+      domain: 'pmo',
+      file_id: sessionId,
+      filename,
+    });
+
+    // Upload to S3
+    const bucket = process.env.S3_BUCKET ?? 'seta-uploads';
+    const s3 = getS3Client();
+    const buffer = Buffer.from(await file.arrayBuffer());
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: bucket,
+        Key: s3Key,
+        Body: buffer,
+        ContentType: mime_type,
+      }),
+    );
+
+    // Insert ingestion session
+    const db = pmoDb();
+    await db.insert(ingestionSessions).values({
+      id: sessionId,
+      tenant_id: session.tenant_id,
+      status: 'uploaded',
+      source_file_key: s3Key,
+      source_file_name: filename,
+      mime_type,
+      reporting_period_key: reportingPeriodKey ?? null,
+      created_by: session.user_id,
+    });
+
+    // TODO: Start pmo.ingestData workflow via Mastra
+    return c.json({
+      ingestion_session_id: sessionId,
+      s3_key: s3Key,
+      status: 'uploaded',
+      message: 'File uploaded. Schema inference workflow queued.',
     });
   });
 

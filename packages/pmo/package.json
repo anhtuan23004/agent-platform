@@ -32,6 +32,7 @@
     "vitest": "^4.1.7"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1067.0",
     "@mastra/core": "^1.42.0",
     "@seta/agent-sdk": "workspace:^",
     "@seta/core": "workspace:^",

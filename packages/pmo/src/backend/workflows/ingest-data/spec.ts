@@ -1,10 +1,18 @@
 import { createStep } from '@mastra/core/workflows';
 import { createWorkflow } from '@mastra/core/workflows/evented';
 import type { WorkflowSpec } from '@seta/agent-sdk';
+import type { z } from 'zod';
 import { detectSchema } from '../../ingestion/detect-schema.ts';
-import type { PmoFileStore } from '../../ingestion/file-store.ts';
 import { normalizeRows } from '../../ingestion/normalize-rows.ts';
 import { parseWorkbook } from '../../ingestion/parse-workbook.ts';
+import { createS3FileStore } from '../../ingestion/s3-file-store.ts';
+import {
+  type ActiveRecord,
+  aggregateTimesheetRows,
+  classifyRows,
+  type StagedRow,
+  shouldBlockDuplicateInUpload,
+} from '../../ingestion/stage-changes.ts';
 import {
   ConfirmOutputSchema,
   DetectOutputSchema,
@@ -25,7 +33,12 @@ const detectStep = createStep({
   inputSchema: IngestInputSchema,
   outputSchema: DetectOutputSchema,
   execute: async ({ inputData, requestContext }) => {
-    const fileStore = requestContext.get('pmoFileStore') as PmoFileStore;
+    // Resolve file store: injected via requestContext or fallback to S3
+    const fileStore =
+      (requestContext.get(
+        'pmoFileStore',
+      ) as import('../../ingestion/file-store.ts').PmoFileStore) ??
+      createS3FileStore(process.env.S3_BUCKET ?? 'seta-uploads');
     const buffer = await fileStore.getBuffer(inputData.fileKey);
 
     const result = await detectSchema(buffer);
@@ -109,11 +122,18 @@ const normalizeToStagingStep = createStep({
   inputSchema: ConfirmOutputSchema,
   outputSchema: StagingOutputSchema,
   execute: async ({ inputData, requestContext }) => {
-    const fileStore = requestContext.get('pmoFileStore') as PmoFileStore;
+    const fileStore =
+      (requestContext.get(
+        'pmoFileStore',
+      ) as import('../../ingestion/file-store.ts').PmoFileStore) ??
+      createS3FileStore(process.env.S3_BUCKET ?? 'seta-uploads');
     const sessionId = inputData.ingestionSessionId;
 
-    // Re-parse file for row data
-    const fileKey = requestContext.get('fileKey') as string;
+    // Re-parse file for row data — get fileKey from requestContext or derive from session
+    const fileKey =
+      (requestContext.get('fileKey') as string) ??
+      inputData.confirmedMappings[0]?.sourceSheet ??
+      '';
     const buffer = await fileStore.getBuffer(fileKey);
     const parseResult = await parseWorkbook(buffer);
 
@@ -134,30 +154,138 @@ const normalizeToStagingStep = createStep({
     }));
     const normResult = normalizeRows(parseResult.sheets, tableMappings);
 
-    // TODO: Compute natural_key_hash + source_row_hash per row
-    // TODO: Compare against active DB data
-    // TODO: Write staging_changes to DB
-    // TODO: Generate change summary with counts
+    // Classify rows: compute hashes, compare with active DB, detect duplicates
+    const { pmoDb } = await import('../../db/client.ts');
+    const {
+      resourceAllocations,
+      timesheets,
+      leaveRecords,
+      memberMaster,
+      projectMaster,
+      overbookIdleConfig,
+      calendarWeeks,
+      kpiNorms,
+      stagingChanges,
+    } = await import('../../db/schema.ts');
+    const { eq, and } = await import('drizzle-orm');
+    const db = pmoDb();
+    const tenantId = requestContext.get('tenant_id') as string;
 
-    // For now, return staging output assuming all new (first upload)
-    const changeSummary = Object.entries(normResult.rowCounts).map(([tableId, count]) => ({
-      tableId,
+    const tableToSchema: Record<
+      string,
+      {
+        natural_key_hash: unknown;
+        source_row_hash: unknown;
+        tenant_id: unknown;
+        is_active: unknown;
+      }
+    > = {
+      resource_allocation: resourceAllocations as never,
+      timesheet: timesheets as never,
+      leave: leaveRecords as never,
+      member_master: memberMaster as never,
+      project_master: projectMaster as never,
+      overbook_idle_config: overbookIdleConfig as never,
+      calendar_weeks: calendarWeeks as never,
+      kpi_norms: kpiNorms as never,
+    };
+
+    const allStaged: StagedRow[] = [];
+    const changeSummary: Array<{
+      tableId: string;
       counts: {
-        new_records: count,
+        new_records: number;
+        updated_records: number;
+        exact_duplicates: number;
+        duplicates_in_upload: number;
+      };
+      sampleChanges: Array<{
+        type: string;
+        naturalKey: Record<string, string>;
+        newValues: Record<string, unknown>;
+      }>;
+    }> = [];
+
+    for (const [tableId, rows] of Object.entries(normResult.tables)) {
+      // Timesheet aggregation before dedup
+      const processedRows = tableId === 'timesheet' ? aggregateTimesheetRows(tenantId, rows) : rows;
+
+      // Fetch active records from DB for comparison
+      let activeRecords: ActiveRecord[] = [];
+      const tableSchema = tableToSchema[tableId];
+      if (tableSchema) {
+        const results = await (db as never as { select: Function })
+          .select({
+            natural_key_hash: (tableSchema as { natural_key_hash: unknown }).natural_key_hash,
+            source_row_hash: (tableSchema as { source_row_hash: unknown }).source_row_hash,
+          })
+          .from(tableSchema)
+          .where(
+            and(
+              eq((tableSchema as { tenant_id: unknown }).tenant_id as never, tenantId as never),
+              eq((tableSchema as { is_active: unknown }).is_active as never, true as never),
+            ),
+          );
+        activeRecords = results as ActiveRecord[];
+      }
+
+      // Classify each row
+      const staged = classifyRows(tableId, tenantId, processedRows, activeRecords);
+      allStaged.push(...staged);
+
+      // Compute counts
+      const counts = {
+        new_records: 0,
         updated_records: 0,
         exact_duplicates: 0,
         duplicates_in_upload: 0,
-      },
-      sampleChanges: [],
-    }));
+      };
+      for (const s of staged) {
+        counts[`${s.changeType}s` as keyof typeof counts]++;
+      }
+      // Fix key names
+      const finalCounts = {
+        new_records: counts.new_records,
+        updated_records: counts.updated_records,
+        exact_duplicates: counts.exact_duplicates,
+        duplicates_in_upload: counts.duplicates_in_upload,
+      };
+
+      const sampleChanges = staged
+        .filter((s) => s.changeType !== 'exact_duplicate')
+        .slice(0, 5)
+        .map((s) => ({
+          type: s.changeType as 'new_record' | 'updated_record' | 'duplicate_in_upload',
+          naturalKey: s.naturalKeyDisplay,
+          newValues: s.values,
+        }));
+
+      changeSummary.push({ tableId, counts: finalCounts, sampleChanges });
+    }
+
+    // Write staging changes to DB
+    if (allStaged.length > 0) {
+      const stagingRows = allStaged.map((s) => ({
+        ingestion_session_id: sessionId,
+        table_id: s.tableId,
+        natural_key_hash: s.naturalKeyHash,
+        change_type: s.changeType,
+        new_values: s.values,
+        natural_key_display: s.naturalKeyDisplay,
+        old_values: s.oldValues ?? null,
+      }));
+      await db.insert(stagingChanges).values(stagingRows);
+    }
 
     const hasUpdates = changeSummary.some(
-      (t) => t.counts.updated_records > 0 || t.counts.duplicates_in_upload > 0,
+      (t) =>
+        t.counts.updated_records > 0 ||
+        (t.counts.duplicates_in_upload > 0 && shouldBlockDuplicateInUpload(t.tableId)),
     );
 
     return {
       ingestionSessionId: sessionId,
-      changeSummary,
+      changeSummary: changeSummary as z.infer<typeof StagingOutputSchema>['changeSummary'],
       hasUpdates,
       requiresReview: hasUpdates,
     };
@@ -173,24 +301,16 @@ const reviewChangesStep = createStep({
   outputSchema: PublishOutputSchema,
   suspendSchema: PublishReviewCardSchema,
   resumeSchema: PublishDecisionSchema,
-  execute: async ({ inputData, resumeData, suspend }) => {
+  execute: async ({ inputData, resumeData, suspend, requestContext }) => {
     if (!resumeData) {
       if (!inputData.requiresReview) {
         // All new records or exact duplicates — auto-publish
-        // TODO: Execute actual upsert to canonical tables
-        const rowsWritten: Record<string, number> = {};
-        const rowsUpdated: Record<string, number> = {};
-        const rowsSkipped: Record<string, number> = {};
-        for (const table of inputData.changeSummary) {
-          rowsWritten[table.tableId] = table.counts.new_records;
-          rowsUpdated[table.tableId] = table.counts.updated_records;
-          rowsSkipped[table.tableId] = table.counts.exact_duplicates;
-        }
+        const { publishUpsert } = await import('../../ingestion/publish-upsert.ts');
+        const tenantId = (requestContext.get('tenant_id') as string) ?? '';
+        const result = await publishUpsert(inputData.ingestionSessionId, tenantId);
         return {
           ingestionSessionId: inputData.ingestionSessionId,
-          rowsWritten,
-          rowsUpdated,
-          rowsSkipped,
+          ...result,
           status: 'published' as const,
         };
       }
@@ -219,21 +339,12 @@ const reviewChangesStep = createStep({
     }
 
     // Approved — execute upsert
-    // TODO: Read staging_changes, execute ON CONFLICT DO UPDATE
-    const rowsWritten: Record<string, number> = {};
-    const rowsUpdated: Record<string, number> = {};
-    const rowsSkipped: Record<string, number> = {};
-    for (const table of inputData.changeSummary) {
-      rowsWritten[table.tableId] = table.counts.new_records;
-      rowsUpdated[table.tableId] = table.counts.updated_records;
-      rowsSkipped[table.tableId] = table.counts.exact_duplicates;
-    }
-
+    const { publishUpsert } = await import('../../ingestion/publish-upsert.ts');
+    const tenantId = (requestContext.get('tenant_id') as string) ?? '';
+    const result = await publishUpsert(inputData.ingestionSessionId, tenantId);
     return {
       ingestionSessionId: inputData.ingestionSessionId,
-      rowsWritten,
-      rowsUpdated,
-      rowsSkipped,
+      ...result,
       status: 'published' as const,
     };
   },

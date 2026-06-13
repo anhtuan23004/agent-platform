@@ -1104,6 +1104,9 @@ importers:
 
   packages/pmo:
     dependencies:
+      '@aws-sdk/client-s3':
+        specifier: ^3.1067.0
+        version: 3.1067.0
       '@mastra/core':
         specifier: ^1.42.0
         version: 1.42.0(@grpc/grpc-js@1.14.4)(ai@6.0.200(zod@4.4.3))(express@5.2.1)(zod@4.4.3)
