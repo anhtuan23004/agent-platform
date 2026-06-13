@@ -402,6 +402,34 @@ function progressBar(pct: number): string {
   return `${clamped}%`;
 }
 
+function cardFromSnapshot(snapshot: unknown): unknown {
+  if (!snapshot || typeof snapshot !== 'object') return undefined;
+  const snap = snapshot as {
+    result?: { suspendPayload?: unknown };
+    context?: Record<string, { suspendPayload?: unknown }>;
+    suspendedPaths?: Record<string, unknown>;
+  };
+
+  if (snap.result?.suspendPayload && typeof snap.result.suspendPayload === 'object') {
+    return snap.result.suspendPayload;
+  }
+
+  const suspendedStepId = snap.suspendedPaths ? Object.keys(snap.suspendedPaths)[0] : undefined;
+  if (suspendedStepId && snap.context?.[suspendedStepId]?.suspendPayload) {
+    return snap.context[suspendedStepId].suspendPayload;
+  }
+
+  if (snap.context) {
+    for (const entry of Object.values(snap.context)) {
+      if (entry?.suspendPayload && typeof entry.suspendPayload === 'object') {
+        return entry.suspendPayload;
+      }
+    }
+  }
+
+  return undefined;
+}
+
 export function PmoPage() {
   const qc = useQueryClient();
   const [reportingPeriodKey, setReportingPeriodKey] = useState('');
@@ -443,22 +471,79 @@ export function PmoPage() {
     return rows.map((run) => toRunView(run, pendingByRun.get(run.runId) ?? []));
   }, [runsQuery.data, pendingByRun]);
 
+  const firstPendingRunId = useMemo(
+    () => runViews.find((view) => view.pendingApprovals.length > 0)?.run.runId ?? null,
+    [runViews],
+  );
+
   useEffect(() => {
     const firstRun = runViews[0];
     if (runViews.length === 0) {
       setSelectedRunId(null);
       return;
     }
+
+    const selectedView = selectedRunId
+      ? (runViews.find((view) => view.run.runId === selectedRunId) ?? null)
+      : null;
+    const selectedHasPendingApproval = (selectedView?.pendingApprovals.length ?? 0) > 0;
+
+    if (firstPendingRunId && !selectedHasPendingApproval) {
+      setSelectedRunId(firstPendingRunId);
+      return;
+    }
+
     if (!selectedRunId || !runViews.some((view) => view.run.runId === selectedRunId)) {
       setSelectedRunId(firstRun ? firstRun.run.runId : null);
     }
-  }, [runViews, selectedRunId]);
+  }, [runViews, selectedRunId, firstPendingRunId]);
 
   const selectedView =
     runViews.find((view) => view.run.runId === selectedRunId) ?? runViews[0] ?? null;
   const latestView = runViews[0] ?? null;
+  const selectedRunIdValue = selectedView?.run.runId;
+  const selectedRunStatus = selectedView?.run.status;
+
+  const selectedRunSnapshotQuery = useQuery({
+    queryKey: ['pmo', 'run-snapshot', selectedRunIdValue],
+    enabled: Boolean(selectedRunIdValue),
+    queryFn: async () => {
+      if (!selectedRunIdValue) return null;
+      return workflowsApi.getRunSnapshot(selectedRunIdValue);
+    },
+    refetchInterval: selectedRunStatus === 'paused' ? 5000 : false,
+  });
+
+  const snapshotFallbackPayload = useMemo(
+    () => cardFromSnapshot(selectedRunSnapshotQuery.data),
+    [selectedRunSnapshotQuery.data],
+  );
+
+  const selectedMappingApproval = useMemo(() => {
+    const approval = selectedView?.mappingApproval ?? null;
+    if (!approval) return null;
+    if (isRenderableApprovalPayload(approval.proposedPayload)) return approval;
+    if (!isRenderableApprovalPayload(snapshotFallbackPayload)) return approval;
+    return { ...approval, proposedPayload: snapshotFallbackPayload };
+  }, [selectedView?.mappingApproval, snapshotFallbackPayload]);
+
+  const selectedDbApproval = useMemo(() => {
+    const approval = selectedView?.dbApproval ?? null;
+    if (!approval) return null;
+    if (isRenderableApprovalPayload(approval.proposedPayload)) return approval;
+    if (!isRenderableApprovalPayload(snapshotFallbackPayload)) return approval;
+    return { ...approval, proposedPayload: snapshotFallbackPayload };
+  }, [selectedView?.dbApproval, snapshotFallbackPayload]);
+
+  const selectedMappingView = useMemo(
+    () => parseMappingView(selectedMappingApproval),
+    [selectedMappingApproval],
+  );
+
+  const selectedDbView = useMemo(() => parseDbView(selectedDbApproval), [selectedDbApproval]);
+
   const selectedViewStage = selectedView?.stage;
-  const selectedViewFirstDbTable = selectedView?.dbView?.rows[0]?.table ?? null;
+  const selectedViewFirstDbTable = selectedDbView?.rows[0]?.table ?? null;
 
   useEffect(() => {
     if (!selectedViewStage) return;
@@ -486,8 +571,8 @@ export function PmoPage() {
     }
 
     if (selectedView.stage === 'mapping') {
-      const total = selectedView.mappingView?.total ?? 0;
-      const approved = selectedView.mappingView?.approved ?? 0;
+      const total = selectedMappingView?.total ?? 0;
+      const approved = selectedMappingView?.approved ?? 0;
       const pending = Math.max(total - approved, 0);
       const pct = total > 0 ? Math.round((approved / total) * 100) : 0;
       return {
@@ -501,9 +586,8 @@ export function PmoPage() {
     }
 
     if (selectedView.stage === 'db') {
-      const total = selectedView.dbView?.rows.length ?? 0;
-      const pending =
-        selectedView.dbView?.rows.filter((row) => row.status === 'pending').length ?? 0;
+      const total = selectedDbView?.rows.length ?? 0;
+      const pending = selectedDbView?.rows.filter((row) => row.status === 'pending').length ?? 0;
       const approved = Math.max(total - pending, 0);
       const pct = total > 0 ? Math.round((approved / total) * 100) : 60;
       return {
@@ -535,19 +619,19 @@ export function PmoPage() {
       pending: 0,
       rejected: 0,
     };
-  }, [selectedView]);
+  }, [selectedView, selectedMappingView, selectedDbView]);
 
   const selectedDbRow = useMemo(() => {
-    if (!selectedView?.dbView) return null;
+    if (!selectedDbView) return null;
     return (
-      selectedView.dbView.rows.find((row) => row.table === selectedDbTable) ??
-      selectedView.dbView.rows[0] ??
+      selectedDbView.rows.find((row) => row.table === selectedDbTable) ??
+      selectedDbView.rows[0] ??
       null
     );
-  }, [selectedView, selectedDbTable]);
+  }, [selectedDbView, selectedDbTable]);
 
   const mappingGroups = useMemo(() => {
-    const items = selectedView?.mappingView?.items ?? [];
+    const items = selectedMappingView?.items ?? [];
     const grouped = new Map<string, { total: number; approved: number; pending: number }>();
     for (const item of items) {
       const row = grouped.get(item.table) ?? { total: 0, approved: 0, pending: 0 };
@@ -563,7 +647,7 @@ export function PmoPage() {
       approved: stats.approved,
       pending: stats.pending,
     }));
-  }, [selectedView?.mappingView?.items]);
+  }, [selectedMappingView?.items]);
 
   function refreshData() {
     void qc.invalidateQueries({ queryKey: PMO_RUNS_QUERY_KEY });
@@ -976,8 +1060,8 @@ export function PmoPage() {
                             </tr>
                           </thead>
                           <tbody>
-                            {selectedView.mappingView?.items.length ? (
-                              selectedView.mappingView.items.map((item) => (
+                            {selectedMappingView?.items.length ? (
+                              selectedMappingView.items.map((item) => (
                                 <tr
                                   key={item.key}
                                   className="border-b border-hairline last:border-b-0"
@@ -1017,19 +1101,19 @@ export function PmoPage() {
                         </table>
                       </div>
 
-                      {selectedView.mappingApproval ? (
+                      {selectedMappingApproval ? (
                         <div className="mt-3 space-y-3">
                           <div className="rounded-lg border border-hairline bg-canvas p-3">
                             <p className="text-caption text-ink-subtle">
-                              {selectedView.mappingView?.approved ?? 0} of{' '}
-                              {selectedView.mappingView?.total ?? 0} mapping review items approved.
+                              {selectedMappingView?.approved ?? 0} of{' '}
+                              {selectedMappingView?.total ?? 0} mapping review items approved.
                             </p>
                           </div>
 
                           <HitlCardHost
-                            approval={selectedView.mappingApproval}
+                            approval={selectedMappingApproval}
                             canAct
-                            threadId={selectedView.mappingApproval.surfaceChatThreadId ?? undefined}
+                            threadId={selectedMappingApproval.surfaceChatThreadId ?? undefined}
                           />
                         </div>
                       ) : (
@@ -1056,13 +1140,13 @@ export function PmoPage() {
                           Rows skipped (exact duplicates)
                         </p>
                         <p className="mt-1 text-body-sm text-ink-subtle">
-                          Rows skipped: {selectedView.dbView?.rowsToSkip ?? 0}
+                          Rows skipped: {selectedDbView?.rowsToSkip ?? 0}
                         </p>
                       </div>
                       <div className="rounded-lg border border-hairline bg-canvas p-3">
                         <p className="text-caption font-medium text-ink">Rows to upsert</p>
                         <p className="mt-1 text-body-sm text-ink-subtle">
-                          Rows to upsert: {selectedView.dbView?.rowsToUpsert ?? 0}
+                          Rows to upsert: {selectedDbView?.rowsToUpsert ?? 0}
                         </p>
                       </div>
                     </section>
@@ -1083,8 +1167,8 @@ export function PmoPage() {
                             </tr>
                           </thead>
                           <tbody>
-                            {selectedView.dbView?.rows.length ? (
-                              selectedView.dbView.rows.map((row) => (
+                            {selectedDbView?.rows.length ? (
+                              selectedDbView.rows.map((row) => (
                                 <tr
                                   key={row.table}
                                   className={`cursor-pointer border-b border-hairline last:border-b-0 ${
@@ -1156,12 +1240,12 @@ export function PmoPage() {
                     </section>
                   </div>
 
-                  {selectedView.dbApproval ? (
+                  {selectedDbApproval ? (
                     <div className="rounded-lg border border-hairline bg-surface-1 p-3">
                       <HitlCardHost
-                        approval={selectedView.dbApproval}
+                        approval={selectedDbApproval}
                         canAct
-                        threadId={selectedView.dbApproval.surfaceChatThreadId ?? undefined}
+                        threadId={selectedDbApproval.surfaceChatThreadId ?? undefined}
                       />
                     </div>
                   ) : (

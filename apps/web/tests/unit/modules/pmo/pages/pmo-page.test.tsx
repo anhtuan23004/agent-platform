@@ -68,6 +68,7 @@ function makeRunRow(partial?: Partial<Record<string, unknown>>) {
 function createFetchMock(opts?: {
   runRows?: unknown[];
   pendingApprovals?: unknown[];
+  snapshotResponse?: unknown;
   uploadResponse?: unknown;
   uploadStatus?: number;
   startResponse?: unknown;
@@ -83,6 +84,9 @@ function createFetchMock(opts?: {
 
     if (url.startsWith('/api/agent/v1/workflows/runs?')) {
       return mockJsonResponse({ rows: runRows, nextCursor: null });
+    }
+    if (/^\/api\/agent\/v1\/workflows\/runs\/[^/]+\/snapshot$/.test(url)) {
+      return mockJsonResponse(opts?.snapshotResponse ?? {});
     }
     if (url === '/api/agent/v1/workflows/my-pending-approvals') {
       return mockJsonResponse(pendingApprovals);
