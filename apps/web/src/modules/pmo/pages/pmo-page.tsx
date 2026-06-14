@@ -1,4 +1,4 @@
-import { Button, Dropzone, Input, Label, PageChrome, toast } from '@seta/shared-ui';
+import { Button, Dropzone, Input, Label, PageChrome, Textarea, toast } from '@seta/shared-ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { CheckCircle2, Circle, Loader2, MoveUpRight, RefreshCw, Workflow } from 'lucide-react';
@@ -108,6 +108,21 @@ const STAGES: Array<{ key: StageKey; label: string }> = [
   { key: 'db', label: 'DB changes' },
   { key: 'summary', label: 'Summary' },
   { key: 'completed', label: 'Completed' },
+];
+
+const PLAN_PREVIEW_STEPS: Array<{
+  id: number;
+  label: string;
+  state: 'done' | 'current' | 'pending';
+}> = [
+  { id: 1, label: 'Ingest workbook', state: 'done' },
+  { id: 2, label: 'Detect missing PMO data', state: 'done' },
+  { id: 3, label: 'Propose mappings', state: 'current' },
+  { id: 4, label: 'Validate staging data', state: 'pending' },
+  { id: 5, label: 'Review DB changes', state: 'pending' },
+  { id: 6, label: 'Publish approval', state: 'pending' },
+  { id: 7, label: 'Create dataset version', state: 'pending' },
+  { id: 8, label: 'Ready for RA calculation', state: 'pending' },
 ];
 
 function readInputField(inputSummary: unknown, key: string): string | null {
@@ -910,6 +925,10 @@ function cardFromSnapshot(snapshot: unknown): unknown {
 export function PmoPage() {
   const qc = useQueryClient();
   const [reportingPeriodKey, setReportingPeriodKey] = useState('');
+  const [goalDraft, setGoalDraft] = useState(
+    'Ingest this workbook and prepare data for RA calculation.',
+  );
+  const [planFeedback, setPlanFeedback] = useState('');
   const [uploadedWorkbook, setUploadedWorkbook] = useState<UploadedWorkbookReady | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>('mapping');
@@ -1238,6 +1257,12 @@ export function PmoPage() {
     }
   }
 
+  function showStaticPlanToast(title: string) {
+    toast.success(title, {
+      description: 'New plan UI is static for now and is not wired to backend yet.',
+    });
+  }
+
   function approveCurrentMappingItem() {
     if (!selectedMappingApproval) return;
     submitDecision.mutate(
@@ -1432,21 +1457,55 @@ export function PmoPage() {
               <div>
                 <h2 className="text-body-sm font-semibold text-ink">Workflow path</h2>
                 <p className="mt-0.5 text-body-sm text-ink-subtle">
-                  Upload workbook, review mapping items one-by-one, review DB changes, then publish.
+                  Upload workbook, describe goal, generate a plan, approve plan, then execute.
                 </p>
               </div>
             </div>
 
-            <div className="mt-3 grid gap-3 lg:grid-cols-[260px_minmax(0,1fr)]">
-              <section className="space-y-2">
-                <Label htmlFor="reporting-period-key">Reporting period key (optional)</Label>
-                <Input
-                  id="reporting-period-key"
-                  value={reportingPeriodKey}
-                  onChange={(e) => setReportingPeriodKey(e.target.value)}
-                  placeholder="e.g. 2025-W35"
-                  disabled={uploadWorkbook.isPending || startIngest.isPending}
-                />
+            <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+              <section className="space-y-3">
+                <div className="space-y-2">
+                  <Label htmlFor="reporting-period-key">Reporting period key (optional)</Label>
+                  <Input
+                    id="reporting-period-key"
+                    value={reportingPeriodKey}
+                    onChange={(e) => setReportingPeriodKey(e.target.value)}
+                    placeholder="e.g. 2025-W35"
+                    disabled={uploadWorkbook.isPending || startIngest.isPending}
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="pmo-goal-input">Goal</Label>
+                    <span className="text-caption text-ink-subtle">{goalDraft.length} / 500</span>
+                  </div>
+                  <Textarea
+                    id="pmo-goal-input"
+                    rows={3}
+                    maxLength={500}
+                    value={goalDraft}
+                    onChange={(e) => setGoalDraft(e.target.value)}
+                    className="resize-none"
+                    placeholder="Describe what the PMO assistant should prepare from this workbook."
+                    disabled={uploadWorkbook.isPending || startIngest.isPending}
+                  />
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="primary"
+                    onClick={() => showStaticPlanToast('Plan generated')}
+                    disabled={uploadWorkbook.isPending || startIngest.isPending}
+                  >
+                    Analyze &amp; generate plan
+                  </Button>
+                  <span className="rounded-full border border-hairline bg-surface-1 px-2 py-0.5 text-caption text-ink-subtle">
+                    Plan not started
+                  </span>
+                </div>
               </section>
 
               <Dropzone
@@ -1492,6 +1551,107 @@ export function PmoPage() {
                 Starting PMO workflow...
               </div>
             ) : null}
+          </section>
+
+          <section className="rounded-xl border border-hairline bg-canvas p-4 shadow-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-body-sm font-semibold text-ink">Suggested ingestion plan</h3>
+              <span className="rounded-full bg-primary-tint px-2 py-0.5 text-caption text-primary-ink">
+                AI generated
+              </span>
+            </div>
+
+            <div className="mt-3 rounded-lg border border-hairline bg-surface-1 px-3 py-2">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-caption">
+                <p className="text-ink">
+                  <span className="font-semibold">Interpreted goal:</span> Prepare for RA
+                  calculation
+                </p>
+                <p className="text-success-ink">
+                  <span className="font-semibold">Confidence:</span> 92%
+                </p>
+              </div>
+              <p className="mt-1 text-caption text-ink-subtle">
+                Your goal requires canonical data preparation, validation, DB review, and publish
+                approval before RA calculation.
+              </p>
+            </div>
+
+            <ol className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+              {PLAN_PREVIEW_STEPS.map((step) => {
+                const tone = toneForState(step.state);
+
+                return (
+                  <li
+                    key={step.id}
+                    className="rounded-lg border border-hairline bg-surface-1 px-2.5 py-2 text-caption"
+                  >
+                    <div className="flex items-start gap-2">
+                      <span
+                        className={`mt-0.5 flex size-5 items-center justify-center rounded-full border text-[10px] font-semibold ${tone.marker}`}
+                      >
+                        {step.state === 'done' ? (
+                          <CheckCircle2 className="size-3" />
+                        ) : step.state === 'pending' ? (
+                          <Circle className="size-3" />
+                        ) : (
+                          step.id
+                        )}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="font-medium text-ink">{step.label}</p>
+                        <p className={`mt-0.5 ${tone.text}`}>
+                          {step.state === 'current' ? 'In progress' : 'Planned'}
+                        </p>
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
+
+            <div className="mt-3 rounded-lg border border-warning-border bg-warning-tint/80 px-3 py-2 text-caption text-warning-ink">
+              This plan requires approval before execution because it may write data to DB.
+            </div>
+
+            <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+              <div className="space-y-2">
+                <Label htmlFor="plan-feedback">Plan feedback</Label>
+                <Input
+                  id="plan-feedback"
+                  value={planFeedback}
+                  onChange={(e) => setPlanFeedback(e.target.value)}
+                  placeholder="Example: Do not publish DB yet; only validate and check missing data."
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => showStaticPlanToast('Plan regenerated')}
+                >
+                  Regenerate plan
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="primary"
+                  onClick={() => showStaticPlanToast('Plan approved')}
+                >
+                  Approve plan &amp; start
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => showStaticPlanToast('Goal editing mode opened')}
+                >
+                  Edit goal
+                </Button>
+              </div>
+            </div>
           </section>
 
           <div className="grid gap-3 lg:grid-cols-2">
