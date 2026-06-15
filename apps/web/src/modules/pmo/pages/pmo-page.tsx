@@ -27,6 +27,75 @@ const PROFILING_AREAS: PmoProfilingArea[] = [
 
 type TimelineState = 'done' | 'current' | 'pending';
 
+type ExecutionCard = {
+  step_no: number;
+  step_name: string;
+  status: PmoWorkflowExecutionStepStatus;
+  description?: string;
+};
+
+type ExecutionActionGroup = {
+  id: 'needs_action' | 'in_progress' | 'upcoming' | 'completed';
+  title: string;
+  hint: string;
+  badgeTone: string;
+  steps: ExecutionCard[];
+};
+
+function groupExecutionCardsByAction(cards: ExecutionCard[]): ExecutionActionGroup[] {
+  const groups: ExecutionActionGroup[] = [
+    {
+      id: 'needs_action',
+      title: 'Needs action',
+      hint: 'Review or resolve these steps before continuing.',
+      badgeTone: 'bg-warning-tint text-warning-ink',
+      steps: [],
+    },
+    {
+      id: 'in_progress',
+      title: 'In progress',
+      hint: 'These steps are currently running.',
+      badgeTone: 'bg-primary-tint text-primary-ink',
+      steps: [],
+    },
+    {
+      id: 'upcoming',
+      title: 'Upcoming',
+      hint: 'Queued steps waiting for upstream completion.',
+      badgeTone: 'bg-surface-2 text-ink-subtle',
+      steps: [],
+    },
+    {
+      id: 'completed',
+      title: 'Completed',
+      hint: 'Finished steps kept for traceability.',
+      badgeTone: 'bg-success-tint text-success-ink',
+      steps: [],
+    },
+  ];
+
+  for (const card of cards) {
+    if (card.status === 'failed' || card.status === 'needs_review') {
+      groups[0]?.steps.push(card);
+      continue;
+    }
+
+    if (card.status === 'in_progress') {
+      groups[1]?.steps.push(card);
+      continue;
+    }
+
+    if (card.status === 'pending') {
+      groups[2]?.steps.push(card);
+      continue;
+    }
+
+    groups[3]?.steps.push(card);
+  }
+
+  return groups.filter((group) => group.steps.length > 0);
+}
+
 function formatLocalDate(isoText: string | null | undefined): string {
   if (!isoText) {
     return '-';
@@ -202,12 +271,7 @@ function documentStatusTone(status: PmoSessionDocumentProfileRecord['status']): 
   };
 }
 
-function buildExecutionCards(session: PmoPlanningSession | null): Array<{
-  step_no: number;
-  step_name: string;
-  status: PmoWorkflowExecutionStepStatus;
-  description?: string;
-}> {
+function buildExecutionCards(session: PmoPlanningSession | null): ExecutionCard[] {
   if (!session?.plan) {
     return [];
   }
@@ -387,6 +451,11 @@ export function PmoPage() {
     }
     return map;
   }, [executionState]);
+
+  const executionActionGroups = useMemo(
+    () => groupExecutionCardsByAction(executionCards),
+    [executionCards],
+  );
 
   const loadSessions = useCallback(async (keepSelection = true) => {
     setIsLoadingSessions(true);
@@ -940,620 +1009,697 @@ export function PmoPage() {
                 Selected run was not found.
               </section>
             ) : (
-              <section className="space-y-3 rounded-lg border border-hairline bg-surface-1 p-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="text-body-sm font-semibold text-ink">Plan</h3>
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-caption font-medium ${statusTone(selectedSession.status_label)}`}
-                  >
-                    {selectedSession.status_label}
-                  </span>
-                  <span className="rounded-full bg-canvas px-2 py-0.5 text-caption text-ink-subtle">
-                    Version {Math.max(1, selectedSession.plan_version)}
-                  </span>
-                </div>
-
-                <div className="rounded-lg border border-hairline bg-canvas px-3 py-2 text-caption">
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                    <p className="text-ink">
-                      <span className="font-semibold">Interpreted goal:</span>{' '}
-                      {(plan?.goal_summary ?? selectedSession.goal) || goalDraft}
-                    </p>
-                    <p className="text-success-ink">
-                      <span className="font-semibold">Plan status:</span>{' '}
+              <div className="space-y-3">
+                <section className="space-y-3 rounded-lg border border-hairline bg-surface-1 p-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-body-sm font-semibold text-ink">Plan</h3>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-caption font-medium ${statusTone(selectedSession.status_label)}`}
+                    >
                       {selectedSession.status_label}
+                    </span>
+                    <span className="rounded-full bg-canvas px-2 py-0.5 text-caption text-ink-subtle">
+                      Version {Math.max(1, selectedSession.plan_version)}
+                    </span>
+                  </div>
+
+                  <div className="rounded-lg border border-hairline bg-canvas px-3 py-2 text-caption">
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                      <p className="text-ink">
+                        <span className="font-semibold">Interpreted goal:</span>{' '}
+                        {(plan?.goal_summary ?? selectedSession.goal) || goalDraft}
+                      </p>
+                      <p className="text-success-ink">
+                        <span className="font-semibold">Plan status:</span>{' '}
+                        {selectedSession.status_label}
+                      </p>
+                    </div>
+                    <p className="mt-1 text-ink-subtle">
+                      {plan?.title ?? 'Plan will appear here after Analyze & Generate Plan.'}
                     </p>
                   </div>
-                  <p className="mt-1 text-ink-subtle">
-                    {plan?.title ?? 'Plan will appear here after Analyze & Generate Plan.'}
-                  </p>
-                </div>
 
-                <ol className="grid gap-2 md:grid-cols-2 xl:grid-cols-5">
-                  {timeline.map((step) => {
-                    const tone = toneForState(step.state);
-                    const stateLabel =
-                      step.state === 'done'
-                        ? 'Done'
-                        : step.state === 'current'
-                          ? 'In progress'
-                          : 'Pending';
+                  <ol className="grid gap-2 md:grid-cols-2 xl:grid-cols-5">
+                    {timeline.map((step) => {
+                      const tone = toneForState(step.state);
+                      const stateLabel =
+                        step.state === 'done'
+                          ? 'Done'
+                          : step.state === 'current'
+                            ? 'In progress'
+                            : 'Pending';
 
-                    return (
-                      <li
-                        key={step.id}
-                        className="rounded-lg border border-hairline bg-canvas px-2.5 py-2 text-caption"
-                      >
-                        <div className="flex items-start gap-2">
-                          <span
-                            className={`mt-0.5 flex size-5 items-center justify-center rounded-full border text-[10px] font-semibold ${tone.marker}`}
-                          >
-                            {step.state === 'done' ? (
-                              <CheckCircle2 className="size-3.5" />
-                            ) : step.state === 'pending' ? (
-                              <Circle className="size-3.5" />
-                            ) : (
-                              step.id
-                            )}
-                          </span>
-                          <div className="min-w-0">
-                            <p className="font-medium text-ink">{step.label}</p>
-                            <p className={`mt-0.5 ${tone.text}`}>{stateLabel}</p>
+                      return (
+                        <li
+                          key={step.id}
+                          className="rounded-lg border border-hairline bg-canvas px-2.5 py-2 text-caption"
+                        >
+                          <div className="flex items-start gap-2">
+                            <span
+                              className={`mt-0.5 flex size-5 items-center justify-center rounded-full border text-[10px] font-semibold ${tone.marker}`}
+                            >
+                              {step.state === 'done' ? (
+                                <CheckCircle2 className="size-3.5" />
+                              ) : step.state === 'pending' ? (
+                                <Circle className="size-3.5" />
+                              ) : (
+                                step.id
+                              )}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="font-medium text-ink">{step.label}</p>
+                              <p className={`mt-0.5 ${tone.text}`}>{stateLabel}</p>
+                            </div>
                           </div>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ol>
+                        </li>
+                      );
+                    })}
+                  </ol>
 
-                {selectedSession.planning_state === 'generating_plan' ? (
-                  <div className="flex items-center gap-2 rounded-lg border border-warning-border bg-warning-tint/80 px-3 py-2 text-caption text-warning-ink">
-                    <Loader2 className="size-4 animate-spin" />
-                    Generating plan from Goal and uploaded file metadata...
+                  {selectedSession.planning_state === 'generating_plan' ? (
+                    <div className="flex items-center gap-2 rounded-lg border border-warning-border bg-warning-tint/80 px-3 py-2 text-caption text-warning-ink">
+                      <Loader2 className="size-4 animate-spin" />
+                      Generating plan from Goal and uploaded file metadata...
+                    </div>
+                  ) : null}
+
+                  {plan ? (
+                    <div className="rounded-lg border border-hairline bg-canvas px-3 py-2 text-caption text-ink-subtle">
+                      <p className="font-medium text-ink">Proposed workflow</p>
+                      <ol className="mt-1 list-decimal space-y-1 pl-4">
+                        {plan.proposed_workflow.map((step) => (
+                          <li key={`${selectedSession.ingestion_session_id}-step-${step.step_no}`}>
+                            <span className="font-medium text-ink">{step.step_name}</span>:{' '}
+                            {step.description}
+                          </li>
+                        ))}
+                      </ol>
+                      <p className="mt-2">
+                        Last generated:{' '}
+                        <span className="text-ink">
+                          {formatLocalDate(selectedSession.plan_generated_at)}
+                        </span>
+                      </p>
+                    </div>
+                  ) : null}
+
+                  {proposedWorkflowSteps.length > 0 ? (
+                    <section className="rounded-lg border border-hairline bg-canvas px-3 py-2 text-caption text-ink-subtle">
+                      <p className="font-medium text-ink">Proposed workflow visual</p>
+                      <p className="mt-1">
+                        Steps are connected in order to make flow progression easier to scan.
+                      </p>
+
+                      <div className="mt-3 overflow-x-auto pb-1">
+                        <ol className="grid min-w-[520px] grid-cols-2 gap-x-2 gap-y-3 md:flex md:min-w-max md:items-start md:gap-0">
+                          {proposedWorkflowSteps.map((step, index) => {
+                            const isLast = index === proposedWorkflowSteps.length - 1;
+                            const stepStatus =
+                              proposedStepStatusByNo.get(step.step_no) ??
+                              (selectedSession?.planning_state === 'approved_plan' &&
+                              step.step_no === 1
+                                ? 'in_progress'
+                                : 'pending');
+                            const tone = proposedStepTone(stepStatus);
+
+                            return (
+                              <li
+                                key={`${selectedSession.ingestion_session_id}-proposed-visual-step-${step.step_no}`}
+                                className="flex items-start"
+                              >
+                                <div className="flex w-[140px] shrink-0 flex-col items-center">
+                                  <span
+                                    className={`flex size-9 items-center justify-center rounded-full border text-body-sm font-semibold ${tone.circle}`}
+                                  >
+                                    {step.step_no}
+                                  </span>
+                                  <p
+                                    className={`mt-2 px-1 text-center text-caption font-medium ${tone.text}`}
+                                  >
+                                    {step.step_name}
+                                  </p>
+                                </div>
+                                {!isLast ? (
+                                  <span
+                                    aria-hidden="true"
+                                    className={`mt-[18px] hidden h-0.5 w-10 shrink-0 md:block ${tone.line}`}
+                                  />
+                                ) : null}
+                              </li>
+                            );
+                          })}
+                        </ol>
+                      </div>
+                    </section>
+                  ) : null}
+
+                  <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+                    <div className="space-y-2">
+                      <Label htmlFor="plan-feedback">Plan feedback</Label>
+                      <Textarea
+                        id="plan-feedback"
+                        rows={2}
+                        value={selectedFeedback}
+                        onChange={(e) => {
+                          const nextValue = e.target.value;
+                          setFeedbackBySessionId((prev) => ({
+                            ...prev,
+                            [selectedSession.ingestion_session_id]: nextValue,
+                          }));
+                        }}
+                        placeholder="Example: Keep only validation and do not continue to DB write yet."
+                        disabled={
+                          isGenerating || selectedSession.planning_state === 'approved_plan'
+                        }
+                      />
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={handleRegeneratePlan}
+                        disabled={selectedSession.planning_state !== 'plan_review' || isGenerating}
+                      >
+                        Regenerate plan
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="primary"
+                        onClick={handleApprovePlanAndStart}
+                        disabled={selectedSession.planning_state !== 'plan_review' || isApproving}
+                      >
+                        {isApproving ? (
+                          <>
+                            <Loader2 className="size-4 animate-spin" />
+                            Approving...
+                          </>
+                        ) : (
+                          'Approve plan & start'
+                        )}
+                      </Button>
+                    </div>
                   </div>
-                ) : null}
+
+                  {selectedSession.feedback_history.length > 0 ? (
+                    <div className="rounded-lg border border-hairline bg-canvas px-3 py-2 text-caption">
+                      <p className="font-medium text-ink">Feedback history</p>
+                      <ul className="mt-1 list-disc space-y-1 pl-4 text-ink-subtle">
+                        {feedbackHistoryItems.map((item) => (
+                          <li key={item.key}>{item.feedback}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </section>
 
                 {executionCards.length > 0 ? (
-                  <section className="rounded-lg border border-hairline bg-canvas px-3 py-2 text-caption text-ink-subtle">
+                  <section className="rounded-lg border border-hairline bg-surface-1 p-4 text-caption text-ink-subtle">
                     <p className="font-medium text-ink">Workflow execution</p>
                     <p className="mt-1">
-                      Step cards are derived from the approved plan. Only the active step is
-                      interactive.
+                      Step cards are separated from plan details, grouped by action, and listed one
+                      row per card.
                     </p>
 
-                    <ol className="mt-2 grid gap-2 md:grid-cols-2">
-                      {executionCards.map((step) => {
-                        const tone = workflowStepTone(step.status);
-                        const isCurrent =
-                          step.step_no ===
-                          (executionState?.current_step_no ?? executionCards[0]?.step_no);
-                        const isWorkbookProfilingStep =
-                          step.step_no === 1 || /workbook\s*profil/i.test(step.step_name);
-
-                        return (
-                          <li
-                            key={`${selectedSession.ingestion_session_id}-workflow-step-${step.step_no}`}
-                            className="rounded-lg border border-hairline bg-surface-1 px-3 py-2"
-                          >
-                            <div className="flex items-start justify-between gap-2">
-                              <div>
-                                <p className="font-medium text-ink">
-                                  Step {step.step_no}: {step.step_name}
-                                </p>
-                                {step.description ? (
-                                  <p className="mt-0.5 text-ink-subtle">{step.description}</p>
-                                ) : null}
-                              </div>
-                              <div className="flex shrink-0 items-center gap-1">
-                                {isCurrent ? (
-                                  <span className="rounded-full bg-primary-tint px-2 py-0.5 text-caption font-medium text-primary-ink">
-                                    Active
-                                  </span>
-                                ) : null}
-                                <span
-                                  className={`rounded-full px-2 py-0.5 text-caption font-medium ${tone.badge}`}
-                                >
-                                  {tone.label}
-                                </span>
-                              </div>
+                    <div className="mt-3 space-y-3">
+                      {executionActionGroups.map((group) => (
+                        <section
+                          key={`${selectedSession.ingestion_session_id}-execution-group-${group.id}`}
+                          className="rounded-lg border border-hairline bg-canvas px-3 py-2"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <p className="font-medium text-ink">{group.title}</p>
+                              <p className="text-ink-subtle">{group.hint}</p>
                             </div>
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-caption font-medium ${group.badgeTone}`}
+                            >
+                              {group.steps.length} step{group.steps.length === 1 ? '' : 's'}
+                            </span>
+                          </div>
 
-                            {isWorkbookProfilingStep ? (
-                              <div className="mt-2 space-y-2 rounded-md border border-hairline bg-canvas p-2.5">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <p className="font-medium text-ink">Workbook Profiling details</p>
-                                  <span
-                                    className={`rounded-full px-2 py-0.5 text-caption font-medium ${workflowStepTone(step.status).badge}`}
-                                  >
-                                    {workflowStepTone(step.status).label}
-                                  </span>
-                                  {profilingReviewState ? (
-                                    <span className="rounded-full bg-surface-2 px-2 py-0.5 text-caption text-ink-subtle">
-                                      Review:{' '}
-                                      {profilingReviewState.status === 'approved'
-                                        ? 'Approved'
-                                        : 'Needs review'}
-                                    </span>
-                                  ) : null}
-                                </div>
+                          <ol className="mt-2 space-y-2">
+                            {group.steps.map((step) => {
+                              const tone = workflowStepTone(step.status);
+                              const isCurrent =
+                                step.step_no ===
+                                (executionState?.current_step_no ?? executionCards[0]?.step_no);
+                              const isWorkbookProfilingStep = /workbook\s*profil/i.test(
+                                step.step_name,
+                              );
+                              const shouldRenderProfilingDetails = isWorkbookProfilingStep;
+                              const isProfilingStepReadOnly = isWorkbookProfilingStep && !isCurrent;
 
-                                {profilingSummary ? (
-                                  <div className="grid gap-2 text-ink-subtle sm:grid-cols-2 lg:grid-cols-4">
-                                    <p>
-                                      Documents:{' '}
-                                      <span className="font-medium text-ink">
-                                        {profilingSummary.profiled_document_count} /
-                                        {profilingSummary.document_count}
-                                      </span>
-                                    </p>
-                                    <p>
-                                      Sheets:{' '}
-                                      <span className="font-medium text-ink">
-                                        {profilingSummary.total_sheet_count}
-                                      </span>
-                                    </p>
-                                    <p>
-                                      Rows:{' '}
-                                      <span className="font-medium text-ink">
-                                        {profilingSummary.total_row_count}
-                                      </span>
-                                    </p>
-                                    <p>
-                                      Generated:{' '}
-                                      <span className="font-medium text-ink">
-                                        {formatLocalDate(profilingSummary.generated_at)}
-                                      </span>
-                                    </p>
-                                  </div>
-                                ) : (
-                                  <p className="text-ink-subtle">
-                                    No profiling summary yet. Approve plan to start profiling.
-                                  </p>
-                                )}
-
-                                {profilingSummary?.detected_data_areas.length ? (
-                                  <p>
-                                    Detected data areas:{' '}
-                                    <span className="font-medium text-ink">
-                                      {profilingSummary.detected_data_areas.join(', ')}
-                                    </span>
-                                  </p>
-                                ) : null}
-
-                                {profilingSummary?.missing_recommended_data_areas.length ? (
-                                  <div className="space-y-1 rounded-md border border-hairline bg-surface-1 p-2">
-                                    <p className="font-medium text-ink">
-                                      Missing recommended data areas
-                                    </p>
-                                    <ul className="space-y-1">
-                                      {profilingSummary.missing_recommended_data_areas.map(
-                                        (area) => {
-                                          const waived = Boolean(
-                                            selectedSessionWaivedMissingAreas[area],
-                                          );
-                                          return (
-                                            <li
-                                              key={`${selectedSession.ingestion_session_id}-missing-${area}`}
-                                            >
-                                              <label className="flex cursor-pointer items-center justify-between gap-2">
-                                                <span className="text-ink-subtle">
-                                                  <span className="font-medium text-ink">
-                                                    {area}
-                                                  </span>
-                                                </span>
-                                                <span className="inline-flex items-center gap-1 text-caption text-ink-subtle">
-                                                  <input
-                                                    type="checkbox"
-                                                    checked={waived}
-                                                    onChange={(event) => {
-                                                      const checked = event.target.checked;
-                                                      setWaivedMissingAreasBySessionId((prev) => ({
-                                                        ...prev,
-                                                        [selectedSession.ingestion_session_id]: {
-                                                          ...(prev[
-                                                            selectedSession.ingestion_session_id
-                                                          ] ?? {}),
-                                                          [area]: checked,
-                                                        },
-                                                      }));
-                                                    }}
-                                                  />
-                                                  Mark as not required
-                                                </span>
-                                              </label>
-                                            </li>
-                                          );
-                                        },
-                                      )}
-                                    </ul>
-                                  </div>
-                                ) : null}
-
-                                {profilingSummary?.suggested_next_step ? (
-                                  <p>
-                                    Recommendation:{' '}
-                                    <span className="font-medium text-ink">
-                                      {profilingSummary.suggested_next_step}
-                                    </span>
-                                  </p>
-                                ) : null}
-
-                                <div className="space-y-1.5">
-                                  <p className="font-medium text-ink">Profiled documents</p>
-                                  {profilingDocuments.length === 0 ? (
-                                    <p className="text-ink-subtle">No document records yet.</p>
-                                  ) : (
-                                    <ul className="space-y-1.5">
-                                      {profilingDocuments.map((doc) => {
-                                        const docTone = documentStatusTone(doc.status);
-                                        const sheetCount =
-                                          doc.profile_result?.workbook_summary.sheet_count ?? 0;
-                                        const rowCount =
-                                          doc.profile_result?.workbook_summary.total_rows ?? 0;
-
-                                        return (
-                                          <li
-                                            key={doc.document_id}
-                                            className="rounded-md border border-hairline bg-surface-1 px-2 py-1.5"
-                                          >
-                                            <div className="flex flex-wrap items-center justify-between gap-2">
-                                              <p className="font-medium text-ink">
-                                                {doc.file_name}
-                                              </p>
-                                              <span
-                                                className={`rounded-full px-2 py-0.5 text-caption font-medium ${docTone.badge}`}
-                                              >
-                                                {docTone.label}
-                                              </span>
-                                            </div>
-                                            <div className="mt-1 grid gap-1 text-ink-subtle sm:grid-cols-3">
-                                              <p>Uploaded: {formatLocalDate(doc.uploaded_at)}</p>
-                                              <p>Sheets: {sheetCount}</p>
-                                              <p>Rows: {rowCount}</p>
-                                            </div>
-                                            {doc.profile_result?.sheets.length ? (
-                                              <div className="mt-2 overflow-x-auto">
-                                                <table className="min-w-full text-left text-caption">
-                                                  <thead className="border-b border-hairline text-ink-subtle">
-                                                    <tr>
-                                                      <th className="px-1.5 py-1">Sheet</th>
-                                                      <th className="px-1.5 py-1">
-                                                        Predicted meaning
-                                                      </th>
-                                                      <th className="px-1.5 py-1">Confidence</th>
-                                                      <th className="px-1.5 py-1">Action</th>
-                                                      <th className="px-1.5 py-1">Override</th>
-                                                    </tr>
-                                                  </thead>
-                                                  <tbody>
-                                                    {doc.profile_result.sheets.map((sheet) => {
-                                                      const key = profilingSheetKey(
-                                                        doc.document_id,
-                                                        sheet.sheet_name,
-                                                      );
-                                                      const override =
-                                                        selectedSessionOverrides[key];
-                                                      const effectiveArea = override?.markIgnore
-                                                        ? 'unknown'
-                                                        : (override?.finalArea ??
-                                                          sheet.final_decision?.area ??
-                                                          sheet.candidate_business_area);
-
-                                                      return (
-                                                        <tr
-                                                          key={`${doc.document_id}-${sheet.sheet_name}`}
-                                                          className="border-b border-hairline"
-                                                        >
-                                                          <td className="px-1.5 py-1 text-ink">
-                                                            {sheet.sheet_name}
-                                                          </td>
-                                                          <td className="px-1.5 py-1 text-ink-subtle">
-                                                            {sheet.likely_purpose}
-                                                          </td>
-                                                          <td className="px-1.5 py-1 text-ink-subtle">
-                                                            {sheet.final_decision?.confidence ??
-                                                              (sheet.confidence >= 0.8
-                                                                ? 'high'
-                                                                : sheet.confidence >= 0.55
-                                                                  ? 'medium'
-                                                                  : 'low')}
-                                                          </td>
-                                                          <td className="px-1.5 py-1 text-ink-subtle">
-                                                            {sheet.llm_interpretation
-                                                              ?.recommended_action ?? 'review'}
-                                                          </td>
-                                                          <td className="px-1.5 py-1">
-                                                            <div className="flex flex-wrap items-center gap-1">
-                                                              <select
-                                                                className="rounded border border-hairline bg-canvas px-1 py-0.5 text-caption"
-                                                                value={effectiveArea}
-                                                                onChange={(event) => {
-                                                                  const selectedArea = event.target
-                                                                    .value as PmoProfilingArea;
-                                                                  setProfilingOverridesBySessionId(
-                                                                    (prev) => ({
-                                                                      ...prev,
-                                                                      [selectedSession.ingestion_session_id]:
-                                                                        {
-                                                                          ...(prev[
-                                                                            selectedSession
-                                                                              .ingestion_session_id
-                                                                          ] ?? {}),
-                                                                          [key]: {
-                                                                            finalArea: selectedArea,
-                                                                            markIgnore:
-                                                                              selectedArea ===
-                                                                              'unknown',
-                                                                          },
-                                                                        },
-                                                                    }),
-                                                                  );
-                                                                }}
-                                                              >
-                                                                {PROFILING_AREAS.map((area) => (
-                                                                  <option key={area} value={area}>
-                                                                    {area}
-                                                                  </option>
-                                                                ))}
-                                                              </select>
-                                                              <label className="inline-flex items-center gap-1 text-caption text-ink-subtle">
-                                                                <input
-                                                                  type="checkbox"
-                                                                  checked={Boolean(
-                                                                    override?.markIgnore,
-                                                                  )}
-                                                                  onChange={(event) => {
-                                                                    const checked =
-                                                                      event.target.checked;
-                                                                    setProfilingOverridesBySessionId(
-                                                                      (prev) => ({
-                                                                        ...prev,
-                                                                        [selectedSession.ingestion_session_id]:
-                                                                          {
-                                                                            ...(prev[
-                                                                              selectedSession
-                                                                                .ingestion_session_id
-                                                                            ] ?? {}),
-                                                                            [key]: {
-                                                                              finalArea: checked
-                                                                                ? 'unknown'
-                                                                                : (override?.finalArea ??
-                                                                                  sheet
-                                                                                    .final_decision
-                                                                                    ?.area ??
-                                                                                  sheet.candidate_business_area),
-                                                                              markIgnore: checked,
-                                                                            },
-                                                                          },
-                                                                      }),
-                                                                    );
-                                                                  }}
-                                                                />
-                                                                Ignore
-                                                              </label>
-                                                            </div>
-                                                          </td>
-                                                        </tr>
-                                                      );
-                                                    })}
-                                                  </tbody>
-                                                </table>
-                                              </div>
-                                            ) : null}
-                                            {doc.error_message ? (
-                                              <p className="mt-1 text-danger-ink">
-                                                Error: {doc.error_message}
-                                              </p>
-                                            ) : null}
-                                          </li>
-                                        );
-                                      })}
-                                    </ul>
-                                  )}
-                                </div>
-
-                                {isCurrent && selectedSession.planning_state === 'approved_plan' ? (
-                                  <div className="space-y-2">
-                                    <Dropzone
-                                      accept={ACCEPT}
-                                      maxBytes={MAX_BYTES}
-                                      label="Upload supplemental workbook to this session"
-                                      hint="The new document is appended and profiled without restarting workflow"
-                                      pendingLabel="Uploading and profiling..."
-                                      tooLargeMessage="That file is over 50 MB. Try a smaller workbook."
-                                      isPending={isAppendingDocument}
-                                      onFile={handleAppendDocument}
-                                    />
-
-                                    <div className="flex flex-wrap items-center gap-2">
-                                      <Button
-                                        type="button"
-                                        size="sm"
-                                        variant="secondary"
-                                        onClick={handleSaveProfilingReview}
-                                        disabled={isSavingProfilingReview}
-                                      >
-                                        {isSavingProfilingReview ? (
-                                          <>
-                                            <Loader2 className="size-4 animate-spin" />
-                                            Saving review...
-                                          </>
-                                        ) : (
-                                          'Save profiling review'
-                                        )}
-                                      </Button>
-                                      <Button
-                                        type="button"
-                                        size="sm"
-                                        variant="primary"
-                                        onClick={handleApproveProfilingContinue}
-                                        disabled={
-                                          isApprovingProfiling ||
-                                          hasOutstandingMissingAreas ||
-                                          step.status !== 'needs_review'
-                                        }
-                                      >
-                                        {isApprovingProfiling ? (
-                                          <>
-                                            <Loader2 className="size-4 animate-spin" />
-                                            Approving profiling...
-                                          </>
-                                        ) : (
-                                          'Approve Profiling & Continue'
-                                        )}
-                                      </Button>
-                                      {hasOutstandingMissingAreas ? (
-                                        <span className="text-caption text-warning-ink">
-                                          Outstanding missing data areas remain. Upload documents or
-                                          waive them first.
-                                        </span>
+                              return (
+                                <li
+                                  key={`${selectedSession.ingestion_session_id}-workflow-step-${step.step_no}`}
+                                  className="rounded-lg border border-hairline bg-surface-1 px-3 py-2"
+                                >
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div>
+                                      <p className="font-medium text-ink">
+                                        Step {step.step_no}: {step.step_name}
+                                      </p>
+                                      {step.description ? (
+                                        <p className="mt-0.5 text-ink-subtle">{step.description}</p>
                                       ) : null}
                                     </div>
+                                    <div className="flex shrink-0 items-center gap-1">
+                                      {isCurrent ? (
+                                        <span className="rounded-full bg-primary-tint px-2 py-0.5 text-caption font-medium text-primary-ink">
+                                          Active
+                                        </span>
+                                      ) : null}
+                                      <span
+                                        className={`rounded-full px-2 py-0.5 text-caption font-medium ${tone.badge}`}
+                                      >
+                                        {tone.label}
+                                      </span>
+                                    </div>
                                   </div>
-                                ) : null}
-                              </div>
-                            ) : (
-                              <p className="mt-2 rounded-md border border-dashed border-hairline-strong bg-canvas px-2 py-1.5 text-ink-subtle">
-                                This step is planned and read-only for now. Implementation will be
-                                added in subsequent iteration.
-                              </p>
-                            )}
-                          </li>
-                        );
-                      })}
-                    </ol>
-                  </section>
-                ) : null}
 
-                {plan ? (
-                  <div className="rounded-lg border border-hairline bg-canvas px-3 py-2 text-caption text-ink-subtle">
-                    <p className="font-medium text-ink">Proposed workflow</p>
-                    <ol className="mt-1 list-decimal space-y-1 pl-4">
-                      {plan.proposed_workflow.map((step) => (
-                        <li key={`${selectedSession.ingestion_session_id}-step-${step.step_no}`}>
-                          <span className="font-medium text-ink">{step.step_name}</span>:{' '}
-                          {step.description}
-                        </li>
+                                  {shouldRenderProfilingDetails ? (
+                                    <div className="mt-2 space-y-2 rounded-md border border-hairline bg-canvas p-2.5">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <p className="font-medium text-ink">
+                                          Workbook Profiling details
+                                        </p>
+                                        <span
+                                          className={`rounded-full px-2 py-0.5 text-caption font-medium ${workflowStepTone(step.status).badge}`}
+                                        >
+                                          {workflowStepTone(step.status).label}
+                                        </span>
+                                        {profilingReviewState ? (
+                                          <span className="rounded-full bg-surface-2 px-2 py-0.5 text-caption text-ink-subtle">
+                                            Review:{' '}
+                                            {profilingReviewState.status === 'approved'
+                                              ? 'Approved'
+                                              : 'Needs review'}
+                                          </span>
+                                        ) : null}
+                                        {isProfilingStepReadOnly ? (
+                                          <span className="rounded-full bg-surface-2 px-2 py-0.5 text-caption text-ink-subtle">
+                                            View only
+                                          </span>
+                                        ) : null}
+                                      </div>
+
+                                      {profilingSummary ? (
+                                        <div className="grid gap-2 text-ink-subtle sm:grid-cols-2 lg:grid-cols-4">
+                                          <p>
+                                            Documents:{' '}
+                                            <span className="font-medium text-ink">
+                                              {profilingSummary.profiled_document_count} /
+                                              {profilingSummary.document_count}
+                                            </span>
+                                          </p>
+                                          <p>
+                                            Sheets:{' '}
+                                            <span className="font-medium text-ink">
+                                              {profilingSummary.total_sheet_count}
+                                            </span>
+                                          </p>
+                                          <p>
+                                            Rows:{' '}
+                                            <span className="font-medium text-ink">
+                                              {profilingSummary.total_row_count}
+                                            </span>
+                                          </p>
+                                          <p>
+                                            Generated:{' '}
+                                            <span className="font-medium text-ink">
+                                              {formatLocalDate(profilingSummary.generated_at)}
+                                            </span>
+                                          </p>
+                                        </div>
+                                      ) : (
+                                        <p className="text-ink-subtle">
+                                          No profiling summary yet. Approve plan to start profiling.
+                                        </p>
+                                      )}
+
+                                      {profilingSummary?.detected_data_areas.length ? (
+                                        <p>
+                                          Detected data areas:{' '}
+                                          <span className="font-medium text-ink">
+                                            {profilingSummary.detected_data_areas.join(', ')}
+                                          </span>
+                                        </p>
+                                      ) : null}
+
+                                      {profilingSummary?.missing_recommended_data_areas.length ? (
+                                        <div className="space-y-1 rounded-md border border-hairline bg-surface-1 p-2">
+                                          <p className="font-medium text-ink">
+                                            Missing recommended data areas
+                                          </p>
+                                          <ul className="space-y-1">
+                                            {profilingSummary.missing_recommended_data_areas.map(
+                                              (area) => {
+                                                const waived = Boolean(
+                                                  selectedSessionWaivedMissingAreas[area],
+                                                );
+                                                return (
+                                                  <li
+                                                    key={`${selectedSession.ingestion_session_id}-missing-${area}`}
+                                                  >
+                                                    <label
+                                                      className={`flex items-center justify-between gap-2 ${
+                                                        isProfilingStepReadOnly
+                                                          ? 'cursor-default'
+                                                          : 'cursor-pointer'
+                                                      }`}
+                                                    >
+                                                      <span className="text-ink-subtle">
+                                                        <span className="font-medium text-ink">
+                                                          {area}
+                                                        </span>
+                                                      </span>
+                                                      <span className="inline-flex items-center gap-1 text-caption text-ink-subtle">
+                                                        <input
+                                                          type="checkbox"
+                                                          checked={waived}
+                                                          disabled={isProfilingStepReadOnly}
+                                                          onChange={(event) => {
+                                                            const checked = event.target.checked;
+                                                            setWaivedMissingAreasBySessionId(
+                                                              (prev) => ({
+                                                                ...prev,
+                                                                [selectedSession.ingestion_session_id]:
+                                                                  {
+                                                                    ...(prev[
+                                                                      selectedSession
+                                                                        .ingestion_session_id
+                                                                    ] ?? {}),
+                                                                    [area]: checked,
+                                                                  },
+                                                              }),
+                                                            );
+                                                          }}
+                                                        />
+                                                        Mark as not required
+                                                      </span>
+                                                    </label>
+                                                  </li>
+                                                );
+                                              },
+                                            )}
+                                          </ul>
+                                        </div>
+                                      ) : null}
+
+                                      {profilingSummary?.suggested_next_step ? (
+                                        <p>
+                                          Recommendation:{' '}
+                                          <span className="font-medium text-ink">
+                                            {profilingSummary.suggested_next_step}
+                                          </span>
+                                        </p>
+                                      ) : null}
+
+                                      <div className="space-y-1.5">
+                                        <p className="font-medium text-ink">Profiled documents</p>
+                                        {profilingDocuments.length === 0 ? (
+                                          <p className="text-ink-subtle">
+                                            No document records yet.
+                                          </p>
+                                        ) : (
+                                          <ul className="space-y-1.5">
+                                            {profilingDocuments.map((doc) => {
+                                              const docTone = documentStatusTone(doc.status);
+                                              const sheetCount =
+                                                doc.profile_result?.workbook_summary.sheet_count ??
+                                                0;
+                                              const rowCount =
+                                                doc.profile_result?.workbook_summary.total_rows ??
+                                                0;
+
+                                              return (
+                                                <li
+                                                  key={doc.document_id}
+                                                  className="rounded-md border border-hairline bg-surface-1 px-2 py-1.5"
+                                                >
+                                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                                    <p className="font-medium text-ink">
+                                                      {doc.file_name}
+                                                    </p>
+                                                    <span
+                                                      className={`rounded-full px-2 py-0.5 text-caption font-medium ${docTone.badge}`}
+                                                    >
+                                                      {docTone.label}
+                                                    </span>
+                                                  </div>
+                                                  <div className="mt-1 grid gap-1 text-ink-subtle sm:grid-cols-3">
+                                                    <p>
+                                                      Uploaded: {formatLocalDate(doc.uploaded_at)}
+                                                    </p>
+                                                    <p>Sheets: {sheetCount}</p>
+                                                    <p>Rows: {rowCount}</p>
+                                                  </div>
+                                                  {doc.profile_result?.sheets.length ? (
+                                                    <div className="mt-2 overflow-x-auto">
+                                                      <table className="min-w-full text-left text-caption">
+                                                        <thead className="border-b border-hairline text-ink-subtle">
+                                                          <tr>
+                                                            <th className="px-1.5 py-1">Sheet</th>
+                                                            <th className="px-1.5 py-1">
+                                                              Predicted meaning
+                                                            </th>
+                                                            <th className="px-1.5 py-1">
+                                                              Confidence
+                                                            </th>
+                                                            <th className="px-1.5 py-1">Action</th>
+                                                            <th className="px-1.5 py-1">
+                                                              Override
+                                                            </th>
+                                                          </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                          {doc.profile_result.sheets.map(
+                                                            (sheet) => {
+                                                              const key = profilingSheetKey(
+                                                                doc.document_id,
+                                                                sheet.sheet_name,
+                                                              );
+                                                              const override =
+                                                                selectedSessionOverrides[key];
+                                                              const effectiveArea =
+                                                                override?.markIgnore
+                                                                  ? 'unknown'
+                                                                  : (override?.finalArea ??
+                                                                    sheet.final_decision?.area ??
+                                                                    sheet.candidate_business_area);
+
+                                                              return (
+                                                                <tr
+                                                                  key={`${doc.document_id}-${sheet.sheet_name}`}
+                                                                  className="border-b border-hairline"
+                                                                >
+                                                                  <td className="px-1.5 py-1 text-ink">
+                                                                    {sheet.sheet_name}
+                                                                  </td>
+                                                                  <td className="px-1.5 py-1 text-ink-subtle">
+                                                                    {sheet.likely_purpose}
+                                                                  </td>
+                                                                  <td className="px-1.5 py-1 text-ink-subtle">
+                                                                    {sheet.final_decision
+                                                                      ?.confidence ??
+                                                                      (sheet.confidence >= 0.8
+                                                                        ? 'high'
+                                                                        : sheet.confidence >= 0.55
+                                                                          ? 'medium'
+                                                                          : 'low')}
+                                                                  </td>
+                                                                  <td className="px-1.5 py-1 text-ink-subtle">
+                                                                    {sheet.llm_interpretation
+                                                                      ?.recommended_action ??
+                                                                      'review'}
+                                                                  </td>
+                                                                  <td className="px-1.5 py-1">
+                                                                    <div className="flex flex-wrap items-center gap-1">
+                                                                      <select
+                                                                        className="rounded border border-hairline bg-canvas px-1 py-0.5 text-caption disabled:cursor-not-allowed disabled:opacity-70"
+                                                                        value={effectiveArea}
+                                                                        disabled={
+                                                                          isProfilingStepReadOnly
+                                                                        }
+                                                                        onChange={(event) => {
+                                                                          const selectedArea = event
+                                                                            .target
+                                                                            .value as PmoProfilingArea;
+                                                                          setProfilingOverridesBySessionId(
+                                                                            (prev) => ({
+                                                                              ...prev,
+                                                                              [selectedSession.ingestion_session_id]:
+                                                                                {
+                                                                                  ...(prev[
+                                                                                    selectedSession
+                                                                                      .ingestion_session_id
+                                                                                  ] ?? {}),
+                                                                                  [key]: {
+                                                                                    finalArea:
+                                                                                      selectedArea,
+                                                                                    markIgnore:
+                                                                                      selectedArea ===
+                                                                                      'unknown',
+                                                                                  },
+                                                                                },
+                                                                            }),
+                                                                          );
+                                                                        }}
+                                                                      >
+                                                                        {PROFILING_AREAS.map(
+                                                                          (area) => (
+                                                                            <option
+                                                                              key={area}
+                                                                              value={area}
+                                                                            >
+                                                                              {area}
+                                                                            </option>
+                                                                          ),
+                                                                        )}
+                                                                      </select>
+                                                                      <label className="inline-flex items-center gap-1 text-caption text-ink-subtle">
+                                                                        <input
+                                                                          type="checkbox"
+                                                                          checked={Boolean(
+                                                                            override?.markIgnore,
+                                                                          )}
+                                                                          disabled={
+                                                                            isProfilingStepReadOnly
+                                                                          }
+                                                                          onChange={(event) => {
+                                                                            const checked =
+                                                                              event.target.checked;
+                                                                            setProfilingOverridesBySessionId(
+                                                                              (prev) => ({
+                                                                                ...prev,
+                                                                                [selectedSession.ingestion_session_id]:
+                                                                                  {
+                                                                                    ...(prev[
+                                                                                      selectedSession
+                                                                                        .ingestion_session_id
+                                                                                    ] ?? {}),
+                                                                                    [key]: {
+                                                                                      finalArea:
+                                                                                        checked
+                                                                                          ? 'unknown'
+                                                                                          : (override?.finalArea ??
+                                                                                            sheet
+                                                                                              .final_decision
+                                                                                              ?.area ??
+                                                                                            sheet.candidate_business_area),
+                                                                                      markIgnore:
+                                                                                        checked,
+                                                                                    },
+                                                                                  },
+                                                                              }),
+                                                                            );
+                                                                          }}
+                                                                        />
+                                                                        Ignore
+                                                                      </label>
+                                                                    </div>
+                                                                  </td>
+                                                                </tr>
+                                                              );
+                                                            },
+                                                          )}
+                                                        </tbody>
+                                                      </table>
+                                                    </div>
+                                                  ) : null}
+                                                  {doc.error_message ? (
+                                                    <p className="mt-1 text-danger-ink">
+                                                      Error: {doc.error_message}
+                                                    </p>
+                                                  ) : null}
+                                                </li>
+                                              );
+                                            })}
+                                          </ul>
+                                        )}
+                                      </div>
+
+                                      {isCurrent &&
+                                      selectedSession.planning_state === 'approved_plan' ? (
+                                        <div className="space-y-2">
+                                          <Dropzone
+                                            accept={ACCEPT}
+                                            maxBytes={MAX_BYTES}
+                                            label="Upload supplemental workbook to this session"
+                                            hint="The new document is appended and profiled without restarting workflow"
+                                            pendingLabel="Uploading and profiling..."
+                                            tooLargeMessage="That file is over 50 MB. Try a smaller workbook."
+                                            isPending={isAppendingDocument}
+                                            onFile={handleAppendDocument}
+                                          />
+
+                                          <div className="flex flex-wrap items-center gap-2">
+                                            <Button
+                                              type="button"
+                                              size="sm"
+                                              variant="secondary"
+                                              onClick={handleSaveProfilingReview}
+                                              disabled={isSavingProfilingReview}
+                                            >
+                                              {isSavingProfilingReview ? (
+                                                <>
+                                                  <Loader2 className="size-4 animate-spin" />
+                                                  Saving review...
+                                                </>
+                                              ) : (
+                                                'Save profiling review'
+                                              )}
+                                            </Button>
+                                            <Button
+                                              type="button"
+                                              size="sm"
+                                              variant="primary"
+                                              onClick={handleApproveProfilingContinue}
+                                              disabled={
+                                                isApprovingProfiling ||
+                                                hasOutstandingMissingAreas ||
+                                                step.status !== 'needs_review'
+                                              }
+                                            >
+                                              {isApprovingProfiling ? (
+                                                <>
+                                                  <Loader2 className="size-4 animate-spin" />
+                                                  Approving profiling...
+                                                </>
+                                              ) : (
+                                                'Approve Profiling & Continue'
+                                              )}
+                                            </Button>
+                                            {hasOutstandingMissingAreas ? (
+                                              <span className="text-caption text-warning-ink">
+                                                Outstanding missing data areas remain. Upload
+                                                documents or waive them first.
+                                              </span>
+                                            ) : null}
+                                          </div>
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  ) : (
+                                    <p className="mt-2 rounded-md border border-dashed border-hairline-strong bg-canvas px-2 py-1.5 text-ink-subtle">
+                                      This step is planned and read-only for now. Implementation
+                                      will be added in subsequent iteration.
+                                    </p>
+                                  )}
+                                </li>
+                              );
+                            })}
+                          </ol>
+                        </section>
                       ))}
-                    </ol>
-                    <p className="mt-2">
-                      Last generated:{' '}
-                      <span className="text-ink">
-                        {formatLocalDate(selectedSession.plan_generated_at)}
-                      </span>
-                    </p>
-                  </div>
-                ) : null}
-
-                {proposedWorkflowSteps.length > 0 ? (
-                  <section className="rounded-lg border border-hairline bg-canvas px-3 py-2 text-caption text-ink-subtle">
-                    <p className="font-medium text-ink">Proposed workflow visual</p>
-                    <p className="mt-1">
-                      Steps are connected in order to make flow progression easier to scan.
-                    </p>
-
-                    <div className="mt-3 overflow-x-auto pb-1">
-                      <ol className="grid min-w-[520px] grid-cols-2 gap-x-2 gap-y-3 md:flex md:min-w-max md:items-start md:gap-0">
-                        {proposedWorkflowSteps.map((step, index) => {
-                          const isLast = index === proposedWorkflowSteps.length - 1;
-                          const stepStatus =
-                            proposedStepStatusByNo.get(step.step_no) ??
-                            (selectedSession?.planning_state === 'approved_plan' &&
-                            step.step_no === 1
-                              ? 'in_progress'
-                              : 'pending');
-                          const tone = proposedStepTone(stepStatus);
-
-                          return (
-                            <li
-                              key={`${selectedSession.ingestion_session_id}-proposed-visual-step-${step.step_no}`}
-                              className="flex items-start"
-                            >
-                              <div className="flex w-[140px] shrink-0 flex-col items-center">
-                                <span
-                                  className={`flex size-9 items-center justify-center rounded-full border text-body-sm font-semibold ${tone.circle}`}
-                                >
-                                  {step.step_no}
-                                </span>
-                                <p
-                                  className={`mt-2 px-1 text-center text-caption font-medium ${tone.text}`}
-                                >
-                                  {step.step_name}
-                                </p>
-                              </div>
-                              {!isLast ? (
-                                <span
-                                  aria-hidden="true"
-                                  className={`mt-[18px] hidden h-0.5 w-10 shrink-0 md:block ${tone.line}`}
-                                />
-                              ) : null}
-                            </li>
-                          );
-                        })}
-                      </ol>
                     </div>
                   </section>
                 ) : null}
-
-                <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-                  <div className="space-y-2">
-                    <Label htmlFor="plan-feedback">Plan feedback</Label>
-                    <Textarea
-                      id="plan-feedback"
-                      rows={2}
-                      value={selectedFeedback}
-                      onChange={(e) => {
-                        const nextValue = e.target.value;
-                        setFeedbackBySessionId((prev) => ({
-                          ...prev,
-                          [selectedSession.ingestion_session_id]: nextValue,
-                        }));
-                      }}
-                      placeholder="Example: Keep only validation and do not continue to DB write yet."
-                      disabled={isGenerating || selectedSession.planning_state === 'approved_plan'}
-                    />
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="secondary"
-                      onClick={handleRegeneratePlan}
-                      disabled={selectedSession.planning_state !== 'plan_review' || isGenerating}
-                    >
-                      Regenerate plan
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="primary"
-                      onClick={handleApprovePlanAndStart}
-                      disabled={selectedSession.planning_state !== 'plan_review' || isApproving}
-                    >
-                      {isApproving ? (
-                        <>
-                          <Loader2 className="size-4 animate-spin" />
-                          Approving...
-                        </>
-                      ) : (
-                        'Approve plan & start'
-                      )}
-                    </Button>
-                  </div>
-                </div>
-
-                {selectedSession.feedback_history.length > 0 ? (
-                  <div className="rounded-lg border border-hairline bg-canvas px-3 py-2 text-caption">
-                    <p className="font-medium text-ink">Feedback history</p>
-                    <ul className="mt-1 list-disc space-y-1 pl-4 text-ink-subtle">
-                      {feedbackHistoryItems.map((item) => (
-                        <li key={item.key}>{item.feedback}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-              </section>
+              </div>
             )}
           </section>
         </div>
