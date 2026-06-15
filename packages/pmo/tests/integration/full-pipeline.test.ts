@@ -378,6 +378,7 @@ describe('full-pipeline', () => {
           dataType: 0,
           sheetContext: 0,
           crossSheet: 0,
+          llmSemantic: 0,
         },
       })),
     }));

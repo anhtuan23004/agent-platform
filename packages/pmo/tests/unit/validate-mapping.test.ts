@@ -33,6 +33,7 @@ function makeMapping(
       dataType: 0.9,
       sheetContext: 0.9,
       crossSheet: 0.5,
+      llmSemantic: 0.5,
     },
   };
 }

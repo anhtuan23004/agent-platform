@@ -1,6 +1,7 @@
 import type { CanonicalField, CanonicalSchema } from './canonical-schema.ts';
 import { PMO_CANONICAL_SCHEMA } from './canonical-schema.ts';
 import type { SheetRoleCandidate } from './detect-sheet-role.ts';
+import { type LlmMappingHintMap, llmMappingHintKey } from './llm-mapping-hints.ts';
 import type { SheetProfile } from './profile-columns.ts';
 import { scoreCrossSheet } from './scoring/cross-sheet.ts';
 import { scoreDataType } from './scoring/data-type.ts';
@@ -27,6 +28,7 @@ export interface ColumnMapping {
     dataType: number;
     sheetContext: number;
     crossSheet: number;
+    llmSemantic: number;
   };
 }
 
@@ -49,6 +51,23 @@ const WEIGHTS = {
   sheetContext: 0.1,
   crossSheet: 0.1,
 };
+
+const DEFAULT_LLM_BONUS_WEIGHT = 0.06;
+const MIN_BASE_FOR_LLM_ADJUSTMENT = 0.6;
+const MIN_BASE_FOR_AUTO_ACCEPT = 0.9;
+const STRONG_BASE_FOR_LLM_DISAGREEMENT = 0.8;
+const LOW_LLM_DISAGREEMENT_THRESHOLD = 0.2;
+
+export interface MapColumnsOptions {
+  llmHints?: LlmMappingHintMap | null;
+  llmBonusWeight?: number;
+}
+
+function clamp01(value: number): number {
+  if (value <= 0) return 0;
+  if (value >= 1) return 1;
+  return value;
+}
 
 // ── Helper: get master values for cross-sheet scoring ────────────────────────
 
@@ -108,6 +127,7 @@ export function mapColumns(
   sheetRole: SheetRoleCandidate,
   allSheetProfiles: SheetProfile[],
   schema: CanonicalSchema = PMO_CANONICAL_SCHEMA,
+  options: MapColumnsOptions = {},
 ): TableMapping {
   const table = schema.tables.find((t) => t.id === sheetRole.candidateRole);
   if (!table) {
@@ -126,12 +146,14 @@ export function mapColumns(
   interface ScoredCandidate {
     sourceColumn: string;
     field: CanonicalField;
+    baseConfidence: number;
     confidence: number;
     breakdown: ColumnMapping['scoringBreakdown'];
     blocked: boolean;
   }
 
   const allCandidates: ScoredCandidate[] = [];
+  const llmBonusWeight = clamp01(options.llmBonusWeight ?? DEFAULT_LLM_BONUS_WEIGHT);
 
   for (const field of table.fields) {
     const masterValues = getMasterValues(field.name, allSheetProfiles, schema);
@@ -173,6 +195,8 @@ export function mapColumns(
       );
       const contextScore = scoreSheetContext(sheetRole, field);
       const crossSheetResult = scoreCrossSheet(allValues, field, masterValues);
+      const llmSemantic =
+        options.llmHints?.get(llmMappingHintKey(field.name, col.columnName)) ?? 0.5;
 
       const breakdown = {
         headerSimilarity: headerResult.score,
@@ -180,18 +204,28 @@ export function mapColumns(
         dataType: dataTypeResult.score,
         sheetContext: contextScore,
         crossSheet: crossSheetResult.score,
+        llmSemantic,
       };
 
-      const confidence =
+      const baselineConfidence =
         WEIGHTS.headerSimilarity * breakdown.headerSimilarity +
         WEIGHTS.valuePattern * breakdown.valuePattern +
         WEIGHTS.dataType * breakdown.dataType +
         WEIGHTS.sheetContext * breakdown.sheetContext +
         WEIGHTS.crossSheet * breakdown.crossSheet;
 
+      const llmAdjustment =
+        baselineConfidence >= MIN_BASE_FOR_LLM_ADJUSTMENT
+          ? llmBonusWeight * (breakdown.llmSemantic - 0.5)
+          : 0;
+
+      // A small LLM bonus/penalty nudges confidence without overriding deterministic signals.
+      const confidence = clamp01(baselineConfidence + llmAdjustment);
+
       allCandidates.push({
         sourceColumn: col.columnName,
         field,
+        baseConfidence: Math.round(baselineConfidence * 100) / 100,
         confidence: Math.round(confidence * 100) / 100,
         breakdown,
         blocked: dataTypeResult.blocked,
@@ -236,14 +270,22 @@ export function mapColumns(
         !assignedColumns.has(c.sourceColumn),
     );
     const gap = secondBest ? candidate.confidence - secondBest.confidence : 1.0;
+    const hasStrongLlmDisagreement =
+      candidate.baseConfidence >= STRONG_BASE_FOR_LLM_DISAGREEMENT &&
+      candidate.breakdown.llmSemantic <= LOW_LLM_DISAGREEMENT_THRESHOLD;
 
     // Determine status
     let status: ColumnMapping['status'];
     if (candidate.blocked) {
       status = 'blocked';
-    } else if (candidate.confidence >= 0.9 && gap >= 0.1) {
+    } else if (
+      !hasStrongLlmDisagreement &&
+      candidate.confidence >= 0.9 &&
+      candidate.baseConfidence >= MIN_BASE_FOR_AUTO_ACCEPT &&
+      gap >= 0.1
+    ) {
       status = 'auto_accept';
-    } else if (candidate.confidence >= 0.7) {
+    } else if (candidate.confidence >= 0.7 || hasStrongLlmDisagreement) {
       status = 'needs_review';
     } else {
       // Below 0.70 → skip this assignment (field remains unmapped)
@@ -314,6 +356,8 @@ function buildEvidence(breakdown: ColumnMapping['scoringBreakdown'], fieldName: 
   if (breakdown.dataType >= 0.8) parts.push('data type compatible');
   if (breakdown.sheetContext >= 0.8) parts.push('field belongs to this sheet type');
   if (breakdown.crossSheet >= 0.8) parts.push('values match master data');
+  if (breakdown.llmSemantic >= 0.8) parts.push('llm semantic hint supports this match');
+  if (breakdown.llmSemantic <= 0.2) parts.push('llm semantic hint strongly disagrees');
 
   return parts.length > 0
     ? `${fieldName}: ${parts.join(', ')}`

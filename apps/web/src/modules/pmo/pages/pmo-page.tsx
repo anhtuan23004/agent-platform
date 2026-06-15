@@ -1,6 +1,9 @@
 import { Button, Dropzone, Input, Label, PageChrome, Textarea, toast } from '@seta/shared-ui';
 import { CheckCircle2, Circle, Loader2, RefreshCw, Workflow } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { WorkflowApprovalRow } from '../../agent/workflows/api/schemas.ts';
+import { usePendingApprovals } from '../../agent/workflows/hooks/use-pending-approvals.ts';
+import { useSubmitDecision } from '../../agent/workflows/hooks/use-submit-decision.ts';
 import {
   type GeneratePlanInput,
   type PmoPlan,
@@ -42,6 +45,37 @@ type ExecutionActionGroup = {
   badgeTone: string;
   steps: ExecutionCard[];
 };
+
+interface MappingProgressItem {
+  key: string;
+  table: string;
+  field: string;
+  sourceSheet: string | null;
+  sourceColumn: string | null;
+  confidence: string | null;
+  approvedBy: string | null;
+  state: 'approved' | 'pending' | 'current';
+  issueType: string;
+  actionType: 'modify_only' | 'approve_and_modify';
+}
+
+interface MappingAlternateOption {
+  alternateIndex: number;
+  itemKey: string;
+  sourceColumn: string;
+  confidence: string | null;
+  blocked: boolean;
+}
+
+interface MappingViewModel {
+  approved: number;
+  total: number;
+  items: MappingProgressItem[];
+  current: Map<string, string>;
+  currentKey: string | null;
+  alternatesByItemKey: Map<string, MappingAlternateOption[]>;
+  awaitingNextStep: boolean;
+}
 
 function groupExecutionCardsByAction(cards: ExecutionCard[]): ExecutionActionGroup[] {
   const groups: ExecutionActionGroup[] = [
@@ -136,6 +170,284 @@ function formatBytes(bytes: number): string {
 
 function profilingSheetKey(documentId: string, sheetName: string): string {
   return `${documentId}::${sheetName}`;
+}
+
+function shortId(value: string): string {
+  return value.slice(0, 8);
+}
+
+function formatPercent(value: number): string {
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+function splitSheetAndColumn(
+  sourceColumn: string,
+  fallbackSheetName: string | null,
+): { sheetName: string; columnName: string } {
+  const trimmed = sourceColumn.trim();
+  const dotIndex = trimmed.indexOf('.');
+  if (dotIndex > 0 && dotIndex < trimmed.length - 1) {
+    return {
+      sheetName: trimmed.slice(0, dotIndex).trim(),
+      columnName: trimmed.slice(dotIndex + 1).trim(),
+    };
+  }
+
+  return {
+    sheetName: fallbackSheetName?.trim() || 'sheet_name',
+    columnName: trimmed,
+  };
+}
+
+function mapRows(rows: Array<{ k: string; v: string }>): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const row of rows) out.set(row.k, row.v);
+  return out;
+}
+
+function parseFraction(
+  value: string | null | undefined,
+): { approved: number; total: number } | null {
+  if (!value) return null;
+  const match = value.match(/(\d+)\s*\/\s*(\d+)/);
+  if (!match) return null;
+  const approved = Number(match[1]);
+  const total = Number(match[2]);
+  if (!Number.isFinite(approved) || !Number.isFinite(total)) return null;
+  return { approved, total };
+}
+
+function isRenderableApprovalPayload(
+  payload: unknown,
+): payload is { details: unknown[]; primary: { label: string }; decline: { label: string } } {
+  if (!payload || typeof payload !== 'object') return false;
+  const card = payload as {
+    details?: unknown;
+    primary?: { label?: unknown };
+    decline?: { label?: unknown };
+  };
+  return (
+    Array.isArray(card.details) &&
+    typeof card.primary?.label === 'string' &&
+    typeof card.decline?.label === 'string'
+  );
+}
+
+function kvTablesFromPayload(payload: unknown): Array<Array<{ k: string; v: string }>> {
+  if (!isRenderableApprovalPayload(payload)) return [];
+  const out: Array<Array<{ k: string; v: string }>> = [];
+
+  for (const detail of payload.details) {
+    if (!detail || typeof detail !== 'object') continue;
+    if ((detail as { kind?: unknown }).kind !== 'kvTable') continue;
+
+    const rows = (detail as { rows?: unknown }).rows;
+    if (!Array.isArray(rows)) continue;
+
+    const kvRows: Array<{ k: string; v: string }> = [];
+    for (const row of rows) {
+      if (!row || typeof row !== 'object') continue;
+      const key = (row as { k?: unknown }).k;
+      const value = (row as { v?: unknown }).v;
+      if (typeof key !== 'string' || typeof value !== 'string') continue;
+      kvRows.push({ k: key, v: value });
+    }
+    out.push(kvRows);
+  }
+
+  return out;
+}
+
+function cardToolIdFromPayload(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const meta = (payload as { meta?: unknown }).meta;
+  if (!meta || typeof meta !== 'object') return null;
+  const toolId = (meta as { toolId?: unknown }).toolId;
+  return typeof toolId === 'string' ? toolId : null;
+}
+
+function isMappingApprovalRow(approval: WorkflowApprovalRow): boolean {
+  const stepId = approval.stepId;
+  if (
+    stepId === 'pmo.ingest.confirmMapping' ||
+    stepId === 'confirmMapping' ||
+    stepId.endsWith('.confirmMapping')
+  ) {
+    return true;
+  }
+
+  return cardToolIdFromPayload(approval.proposedPayload) === 'pmo_confirmMapping';
+}
+
+function readIngestionSessionIdFromApproval(approval: WorkflowApprovalRow): string | null {
+  const tables = kvTablesFromPayload(approval.proposedPayload);
+  for (const table of tables) {
+    for (const row of table) {
+      if (row.k.trim().toLowerCase() !== 'ingestion session') continue;
+      const value = row.v.trim();
+      if (value.length > 0) return value;
+    }
+  }
+
+  return null;
+}
+
+function parseMappingItems(
+  progressRows: Array<{ k: string; v: string }>,
+  options?: {
+    current?: Map<string, string>;
+    currentKey?: string | null;
+    currentSourceColumn?: string | null;
+    currentConfidence?: string | null;
+  },
+): MappingProgressItem[] {
+  const current = options?.current ?? new Map<string, string>();
+  const currentKey = options?.currentKey ?? null;
+  const currentSourceColumn = options?.currentSourceColumn ?? null;
+  const currentConfidence = options?.currentConfidence ?? null;
+
+  const items: MappingProgressItem[] = [];
+  for (const row of progressRows) {
+    if (row.k === 'more') continue;
+    const dotIndex = row.k.indexOf('.');
+    if (dotIndex < 0) continue;
+
+    const table = row.k.slice(0, dotIndex);
+    const field = row.k.slice(dotIndex + 1);
+
+    const [
+      statePartRaw = '',
+      issueTypeRaw = '',
+      sourceColumnRaw = '',
+      confidenceRaw = '',
+      approvedByRaw = '',
+      sourceSheetRaw = '',
+      actionTypeRaw = '',
+    ] = row.v.split('|').map((v) => v.trim());
+
+    if (!issueTypeRaw && !sourceColumnRaw && !confidenceRaw && !approvedByRaw && !sourceSheetRaw) {
+      continue;
+    }
+
+    const statePart = statePartRaw.toLowerCase();
+    const itemKey = `${table}.${field}`;
+
+    let state: 'approved' | 'pending' | 'current' = 'pending';
+    if (statePart.startsWith('approved')) state = 'approved';
+    else if (statePart.startsWith('current')) state = 'current';
+
+    const sourceColumn = sourceColumnRaw || (itemKey === currentKey ? currentSourceColumn : null);
+    const confidence = confidenceRaw || (itemKey === currentKey ? currentConfidence : null);
+    const approvedBy = approvedByRaw && approvedByRaw !== '-' ? approvedByRaw : null;
+    const sourceSheet = sourceSheetRaw || current.get('Sheet') || null;
+    const actionType: MappingProgressItem['actionType'] =
+      actionTypeRaw === 'modify_only' || issueTypeRaw === 'auto_accept'
+        ? 'modify_only'
+        : 'approve_and_modify';
+
+    items.push({
+      key: itemKey,
+      table,
+      field,
+      sourceSheet,
+      sourceColumn,
+      confidence,
+      approvedBy,
+      state,
+      issueType: issueTypeRaw,
+      actionType,
+    });
+  }
+
+  return items;
+}
+
+function parseMappingViewPayload(payload: unknown): MappingViewModel | null {
+  const tables = kvTablesFromPayload(payload);
+  if (tables.length === 0) return null;
+
+  const awaitingNextStep = (() => {
+    if (!payload || typeof payload !== 'object') return false;
+    const primary = (payload as { primary?: unknown }).primary;
+    if (!primary || typeof primary !== 'object') return false;
+    const argsPatch = (primary as { argsPatch?: unknown }).argsPatch;
+    if (!argsPatch || typeof argsPatch !== 'object') return false;
+    return (argsPatch as { proceedToNextStep?: unknown }).proceedToNextStep === true;
+  })();
+
+  const summary = mapRows(tables[0] ?? []);
+  const current = mapRows(tables[1] ?? []);
+  const progressRows = tables[tables.length - 1] ?? [];
+  const currentTable = current.get('Table') ?? null;
+  const currentField = current.get('Field') ?? null;
+  const currentKey =
+    awaitingNextStep || !currentTable || !currentField ? null : `${currentTable}.${currentField}`;
+  const currentSourceColumn = current.get('Source column') ?? null;
+  const currentConfidence = current.get('Confidence') ?? null;
+  const alternatesByItemKey = new Map<string, MappingAlternateOption[]>();
+
+  if (isRenderableApprovalPayload(payload)) {
+    const alternates = (payload as { alternates?: unknown }).alternates;
+    if (Array.isArray(alternates)) {
+      alternates.forEach((alternate, index) => {
+        if (!alternate || typeof alternate !== 'object') return;
+        const argsPatch = (alternate as { argsPatch?: unknown }).argsPatch;
+        if (!argsPatch || typeof argsPatch !== 'object') return;
+
+        const mappingOverride = (argsPatch as { mappingOverride?: unknown }).mappingOverride;
+        if (!mappingOverride || typeof mappingOverride !== 'object') return;
+
+        const tableId = (mappingOverride as { tableId?: unknown }).tableId;
+        const field = (mappingOverride as { field?: unknown }).field;
+        const sourceColumn = (mappingOverride as { sourceColumn?: unknown }).sourceColumn;
+        if (typeof tableId !== 'string' || typeof field !== 'string') return;
+        if (typeof sourceColumn !== 'string' || sourceColumn.length === 0) return;
+
+        const itemKey = `${tableId}.${field}`;
+        const rawConfidence = (mappingOverride as { confidence?: unknown }).confidence;
+        const confidence = typeof rawConfidence === 'number' ? formatPercent(rawConfidence) : null;
+        const blocked =
+          (mappingOverride as { blocked?: unknown }).blocked === true ||
+          (mappingOverride as { blocked?: unknown }).blocked === 'true';
+
+        const entry = alternatesByItemKey.get(itemKey) ?? [];
+        entry.push({
+          alternateIndex: index,
+          itemKey,
+          sourceColumn,
+          confidence,
+          blocked,
+        });
+        alternatesByItemKey.set(itemKey, entry);
+      });
+    }
+  }
+
+  const items = parseMappingItems(progressRows, {
+    current,
+    currentKey,
+    currentSourceColumn,
+    currentConfidence,
+  });
+
+  const fraction = parseFraction(summary.get('Approved items'));
+  const approved = fraction?.approved ?? items.filter((item) => item.state === 'approved').length;
+  const total = fraction?.total ?? items.length;
+
+  return {
+    approved,
+    total,
+    items,
+    current,
+    currentKey,
+    alternatesByItemKey,
+    awaitingNextStep,
+  };
+}
+
+function parseMappingView(approval: WorkflowApprovalRow | null): MappingViewModel | null {
+  if (!approval) return null;
+  return parseMappingViewPayload(approval.proposedPayload);
 }
 
 function toneForState(state: TimelineState): { marker: string; text: string } {
@@ -406,6 +718,11 @@ export function PmoPage() {
   const [isCancellingWorkflowBySessionId, setIsCancellingWorkflowBySessionId] = useState<
     Record<string, boolean>
   >({});
+  const [editingMappingKey, setEditingMappingKey] = useState<string | null>(null);
+  const [selectedMappingAlternate, setSelectedMappingAlternate] = useState<number | null>(null);
+
+  const pendingApprovals = usePendingApprovals();
+  const submitDecision = useSubmitDecision();
   const [profilingOverridesBySessionId, setProfilingOverridesBySessionId] = useState<
     Record<string, Record<string, { finalArea: PmoProfilingArea; markIgnore: boolean }>>
   >({});
@@ -446,6 +763,78 @@ export function PmoPage() {
   const selectedSessionOverrides = selectedSession
     ? (profilingOverridesBySessionId[selectedSession.ingestion_session_id] ?? {})
     : {};
+
+  const selectedMappingApproval = useMemo(() => {
+    if (!selectedSession) return null;
+    const approvals = pendingApprovals.data ?? [];
+    return (
+      approvals.find((approval) => {
+        if (!isMappingApprovalRow(approval)) return false;
+        const ingestionSessionId = readIngestionSessionIdFromApproval(approval);
+        return ingestionSessionId === selectedSession.ingestion_session_id;
+      }) ?? null
+    );
+  }, [pendingApprovals.data, selectedSession]);
+
+  const selectedMappingView = useMemo(
+    () => parseMappingView(selectedMappingApproval),
+    [selectedMappingApproval],
+  );
+
+  const groupedMappingItems = useMemo(() => {
+    if (!selectedMappingView?.items.length)
+      return [] as Array<{
+        sheetName: string;
+        items: MappingProgressItem[];
+      }>;
+
+    const sorted = [...selectedMappingView.items].sort((a, b) => {
+      const sheetCompare = (a.sourceSheet ?? '').localeCompare(b.sourceSheet ?? '');
+      if (sheetCompare !== 0) return sheetCompare;
+      const tableCompare = a.table.localeCompare(b.table);
+      if (tableCompare !== 0) return tableCompare;
+      return a.field.localeCompare(b.field);
+    });
+
+    const groups: Array<{ sheetName: string; items: MappingProgressItem[] }> = [];
+    for (const item of sorted) {
+      const sheetName = item.sourceSheet ?? 'Unknown sheet';
+      const last = groups[groups.length - 1];
+      if (!last || last.sheetName !== sheetName) {
+        groups.push({ sheetName, items: [item] });
+        continue;
+      }
+      last.items.push(item);
+    }
+
+    return groups;
+  }, [selectedMappingView?.items]);
+
+  const editingMappingItem = useMemo(
+    () => selectedMappingView?.items.find((item) => item.key === editingMappingKey) ?? null,
+    [selectedMappingView?.items, editingMappingKey],
+  );
+
+  const editingMappingAlternates = useMemo(() => {
+    if (!selectedMappingView || !editingMappingKey) return [] as MappingAlternateOption[];
+    return selectedMappingView.alternatesByItemKey.get(editingMappingKey) ?? [];
+  }, [selectedMappingView, editingMappingKey]);
+
+  const selectedAlternateOption = useMemo(
+    () =>
+      editingMappingAlternates.find(
+        (option) => option.alternateIndex === selectedMappingAlternate,
+      ) ?? null,
+    [editingMappingAlternates, selectedMappingAlternate],
+  );
+
+  const mappingEditorScope = `${selectedSessionId ?? ''}:${selectedMappingApproval?.approvalId ?? ''}`;
+  const previousMappingEditorScope = useRef(mappingEditorScope);
+
+  const canProceedToNextStep =
+    Boolean(selectedMappingApproval) &&
+    selectedMappingView?.awaitingNextStep === true &&
+    !submitDecision.isPending;
 
   const feedbackHistoryItems = useMemo(() => {
     if (!selectedSession) {
@@ -522,6 +911,111 @@ export function PmoPage() {
       window.clearTimeout(timer);
     };
   }, [loadSessions]);
+
+  useEffect(() => {
+    if (previousMappingEditorScope.current === mappingEditorScope) {
+      return;
+    }
+
+    previousMappingEditorScope.current = mappingEditorScope;
+    setEditingMappingKey(null);
+    setSelectedMappingAlternate(null);
+  }, [mappingEditorScope]);
+
+  function refreshMappingApprovals() {
+    void pendingApprovals.refetch();
+  }
+
+  function approveCurrentMappingItem() {
+    if (!selectedMappingApproval) return;
+    submitDecision.mutate(
+      {
+        approvalId: selectedMappingApproval.approvalId,
+        agentic: selectedMappingApproval.agentic,
+        decision: 'approve',
+      },
+      {
+        onSuccess: async () => {
+          toast.success('Mapping item approved', {
+            description: 'The next mapping item is now ready for review.',
+          });
+          refreshMappingApprovals();
+          await loadSessions(true);
+        },
+        onError: (err) => {
+          toast.error('Failed to approve mapping item', {
+            description: err instanceof Error ? err.message : String(err),
+          });
+        },
+      },
+    );
+  }
+
+  function openMappingModify(itemKey: string) {
+    if (!selectedMappingView) return;
+    const alternatesForItem = selectedMappingView.alternatesByItemKey.get(itemKey) ?? [];
+    if (alternatesForItem.length === 0) return;
+
+    setEditingMappingKey(itemKey);
+    setSelectedMappingAlternate(alternatesForItem[0]?.alternateIndex ?? null);
+  }
+
+  function applyMappingModify() {
+    if (!selectedMappingApproval) return;
+    if (selectedMappingAlternate === null) return;
+
+    submitDecision.mutate(
+      {
+        approvalId: selectedMappingApproval.approvalId,
+        agentic: selectedMappingApproval.agentic,
+        decision: 'modify',
+        alternateIndices: [selectedMappingAlternate],
+      },
+      {
+        onSuccess: async () => {
+          toast.success('Mapping updated', {
+            description: 'The selected source column has been applied for this review item.',
+          });
+          setEditingMappingKey(null);
+          setSelectedMappingAlternate(null);
+          refreshMappingApprovals();
+          await loadSessions(true);
+        },
+        onError: (err) => {
+          toast.error('Failed to update mapping', {
+            description: err instanceof Error ? err.message : String(err),
+          });
+        },
+      },
+    );
+  }
+
+  function proceedToNextWorkflowStep() {
+    if (!selectedMappingApproval) return;
+    if (selectedMappingView?.awaitingNextStep !== true) return;
+
+    submitDecision.mutate(
+      {
+        approvalId: selectedMappingApproval.approvalId,
+        agentic: selectedMappingApproval.agentic,
+        decision: 'approve',
+      },
+      {
+        onSuccess: async () => {
+          toast.success('Moved to next step', {
+            description: 'Workflow moved to the next step in final plan.',
+          });
+          refreshMappingApprovals();
+          await loadSessions(true);
+        },
+        onError: (err) => {
+          toast.error('Failed to proceed to next step', {
+            description: err instanceof Error ? err.message : String(err),
+          });
+        },
+      },
+    );
+  }
 
   function refreshPage() {
     void loadSessions(true);
@@ -1332,6 +1826,9 @@ export function PmoPage() {
                               const isWorkbookProfilingStep = /workbook\s*profil/i.test(
                                 step.step_name,
                               );
+                              const isColumnMappingStep =
+                                step.step_no === 3 ||
+                                /column\s*mapping\s*proposal/i.test(step.step_name);
                               const isPlanApprovalStep = /plan\s*approval|approve\s*plan/i.test(
                                 step.step_name,
                               );
@@ -1728,6 +2225,359 @@ export function PmoPage() {
                                           </div>
                                         </div>
                                       ) : null}
+                                    </div>
+                                  ) : isColumnMappingStep && isCurrent ? (
+                                    <div className="mt-2 space-y-2 rounded-md border border-hairline bg-canvas p-2.5">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <p className="font-medium text-ink">
+                                          Step 3: Column mapping proposal
+                                        </p>
+                                        <span
+                                          className={`rounded-full px-2 py-0.5 text-caption font-medium ${workflowStepTone(step.status).badge}`}
+                                        >
+                                          {workflowStepTone(step.status).label}
+                                        </span>
+                                      </div>
+
+                                      {selectedMappingApproval ? (
+                                        <>
+                                          <div className="rounded-lg border border-warning-border bg-warning-tint/80 px-3 py-2 text-caption text-warning-ink">
+                                            Mapping review is required. The workflow proceeds only
+                                            after all mapping items are approved and you click Next
+                                            step.
+                                          </div>
+
+                                          <section className="rounded-lg border border-hairline bg-surface-1 p-3">
+                                            <h4 className="text-body-sm font-semibold text-ink">
+                                              Review column mappings
+                                            </h4>
+                                            <p className="mt-1 text-caption text-ink-subtle">
+                                              Approve each mapping item individually. The workflow
+                                              proceeds only after all mapping items are approved and
+                                              you click Next step.
+                                            </p>
+
+                                            <div className="mt-3 overflow-x-auto">
+                                              <table className="min-w-full text-left text-caption">
+                                                <thead className="border-b border-hairline text-ink-subtle">
+                                                  <tr>
+                                                    <th className="px-2 py-1.5">Source column</th>
+                                                    <th className="px-2 py-1.5">
+                                                      Target DB column
+                                                    </th>
+                                                    <th className="px-2 py-1.5">Issue type</th>
+                                                    <th className="px-2 py-1.5">Status</th>
+                                                    <th className="px-2 py-1.5">Approved by</th>
+                                                    <th className="px-2 py-1.5">
+                                                      Confidence score
+                                                    </th>
+                                                    <th className="px-2 py-1.5">Actions</th>
+                                                  </tr>
+                                                </thead>
+                                                <tbody>
+                                                  {groupedMappingItems.length ? (
+                                                    groupedMappingItems.map((group) => (
+                                                      <Fragment key={group.sheetName}>
+                                                        <tr className="border-b border-hairline bg-surface-2/60">
+                                                          <td
+                                                            className="px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-subtle"
+                                                            colSpan={7}
+                                                          >
+                                                            Sheet: {group.sheetName}
+                                                          </td>
+                                                        </tr>
+
+                                                        {group.items.map((item) => {
+                                                          const alternatesForItem =
+                                                            selectedMappingView?.alternatesByItemKey.get(
+                                                              item.key,
+                                                            ) ?? [];
+                                                          const canApprove =
+                                                            Boolean(selectedMappingApproval) &&
+                                                            item.actionType ===
+                                                              'approve_and_modify' &&
+                                                            item.state === 'current' &&
+                                                            !submitDecision.isPending;
+                                                          const canModify =
+                                                            Boolean(selectedMappingApproval) &&
+                                                            alternatesForItem.length > 0 &&
+                                                            !submitDecision.isPending;
+                                                          const isEditingItem =
+                                                            editingMappingKey === item.key;
+
+                                                          return (
+                                                            <Fragment key={item.key}>
+                                                              <tr className="border-b border-hairline last:border-b-0">
+                                                                <td className="px-2 py-1.5 font-medium text-ink">
+                                                                  {item.sourceColumn ?? item.key}
+                                                                </td>
+                                                                <td className="px-2 py-1.5 text-primary-ink">
+                                                                  dim_{item.table}.{item.field}
+                                                                </td>
+                                                                <td className="px-2 py-1.5 text-ink-subtle">
+                                                                  {item.issueType || '-'}
+                                                                </td>
+                                                                <td className="px-2 py-1.5">
+                                                                  {item.state === 'approved' ? (
+                                                                    <span className="rounded-full bg-success-tint px-2 py-0.5 text-[11px] font-medium text-success-ink">
+                                                                      Approved
+                                                                    </span>
+                                                                  ) : (
+                                                                    <span className="rounded-full bg-warning-tint px-2 py-0.5 text-[11px] font-medium text-warning-ink">
+                                                                      Pending
+                                                                    </span>
+                                                                  )}
+                                                                </td>
+                                                                <td className="px-2 py-1.5 text-ink-subtle">
+                                                                  {item.approvedBy
+                                                                    ? shortId(item.approvedBy)
+                                                                    : '-'}
+                                                                </td>
+                                                                <td className="px-2 py-1.5 text-ink-subtle">
+                                                                  {item.confidence ?? '-'}
+                                                                </td>
+                                                                <td className="px-2 py-1.5">
+                                                                  <div className="flex items-center gap-1.5">
+                                                                    {item.actionType ===
+                                                                    'approve_and_modify' ? (
+                                                                      <Button
+                                                                        type="button"
+                                                                        size="sm"
+                                                                        variant="secondary"
+                                                                        disabled={!canApprove}
+                                                                        onClick={
+                                                                          approveCurrentMappingItem
+                                                                        }
+                                                                      >
+                                                                        {submitDecision.isPending &&
+                                                                        item.state === 'current'
+                                                                          ? 'Approving...'
+                                                                          : 'Approve'}
+                                                                      </Button>
+                                                                    ) : null}
+                                                                    <Button
+                                                                      size="sm"
+                                                                      variant="secondary"
+                                                                      type="button"
+                                                                      disabled={!canModify}
+                                                                      onClick={() =>
+                                                                        openMappingModify(item.key)
+                                                                      }
+                                                                    >
+                                                                      Modify
+                                                                    </Button>
+                                                                  </div>
+                                                                </td>
+                                                              </tr>
+
+                                                              {isEditingItem ? (
+                                                                <tr className="border-b border-hairline bg-canvas/60">
+                                                                  <td
+                                                                    colSpan={7}
+                                                                    className="px-2 py-2"
+                                                                  >
+                                                                    <div className="rounded-md border border-hairline bg-canvas p-3">
+                                                                      <p className="text-caption font-medium text-ink">
+                                                                        Modify current mapping
+                                                                      </p>
+                                                                      <p className="mt-1 text-caption text-ink-subtle">
+                                                                        Modify only changes the
+                                                                        source column from sheet
+                                                                        data. Target DB column stays
+                                                                        dim_{item.table}.
+                                                                        {item.field}.
+                                                                      </p>
+
+                                                                      <div className="mt-2 space-y-2">
+                                                                        <p className="text-caption text-ink-subtle">
+                                                                          Candidate source mapping
+                                                                        </p>
+
+                                                                        <div className="space-y-1.5">
+                                                                          {editingMappingAlternates.map(
+                                                                            (option) => {
+                                                                              const isSelected =
+                                                                                selectedMappingAlternate ===
+                                                                                option.alternateIndex;
+                                                                              const {
+                                                                                sheetName,
+                                                                                columnName,
+                                                                              } =
+                                                                                splitSheetAndColumn(
+                                                                                  option.sourceColumn,
+                                                                                  editingMappingItem?.sourceSheet ??
+                                                                                    item.sourceSheet,
+                                                                                );
+
+                                                                              return (
+                                                                                <button
+                                                                                  key={
+                                                                                    option.alternateIndex
+                                                                                  }
+                                                                                  type="button"
+                                                                                  className={`flex w-full items-center justify-between rounded-md border px-2 py-1.5 text-left transition-colors ${
+                                                                                    isSelected
+                                                                                      ? 'border-primary bg-primary-tint/40'
+                                                                                      : 'border-hairline bg-canvas hover:bg-surface-1'
+                                                                                  }`}
+                                                                                  onClick={() => {
+                                                                                    setSelectedMappingAlternate(
+                                                                                      option.alternateIndex,
+                                                                                    );
+                                                                                  }}
+                                                                                  disabled={
+                                                                                    submitDecision.isPending
+                                                                                  }
+                                                                                >
+                                                                                  <span className="font-mono text-body-sm">
+                                                                                    <span className="text-danger-ink">
+                                                                                      {sheetName}
+                                                                                    </span>
+                                                                                    <span className="text-ink-subtle">
+                                                                                      .
+                                                                                    </span>
+                                                                                    <span className="text-primary-ink">
+                                                                                      {columnName}
+                                                                                    </span>
+                                                                                  </span>
+
+                                                                                  <span className="text-caption text-ink-subtle">
+                                                                                    {option.confidence
+                                                                                      ? option.confidence
+                                                                                      : 'confidence -'}
+                                                                                    {option.blocked
+                                                                                      ? ' • blocked'
+                                                                                      : ''}
+                                                                                  </span>
+                                                                                </button>
+                                                                              );
+                                                                            },
+                                                                          )}
+                                                                        </div>
+                                                                      </div>
+
+                                                                      <div className="mt-2 flex flex-wrap items-end gap-2">
+                                                                        <Button
+                                                                          type="button"
+                                                                          size="sm"
+                                                                          variant="primary"
+                                                                          disabled={
+                                                                            selectedMappingAlternate ===
+                                                                              null ||
+                                                                            submitDecision.isPending
+                                                                          }
+                                                                          onClick={
+                                                                            applyMappingModify
+                                                                          }
+                                                                        >
+                                                                          {submitDecision.isPending
+                                                                            ? 'Applying...'
+                                                                            : 'Apply change'}
+                                                                        </Button>
+                                                                        <Button
+                                                                          type="button"
+                                                                          size="sm"
+                                                                          variant="secondary"
+                                                                          disabled={
+                                                                            submitDecision.isPending
+                                                                          }
+                                                                          onClick={() => {
+                                                                            setEditingMappingKey(
+                                                                              null,
+                                                                            );
+                                                                            setSelectedMappingAlternate(
+                                                                              null,
+                                                                            );
+                                                                          }}
+                                                                        >
+                                                                          Cancel
+                                                                        </Button>
+                                                                      </div>
+
+                                                                      {selectedAlternateOption
+                                                                        ? (() => {
+                                                                            const {
+                                                                              sheetName,
+                                                                              columnName,
+                                                                            } = splitSheetAndColumn(
+                                                                              selectedAlternateOption.sourceColumn,
+                                                                              editingMappingItem?.sourceSheet ??
+                                                                                item.sourceSheet,
+                                                                            );
+
+                                                                            return (
+                                                                              <p className="mt-2 text-caption text-ink-subtle">
+                                                                                Selected:{' '}
+                                                                                <span className="font-mono">
+                                                                                  <span className="text-danger-ink">
+                                                                                    {sheetName}
+                                                                                  </span>
+                                                                                  <span className="text-ink-subtle">
+                                                                                    .
+                                                                                  </span>
+                                                                                  <span className="text-primary-ink">
+                                                                                    {columnName}
+                                                                                  </span>
+                                                                                </span>
+                                                                                {selectedAlternateOption.confidence
+                                                                                  ? ` (${selectedAlternateOption.confidence})`
+                                                                                  : ''}
+                                                                                {selectedAlternateOption.blocked
+                                                                                  ? ' • blocked candidate'
+                                                                                  : ''}
+                                                                              </p>
+                                                                            );
+                                                                          })()
+                                                                        : null}
+                                                                    </div>
+                                                                  </td>
+                                                                </tr>
+                                                              ) : null}
+                                                            </Fragment>
+                                                          );
+                                                        })}
+                                                      </Fragment>
+                                                    ))
+                                                  ) : (
+                                                    <tr>
+                                                      <td
+                                                        className="px-2 py-2 text-ink-subtle"
+                                                        colSpan={7}
+                                                      >
+                                                        No mapping review item for this session.
+                                                      </td>
+                                                    </tr>
+                                                  )}
+                                                </tbody>
+                                              </table>
+                                            </div>
+
+                                            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-hairline bg-canvas p-3">
+                                              <p className="text-caption text-ink-subtle">
+                                                {selectedMappingView?.approved ?? 0} of{' '}
+                                                {selectedMappingView?.total ?? 0} mapping review
+                                                items approved.
+                                              </p>
+                                              <Button
+                                                type="button"
+                                                size="sm"
+                                                variant="primary"
+                                                className="ml-auto"
+                                                onClick={proceedToNextWorkflowStep}
+                                                disabled={!canProceedToNextStep}
+                                              >
+                                                {submitDecision.isPending && canProceedToNextStep
+                                                  ? 'Processing...'
+                                                  : 'Next step'}
+                                              </Button>
+                                            </div>
+                                          </section>
+                                        </>
+                                      ) : (
+                                        <p className="text-ink-subtle">
+                                          No pending column mapping proposal for this session.
+                                        </p>
+                                      )}
                                     </div>
                                   ) : isPlanApprovalStep ? (
                                     <div className="mt-2 space-y-1.5 rounded-md border border-hairline bg-canvas p-2.5">
