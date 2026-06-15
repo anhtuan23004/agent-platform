@@ -46,6 +46,13 @@ export const ingestionSessions = pmoSchema.table(
     planning_feedback_history: jsonb('planning_feedback_history'),
     planning_last_generated_at: timestamp('planning_last_generated_at', { withTimezone: true }),
     planning_approved_at: timestamp('planning_approved_at', { withTimezone: true }),
+    workflow_execution_state: jsonb('workflow_execution_state'),
+    profiling_documents: jsonb('profiling_documents'),
+    profiling_summary: jsonb('profiling_summary'),
+    workflow_current_step: text('workflow_current_step'),
+    workflow_step_status: text('workflow_step_status'),
+    workflow_started_at: timestamp('workflow_started_at', { withTimezone: true }),
+    workflow_updated_at: timestamp('workflow_updated_at', { withTimezone: true }),
     // Publish audit
     publish_decision: text('publish_decision'),
     publish_reviewed_by: uuid('publish_reviewed_by'),

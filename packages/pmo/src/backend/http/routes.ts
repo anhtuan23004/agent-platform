@@ -6,9 +6,29 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { pmoDb } from '../db/client.ts';
 import { ingestionSessions } from '../db/schema.ts';
+import { createS3FileStore } from '../ingestion/s3-file-store.ts';
 import { generatePmoWorkflowPlan } from '../planning/generate-plan.ts';
+import {
+  applyProfilingReviewOverrides,
+  applyWaivedMissingAreas,
+  buildWorkbookProfilingSessionSummary,
+  deriveCurrentProfilingStepStatus,
+  type KnownProfilingArea,
+  type ProfilingReviewState,
+  type ProfilingSheetReviewOverride,
+  runWorkbookProfiling,
+  type SessionDocumentProfileRecord,
+  type WorkflowExecutionState,
+  type WorkflowExecutionStep,
+} from '../profiling/workbook-profiling.ts';
 
 type PlanningState = 'uploaded' | 'generating_plan' | 'plan_review' | 'approved_plan';
+type ProfilingStepStatus = 'in_progress' | 'needs_review' | 'completed' | 'failed';
+
+interface ProposedWorkflowStep {
+  step_no: number;
+  step_name: string;
+}
 
 function asIso(input: Date | string | null | undefined): string {
   if (!input) {
@@ -25,6 +45,36 @@ function asIso(input: Date | string | null | undefined): string {
   }
 
   return parsed.toISOString();
+}
+
+function asIsoOrNull(input: Date | string | null | undefined): string | null {
+  if (!input) {
+    return null;
+  }
+
+  if (input instanceof Date) {
+    return input.toISOString();
+  }
+
+  const parsed = new Date(input);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return parsed.toISOString();
+}
+
+function asDateOrNull(input: string | null | undefined): Date | null {
+  if (!input) {
+    return null;
+  }
+
+  const parsed = new Date(input);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return parsed;
 }
 
 function formatFileSize(sizeBytes: number | null): string {
@@ -93,6 +143,316 @@ function mapHistoryStatus(state: PlanningState): {
   };
 }
 
+function readProposedWorkflow(plan: unknown): ProposedWorkflowStep[] {
+  if (!plan || typeof plan !== 'object') {
+    return [];
+  }
+
+  const maybePlan = plan as { proposed_workflow?: unknown };
+  if (!Array.isArray(maybePlan.proposed_workflow)) {
+    return [];
+  }
+
+  return maybePlan.proposed_workflow
+    .map((step): ProposedWorkflowStep | null => {
+      if (!step || typeof step !== 'object') {
+        return null;
+      }
+
+      const maybeStep = step as { step_no?: unknown; step_name?: unknown };
+      if (typeof maybeStep.step_no !== 'number' || typeof maybeStep.step_name !== 'string') {
+        return null;
+      }
+
+      return {
+        step_no: maybeStep.step_no,
+        step_name: maybeStep.step_name,
+      };
+    })
+    .filter((step): step is ProposedWorkflowStep => Boolean(step))
+    .sort((a, b) => a.step_no - b.step_no);
+}
+
+function readDocuments(raw: unknown): SessionDocumentProfileRecord[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  return raw
+    .map((entry): SessionDocumentProfileRecord | null => {
+      if (!entry || typeof entry !== 'object') {
+        return null;
+      }
+
+      const doc = entry as Partial<SessionDocumentProfileRecord>;
+      if (
+        typeof doc.document_id !== 'string' ||
+        typeof doc.source_file_key !== 'string' ||
+        typeof doc.file_name !== 'string' ||
+        typeof doc.mime_type !== 'string' ||
+        typeof doc.uploaded_at !== 'string' ||
+        (doc.status !== 'uploaded' &&
+          doc.status !== 'profiling' &&
+          doc.status !== 'profiled' &&
+          doc.status !== 'profile_failed')
+      ) {
+        return null;
+      }
+
+      return {
+        document_id: doc.document_id,
+        source_file_key: doc.source_file_key,
+        file_name: doc.file_name,
+        file_size_bytes: typeof doc.file_size_bytes === 'number' ? doc.file_size_bytes : null,
+        mime_type: doc.mime_type,
+        uploaded_at: doc.uploaded_at,
+        status: doc.status,
+        profile_result: doc.profile_result,
+        error_message: typeof doc.error_message === 'string' ? doc.error_message : undefined,
+      };
+    })
+    .filter((doc): doc is SessionDocumentProfileRecord => Boolean(doc));
+}
+
+function readExecutionState(raw: unknown): WorkflowExecutionState | null {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+
+  return raw as WorkflowExecutionState;
+}
+
+function ensureExecutionSteps(plan: unknown): WorkflowExecutionStep[] {
+  const proposed = readProposedWorkflow(plan);
+  if (proposed.length === 0) {
+    return [
+      {
+        step_no: 1,
+        step_name: 'Workbook Profiling',
+        status: 'in_progress',
+      },
+    ];
+  }
+
+  return proposed.map((step, index) => ({
+    step_no: step.step_no,
+    step_name: step.step_name,
+    status: index === 0 ? 'in_progress' : 'pending',
+  }));
+}
+
+function setProfilingStepStatus(
+  steps: WorkflowExecutionStep[],
+  status: ProfilingStepStatus,
+): WorkflowExecutionStep[] {
+  let hasProfilingStep = false;
+  const mapped = steps.map((step) => {
+    if (step.step_no !== 1) {
+      return step;
+    }
+
+    hasProfilingStep = true;
+    return {
+      ...step,
+      status,
+    };
+  });
+
+  if (hasProfilingStep) {
+    return mapped;
+  }
+
+  return [
+    {
+      step_no: 1,
+      step_name: 'Workbook Profiling',
+      status,
+    },
+    ...mapped,
+  ];
+}
+
+function markLaterCompletedStepsNeedsReview(
+  steps: WorkflowExecutionStep[],
+  fromStepNo: number,
+): WorkflowExecutionStep[] {
+  return steps.map((step) => {
+    if (step.step_no > fromStepNo && step.status === 'completed') {
+      return {
+        ...step,
+        status: 'needs_review',
+      };
+    }
+
+    return step;
+  });
+}
+
+function createInitialExecutionState(plan: unknown, nowIso: string): WorkflowExecutionState {
+  const steps = ensureExecutionSteps(plan);
+  return {
+    state_version: 1,
+    started_at: nowIso,
+    updated_at: nowIso,
+    current_step_no: 1,
+    current_step_status: 'in_progress',
+    steps,
+    documents: [],
+    profiling_summary: null,
+    profiling_review: null,
+  };
+}
+
+function buildPrimaryDocumentRecord(params: {
+  source_file_key: string;
+  source_file_name: string;
+  source_file_size_bytes: number | null;
+  mime_type: string;
+  uploaded_at: Date | string | null;
+}): SessionDocumentProfileRecord {
+  return {
+    document_id: crypto.randomUUID(),
+    source_file_key: params.source_file_key,
+    file_name: params.source_file_name,
+    file_size_bytes: params.source_file_size_bytes,
+    mime_type: params.mime_type,
+    uploaded_at: asIso(params.uploaded_at),
+    status: 'profiling',
+  };
+}
+
+async function runSingleDocumentProfiling(params: {
+  goal: string;
+  document: SessionDocumentProfileRecord;
+}): Promise<SessionDocumentProfileRecord> {
+  const bucket = process.env.S3_BUCKET ?? 'hackathon-team-2-assets-033484686020';
+  const fileStore = createS3FileStore(bucket);
+
+  try {
+    const buffer = await fileStore.getBuffer(params.document.source_file_key);
+    const profileResult = await runWorkbookProfiling({
+      goal: params.goal,
+      fileBuffer: buffer,
+      fileName: params.document.file_name,
+      fileSizeBytes: params.document.file_size_bytes,
+      mimeType: params.document.mime_type,
+      uploadedAt: params.document.uploaded_at,
+    });
+
+    return {
+      ...params.document,
+      status: 'profiled',
+      profile_result: profileResult,
+      error_message: undefined,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('[pmo/profiling] document profiling failed:', message, error);
+
+    return {
+      ...params.document,
+      status: 'profile_failed',
+      error_message: message,
+    };
+  }
+}
+
+function finalizeExecutionStateAfterProfiling(params: {
+  baseState: WorkflowExecutionState;
+  documents: SessionDocumentProfileRecord[];
+  nowIso: string;
+}): WorkflowExecutionState {
+  const summary = buildWorkbookProfilingSessionSummary(params.documents);
+  const profilingStatus = deriveCurrentProfilingStepStatus(params.documents);
+  const nextStatus: ProfilingStepStatus = profilingStatus === 'failed' ? 'failed' : 'needs_review';
+  const reviewedSteps = markLaterCompletedStepsNeedsReview(params.baseState.steps, 1);
+  const steps = setProfilingStepStatus(reviewedSteps, nextStatus);
+  const currentReviewState = params.baseState.profiling_review;
+  const reviewState: ProfilingReviewState =
+    currentReviewState && currentReviewState.status === 'approved'
+      ? {
+          ...currentReviewState,
+          status: 'needs_review',
+          approved_at: undefined,
+          approved_by: undefined,
+          last_updated_at: params.nowIso,
+        }
+      : {
+          ...(currentReviewState ?? createDefaultProfilingReviewState(params.nowIso)),
+          status: 'needs_review',
+          last_updated_at: params.nowIso,
+        };
+
+  return {
+    ...params.baseState,
+    updated_at: params.nowIso,
+    current_step_no: 1,
+    current_step_status: nextStatus,
+    steps,
+    documents: params.documents,
+    profiling_summary: summary,
+    profiling_review: reviewState,
+  };
+}
+
+function readCurrentStepName(executionState: WorkflowExecutionState): string {
+  return (
+    executionState.steps.find((step) => step.step_no === executionState.current_step_no)
+      ?.step_name ?? 'Workbook Profiling'
+  );
+}
+
+function mapExecutionHistoryStatus(executionState: WorkflowExecutionState | null): {
+  label: string;
+  active_gate: string;
+  progress_text: string;
+  progress_pct: number;
+} | null {
+  if (!executionState || executionState.steps.length === 0) {
+    return null;
+  }
+
+  const total = executionState.steps.length;
+  const completed = executionState.steps.filter((step) => step.status === 'completed').length;
+  const failedStep = executionState.steps.find((step) => step.status === 'failed');
+  const currentStep = executionState.steps.find((step) => step.status === 'in_progress');
+  const progressPct = Math.round((completed / total) * 100);
+
+  if (failedStep) {
+    return {
+      label: 'Execution blocked',
+      active_gate: failedStep.step_name,
+      progress_text: `${completed} / ${total} workflow steps`,
+      progress_pct: progressPct,
+    };
+  }
+
+  if (completed >= total) {
+    return {
+      label: 'Execution completed',
+      active_gate: 'All workflow steps completed',
+      progress_text: `${total} / ${total} workflow steps`,
+      progress_pct: 100,
+    };
+  }
+
+  if (currentStep) {
+    return {
+      label: 'Executing',
+      active_gate: currentStep.step_name,
+      progress_text: `${completed} / ${total} workflow steps`,
+      progress_pct: progressPct,
+    };
+  }
+
+  return {
+    label: 'Awaiting next step',
+    active_gate: readCurrentStepName(executionState),
+    progress_text: `${completed} / ${total} workflow steps`,
+    progress_pct: progressPct,
+  };
+}
+
 const PlanGenerateRequestSchema = z.object({
   ingestion_session_id: z.string().uuid(),
   goal: z.string().trim().min(1).max(4000),
@@ -114,6 +474,101 @@ const UploadRequestSchema = z.object({
     .default('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'),
   reporting_period_key: z.string().optional(),
 });
+
+const AppendUploadRequestSchema = z.object({
+  ingestion_session_id: z.string().uuid(),
+});
+
+const ProfilingSheetOverrideSchema = z.object({
+  document_id: z.string().uuid(),
+  sheet_name: z.string().trim().min(1),
+  final_area: z.enum([
+    'resource_allocation',
+    'timesheet',
+    'member_master',
+    'project_master',
+    'leave',
+    'holiday',
+    'training',
+    'unknown',
+  ]),
+  mark_ignore: z.boolean().optional(),
+});
+
+const ProfilingReviewUpsertSchema = z.object({
+  ingestion_session_id: z.string().uuid(),
+  sheet_overrides: z.array(ProfilingSheetOverrideSchema).optional(),
+  waived_missing_areas: z
+    .array(
+      z.enum([
+        'resource_allocation',
+        'timesheet',
+        'member_master',
+        'project_master',
+        'leave',
+        'holiday',
+        'training',
+      ]),
+    )
+    .optional(),
+});
+
+const ProfilingApproveContinueSchema = z.object({
+  ingestion_session_id: z.string().uuid(),
+});
+
+function createDefaultProfilingReviewState(nowIso: string): ProfilingReviewState {
+  return {
+    status: 'needs_review',
+    sheet_overrides: [],
+    waived_missing_areas: [],
+    last_updated_at: nowIso,
+  };
+}
+
+function readProfilingReviewState(raw: unknown): ProfilingReviewState | null {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+
+  const value = raw as Partial<ProfilingReviewState>;
+  const status = value.status === 'approved' ? 'approved' : 'needs_review';
+
+  const sheetOverrides = Array.isArray(value.sheet_overrides)
+    ? value.sheet_overrides.filter(
+        (item): item is ProfilingSheetReviewOverride =>
+          Boolean(item) &&
+          typeof item === 'object' &&
+          typeof item.document_id === 'string' &&
+          typeof item.sheet_name === 'string' &&
+          typeof item.final_area === 'string' &&
+          typeof item.mark_ignore === 'boolean',
+      )
+    : [];
+
+  const waivedMissingAreas = Array.isArray(value.waived_missing_areas)
+    ? value.waived_missing_areas.filter(
+        (area): area is KnownProfilingArea =>
+          area === 'resource_allocation' ||
+          area === 'timesheet' ||
+          area === 'member_master' ||
+          area === 'project_master' ||
+          area === 'leave' ||
+          area === 'holiday' ||
+          area === 'training',
+      )
+    : [];
+
+  return {
+    status,
+    sheet_overrides: sheetOverrides,
+    waived_missing_areas: waivedMissingAreas,
+    last_updated_at:
+      typeof value.last_updated_at === 'string' ? value.last_updated_at : new Date().toISOString(),
+    approved_at: typeof value.approved_at === 'string' ? value.approved_at : undefined,
+    approved_by: typeof value.approved_by === 'string' ? value.approved_by : undefined,
+  };
+}
 
 // ── Routes ───────────────────────────────────────────────────────────────────
 
@@ -313,6 +768,14 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
         planning_plan: ingestionSessions.planning_plan,
         planning_plan_version: ingestionSessions.planning_plan_version,
         planning_feedback_history: ingestionSessions.planning_feedback_history,
+        workflow_execution_state: ingestionSessions.workflow_execution_state,
+        profiling_documents: ingestionSessions.profiling_documents,
+        profiling_summary: ingestionSessions.profiling_summary,
+        profiling_review: ingestionSessions.workflow_execution_state,
+        workflow_current_step: ingestionSessions.workflow_current_step,
+        workflow_step_status: ingestionSessions.workflow_step_status,
+        workflow_started_at: ingestionSessions.workflow_started_at,
+        workflow_updated_at: ingestionSessions.workflow_updated_at,
         created_by: ingestionSessions.created_by,
         created_at: ingestionSessions.created_at,
         planning_last_generated_at: ingestionSessions.planning_last_generated_at,
@@ -327,8 +790,10 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
       .slice()
       .reverse()
       .map((row) => {
+        const executionState = readExecutionState(row.workflow_execution_state);
         const planningState = readPlanningState(row.status);
-        const history = mapHistoryStatus(planningState);
+        const history =
+          mapExecutionHistoryStatus(executionState) ?? mapHistoryStatus(planningState);
 
         return {
           ingestion_session_id: row.id,
@@ -349,6 +814,25 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
           feedback_history: Array.isArray(row.planning_feedback_history)
             ? row.planning_feedback_history
             : [],
+          execution_state: executionState,
+          profiling_documents: readDocuments(row.profiling_documents),
+          profiling_summary:
+            executionState?.profiling_summary ??
+            (row.profiling_summary && typeof row.profiling_summary === 'object'
+              ? row.profiling_summary
+              : null),
+          profiling_review: readProfilingReviewState(executionState?.profiling_review),
+          workflow_current_step:
+            row.workflow_current_step ??
+            executionState?.steps.find((step) => step.step_no === executionState.current_step_no)
+              ?.step_name ??
+            null,
+          workflow_step_status:
+            row.workflow_step_status ?? executionState?.current_step_status ?? null,
+          workflow_started_at:
+            asIsoOrNull(row.workflow_started_at) ?? executionState?.started_at ?? null,
+          workflow_updated_at:
+            asIsoOrNull(row.workflow_updated_at) ?? executionState?.updated_at ?? null,
           plan_generated_at: row.planning_last_generated_at
             ? asIso(row.planning_last_generated_at)
             : null,
@@ -513,6 +997,14 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
         id: ingestionSessions.id,
         status: ingestionSessions.status,
         planning_plan: ingestionSessions.planning_plan,
+        planning_goal: ingestionSessions.planning_goal,
+        source_file_key: ingestionSessions.source_file_key,
+        source_file_name: ingestionSessions.source_file_name,
+        source_file_size_bytes: ingestionSessions.source_file_size_bytes,
+        mime_type: ingestionSessions.mime_type,
+        created_at: ingestionSessions.created_at,
+        workflow_execution_state: ingestionSessions.workflow_execution_state,
+        profiling_documents: ingestionSessions.profiling_documents,
       })
       .from(ingestionSessions)
       .where(
@@ -549,11 +1041,71 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
       );
     }
 
+    const nowIso = new Date().toISOString();
+    const goal = row.planning_goal?.trim() || 'Profile workbook for PMO ingestion workflow.';
+
+    const existingExecutionState = readExecutionState(row.workflow_execution_state);
+    const hasExistingDocuments = readDocuments(row.profiling_documents);
+
+    let nextExecutionState = existingExecutionState;
+    if (!nextExecutionState) {
+      nextExecutionState = createInitialExecutionState(row.planning_plan, nowIso);
+    }
+
+    let nextDocuments =
+      nextExecutionState.documents.length > 0
+        ? [...nextExecutionState.documents]
+        : [...hasExistingDocuments];
+
+    if (nextDocuments.length === 0) {
+      nextDocuments = [
+        buildPrimaryDocumentRecord({
+          source_file_key: row.source_file_key,
+          source_file_name: row.source_file_name,
+          source_file_size_bytes: row.source_file_size_bytes,
+          mime_type: row.mime_type,
+          uploaded_at: row.created_at,
+        }),
+      ];
+    }
+
+    nextDocuments = await Promise.all(
+      nextDocuments.map(async (document) => {
+        if (document.status !== 'uploaded' && document.status !== 'profiling') {
+          return document;
+        }
+
+        return runSingleDocumentProfiling({
+          goal,
+          document: {
+            ...document,
+            status: 'profiling',
+          },
+        });
+      }),
+    );
+
+    nextExecutionState = finalizeExecutionStateAfterProfiling({
+      baseState: {
+        ...nextExecutionState,
+        started_at: nextExecutionState.started_at || nowIso,
+      },
+      documents: nextDocuments,
+      nowIso,
+    });
+
     await db
       .update(ingestionSessions)
       .set({
         status: 'approved_plan',
-        planning_approved_at: new Date(),
+        planning_approved_at: asDateOrNull(nowIso),
+        workflow_execution_state: nextExecutionState,
+        profiling_documents: nextExecutionState.documents,
+        profiling_summary: nextExecutionState.profiling_summary,
+        workflow_current_step: readCurrentStepName(nextExecutionState),
+        workflow_step_status: nextExecutionState.current_step_status,
+        workflow_started_at: asDateOrNull(nextExecutionState.started_at),
+        workflow_updated_at: asDateOrNull(nextExecutionState.updated_at),
       })
       .where(
         and(
@@ -565,7 +1117,427 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
     return c.json({
       ingestion_session_id,
       planning_state: 'approved_plan' as const,
-      approved_at: new Date().toISOString(),
+      approved_at: nowIso,
+      execution_state: nextExecutionState,
+      profiling_documents: nextExecutionState.documents,
+      profiling_summary: nextExecutionState.profiling_summary,
+      profiling_review: nextExecutionState.profiling_review,
+    });
+  });
+
+  // POST /api/pmo/v1/ingestion-sessions/:id/documents/upload
+  // Appends a supplemental workbook into an existing ingestion session and
+  // profiles only that new document while preserving current workflow state.
+  app.post('/api/pmo/v1/ingestion-sessions/:id/documents/upload', async (c) => {
+    try {
+      const session = c.get('user');
+      const paramsId = c.req.param('id');
+      const parsedParams = AppendUploadRequestSchema.safeParse({
+        ingestion_session_id: paramsId,
+      });
+
+      if (!parsedParams.success) {
+        return c.json({ error: 'invalid_request', details: parsedParams.error.issues }, 400);
+      }
+
+      const ingestionSessionId = parsedParams.data.ingestion_session_id;
+      const body = await c.req.parseBody();
+      const file = body.file;
+
+      if (!file || !(file instanceof File)) {
+        return c.json({ error: 'file field required (multipart)' }, 400);
+      }
+
+      const db = pmoDb();
+      const rows = await db
+        .select({
+          id: ingestionSessions.id,
+          status: ingestionSessions.status,
+          planning_goal: ingestionSessions.planning_goal,
+          planning_plan: ingestionSessions.planning_plan,
+          workflow_execution_state: ingestionSessions.workflow_execution_state,
+          profiling_documents: ingestionSessions.profiling_documents,
+          source_file_key: ingestionSessions.source_file_key,
+          source_file_name: ingestionSessions.source_file_name,
+          source_file_size_bytes: ingestionSessions.source_file_size_bytes,
+          mime_type: ingestionSessions.mime_type,
+          created_at: ingestionSessions.created_at,
+        })
+        .from(ingestionSessions)
+        .where(
+          and(
+            eq(ingestionSessions.id, ingestionSessionId),
+            eq(ingestionSessions.tenant_id, session.tenant_id),
+          ),
+        )
+        .limit(1);
+
+      const row = rows[0];
+      if (!row) {
+        return c.json({ error: 'not_found', message: 'ingestion session not found' }, 404);
+      }
+
+      const planningState = readPlanningState(row.status);
+      if (planningState !== 'approved_plan') {
+        return c.json(
+          {
+            error: 'invalid_state',
+            message: 'Supplemental document upload is available only after plan approval.',
+          },
+          409,
+        );
+      }
+
+      const filename = file.name || 'supplement.xlsx';
+      const mimeType =
+        file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      const sizeBytes = Number.isFinite(file.size) ? file.size : null;
+      const documentId = crypto.randomUUID();
+
+      const s3Key = buildTenantKey({
+        tenant_id: session.tenant_id,
+        domain: 'pmo',
+        file_id: `${ingestionSessionId}-${documentId}`,
+        filename,
+      });
+
+      const bucket = process.env.S3_BUCKET ?? 'hackathon-team-2-assets-033484686020';
+      const region = process.env.S3_REGION ?? 'ap-southeast-1';
+      const s3 = new S3Client({ region });
+      const buffer = Buffer.from(await file.arrayBuffer());
+      await s3.send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: s3Key,
+          Body: buffer,
+          ContentType: mimeType,
+        }),
+      );
+
+      const goal = row.planning_goal?.trim() || 'Profile workbook for PMO ingestion workflow.';
+      const nowIso = new Date().toISOString();
+      const existingExecutionState =
+        readExecutionState(row.workflow_execution_state) ??
+        createInitialExecutionState(row.planning_plan, nowIso);
+
+      const persistedDocs = readDocuments(row.profiling_documents);
+      let nextDocuments =
+        existingExecutionState.documents.length > 0
+          ? [...existingExecutionState.documents]
+          : [...persistedDocs];
+
+      if (nextDocuments.length === 0) {
+        nextDocuments = [
+          buildPrimaryDocumentRecord({
+            source_file_key: row.source_file_key,
+            source_file_name: row.source_file_name,
+            source_file_size_bytes: row.source_file_size_bytes,
+            mime_type: row.mime_type,
+            uploaded_at: row.created_at,
+          }),
+        ];
+      }
+
+      const newDocumentBase: SessionDocumentProfileRecord = {
+        document_id: documentId,
+        source_file_key: s3Key,
+        file_name: filename,
+        file_size_bytes: sizeBytes,
+        mime_type: mimeType,
+        uploaded_at: nowIso,
+        status: 'profiling',
+      };
+
+      const profiledNewDocument = await runSingleDocumentProfiling({
+        goal,
+        document: newDocumentBase,
+      });
+
+      nextDocuments.push(profiledNewDocument);
+
+      const nextExecutionState = finalizeExecutionStateAfterProfiling({
+        baseState: {
+          ...existingExecutionState,
+          started_at: existingExecutionState.started_at || nowIso,
+        },
+        documents: nextDocuments,
+        nowIso,
+      });
+
+      await db
+        .update(ingestionSessions)
+        .set({
+          workflow_execution_state: nextExecutionState,
+          profiling_documents: nextExecutionState.documents,
+          profiling_summary: nextExecutionState.profiling_summary,
+          workflow_current_step: readCurrentStepName(nextExecutionState),
+          workflow_step_status: nextExecutionState.current_step_status,
+          workflow_started_at: asDateOrNull(nextExecutionState.started_at),
+          workflow_updated_at: asDateOrNull(nextExecutionState.updated_at),
+        })
+        .where(
+          and(
+            eq(ingestionSessions.id, ingestionSessionId),
+            eq(ingestionSessions.tenant_id, session.tenant_id),
+          ),
+        );
+
+      return c.json({
+        ingestion_session_id: ingestionSessionId,
+        document: profiledNewDocument,
+        execution_state: nextExecutionState,
+        profiling_documents: nextExecutionState.documents,
+        profiling_summary: nextExecutionState.profiling_summary,
+        profiling_review: nextExecutionState.profiling_review,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('[pmo/append-upload] error:', message, error);
+      return c.json({ error: 'append_upload_failed', message }, 500);
+    }
+  });
+
+  // POST /api/pmo/v1/profiling/review
+  // Saves user review edits for workbook profiling without moving to next workflow step.
+  app.post('/api/pmo/v1/profiling/review', async (c) => {
+    const session = c.get('user');
+    const body = await c.req.json().catch(() => ({}));
+    const parsed = ProfilingReviewUpsertSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: 'invalid_request', details: parsed.error.issues }, 400);
+    }
+
+    const { ingestion_session_id, sheet_overrides = [], waived_missing_areas = [] } = parsed.data;
+    const db = pmoDb();
+    const rows = await db
+      .select({
+        id: ingestionSessions.id,
+        status: ingestionSessions.status,
+        workflow_execution_state: ingestionSessions.workflow_execution_state,
+      })
+      .from(ingestionSessions)
+      .where(
+        and(
+          eq(ingestionSessions.id, ingestion_session_id),
+          eq(ingestionSessions.tenant_id, session.tenant_id),
+        ),
+      )
+      .limit(1);
+
+    const row = rows[0];
+    if (!row) {
+      return c.json({ error: 'not_found', message: 'ingestion session not found' }, 404);
+    }
+
+    const executionState = readExecutionState(row.workflow_execution_state);
+    if (!executionState) {
+      return c.json(
+        {
+          error: 'invalid_state',
+          message: 'Execution state is not initialized for profiling review.',
+        },
+        409,
+      );
+    }
+
+    const nowIso = new Date().toISOString();
+    const normalizedOverrides: ProfilingSheetReviewOverride[] = sheet_overrides.map((override) => ({
+      document_id: override.document_id,
+      sheet_name: override.sheet_name,
+      final_area: override.final_area,
+      mark_ignore: override.mark_ignore ?? false,
+    }));
+
+    const reviewState =
+      readProfilingReviewState(executionState.profiling_review) ??
+      createDefaultProfilingReviewState(nowIso);
+
+    const mergedReviewState: ProfilingReviewState = {
+      ...reviewState,
+      status: 'needs_review',
+      sheet_overrides: normalizedOverrides,
+      waived_missing_areas: [...new Set(waived_missing_areas)] as KnownProfilingArea[],
+      last_updated_at: nowIso,
+      approved_at: undefined,
+      approved_by: undefined,
+    };
+
+    const documentsWithOverrides = applyProfilingReviewOverrides(
+      executionState.documents,
+      mergedReviewState.sheet_overrides,
+    );
+    const summaryAfterOverrides = buildWorkbookProfilingSessionSummary(documentsWithOverrides);
+    const summaryAfterWaive = applyWaivedMissingAreas(
+      summaryAfterOverrides,
+      mergedReviewState.waived_missing_areas,
+    );
+
+    const nextSteps = setProfilingStepStatus(executionState.steps, 'needs_review');
+    const nextExecutionState: WorkflowExecutionState = {
+      ...executionState,
+      updated_at: nowIso,
+      current_step_no: 1,
+      current_step_status: 'needs_review',
+      steps: nextSteps,
+      documents: documentsWithOverrides,
+      profiling_summary: summaryAfterWaive,
+      profiling_review: mergedReviewState,
+    };
+
+    await db
+      .update(ingestionSessions)
+      .set({
+        workflow_execution_state: nextExecutionState,
+        profiling_documents: nextExecutionState.documents,
+        profiling_summary: nextExecutionState.profiling_summary,
+        workflow_current_step: readCurrentStepName(nextExecutionState),
+        workflow_step_status: nextExecutionState.current_step_status,
+        workflow_updated_at: asDateOrNull(nextExecutionState.updated_at),
+      })
+      .where(
+        and(
+          eq(ingestionSessions.id, ingestion_session_id),
+          eq(ingestionSessions.tenant_id, session.tenant_id),
+        ),
+      );
+
+    return c.json({
+      ingestion_session_id,
+      execution_state: nextExecutionState,
+      profiling_documents: nextExecutionState.documents,
+      profiling_summary: nextExecutionState.profiling_summary,
+      profiling_review: nextExecutionState.profiling_review,
+    });
+  });
+
+  // POST /api/pmo/v1/profiling/approve-continue
+  // Confirms profiling review gate and unlocks the next workflow step.
+  app.post('/api/pmo/v1/profiling/approve-continue', async (c) => {
+    const session = c.get('user');
+    const body = await c.req.json().catch(() => ({}));
+    const parsed = ProfilingApproveContinueSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: 'invalid_request', details: parsed.error.issues }, 400);
+    }
+
+    const { ingestion_session_id } = parsed.data;
+    const db = pmoDb();
+    const rows = await db
+      .select({
+        id: ingestionSessions.id,
+        workflow_execution_state: ingestionSessions.workflow_execution_state,
+      })
+      .from(ingestionSessions)
+      .where(
+        and(
+          eq(ingestionSessions.id, ingestion_session_id),
+          eq(ingestionSessions.tenant_id, session.tenant_id),
+        ),
+      )
+      .limit(1);
+
+    const row = rows[0];
+    if (!row) {
+      return c.json({ error: 'not_found', message: 'ingestion session not found' }, 404);
+    }
+
+    const executionState = readExecutionState(row.workflow_execution_state);
+    if (!executionState) {
+      return c.json(
+        {
+          error: 'invalid_state',
+          message: 'Execution state is not initialized for profiling review.',
+        },
+        409,
+      );
+    }
+
+    if (executionState.current_step_no !== 1) {
+      return c.json(
+        {
+          error: 'invalid_state',
+          message: 'Profiling gate can be approved only when current step is Workbook Profiling.',
+        },
+        409,
+      );
+    }
+
+    const summary = executionState.profiling_summary;
+    if (summary && summary.missing_recommended_data_areas.length > 0) {
+      return c.json(
+        {
+          error: 'missing_required_context',
+          message:
+            'Missing recommended data areas remain. Upload more documents or waive them before continue.',
+          missing_recommended_data_areas: summary.missing_recommended_data_areas,
+        },
+        409,
+      );
+    }
+
+    const nowIso = new Date().toISOString();
+    const currentReviewState =
+      readProfilingReviewState(executionState.profiling_review) ??
+      createDefaultProfilingReviewState(nowIso);
+
+    const sortedSteps = executionState.steps.slice().sort((a, b) => a.step_no - b.step_no);
+    const nextStep = sortedSteps.find((step) => step.step_no > 1);
+    const nextStepNo = nextStep?.step_no ?? 1;
+
+    const nextSteps = sortedSteps.map((step) => {
+      if (step.step_no === 1) {
+        return {
+          ...step,
+          status: 'completed' as const,
+        };
+      }
+
+      if (nextStep && step.step_no === nextStep.step_no) {
+        return {
+          ...step,
+          status: 'in_progress' as const,
+        };
+      }
+
+      return step;
+    });
+
+    const nextExecutionState: WorkflowExecutionState = {
+      ...executionState,
+      updated_at: nowIso,
+      current_step_no: nextStepNo,
+      current_step_status: nextStep ? 'in_progress' : 'completed',
+      steps: nextSteps,
+      profiling_review: {
+        ...currentReviewState,
+        status: 'approved',
+        last_updated_at: nowIso,
+        approved_at: nowIso,
+        approved_by: session.user_id,
+      },
+    };
+
+    await db
+      .update(ingestionSessions)
+      .set({
+        workflow_execution_state: nextExecutionState,
+        workflow_current_step: readCurrentStepName(nextExecutionState),
+        workflow_step_status: nextExecutionState.current_step_status,
+        workflow_updated_at: asDateOrNull(nextExecutionState.updated_at),
+      })
+      .where(
+        and(
+          eq(ingestionSessions.id, ingestion_session_id),
+          eq(ingestionSessions.tenant_id, session.tenant_id),
+        ),
+      );
+
+    return c.json({
+      ingestion_session_id,
+      execution_state: nextExecutionState,
+      profiling_documents: nextExecutionState.documents,
+      profiling_summary: nextExecutionState.profiling_summary,
+      profiling_review: nextExecutionState.profiling_review,
     });
   });
 

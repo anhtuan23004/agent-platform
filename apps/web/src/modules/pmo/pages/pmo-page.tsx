@@ -5,11 +5,25 @@ import {
   type GeneratePlanInput,
   type PmoPlan,
   type PmoPlanningSession,
+  type PmoProfilingArea,
+  type PmoProfilingSheetReviewOverride,
+  type PmoSessionDocumentProfileRecord,
+  type PmoWorkflowExecutionStepStatus,
   pmoApi,
 } from '../api/client';
 
 const ACCEPT = '.xlsx,.xlsm';
 const MAX_BYTES = 50 * 1024 * 1024;
+const PROFILING_AREAS: PmoProfilingArea[] = [
+  'resource_allocation',
+  'timesheet',
+  'member_master',
+  'project_master',
+  'leave',
+  'holiday',
+  'training',
+  'unknown',
+];
 
 type TimelineState = 'done' | 'current' | 'pending';
 
@@ -36,6 +50,10 @@ function formatBytes(bytes: number): string {
   }
 
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function profilingSheetKey(documentId: string, sheetName: string): string {
+  return `${documentId}::${sheetName}`;
 }
 
 function toneForState(state: TimelineState): { marker: string; text: string } {
@@ -69,6 +87,169 @@ function statusTone(statusLabel: string): string {
   }
 
   return 'bg-primary-tint text-primary-ink';
+}
+
+function proposedStepTone(status: PmoWorkflowExecutionStepStatus): {
+  circle: string;
+  line: string;
+  text: string;
+} {
+  if (status === 'completed') {
+    return {
+      circle: 'border-success bg-success text-white',
+      line: 'bg-success/70',
+      text: 'text-success-ink',
+    };
+  }
+
+  if (status === 'in_progress') {
+    return {
+      circle: 'border-warning bg-warning-tint text-warning-ink ring-1 ring-warning/40',
+      line: 'bg-warning/60',
+      text: 'text-warning-ink',
+    };
+  }
+
+  if (status === 'needs_review') {
+    return {
+      circle: 'border-primary bg-primary-tint text-primary-ink ring-1 ring-primary/30',
+      line: 'bg-primary/50',
+      text: 'text-primary-ink',
+    };
+  }
+
+  if (status === 'failed') {
+    return {
+      circle: 'border-danger bg-danger-tint text-danger-ink',
+      line: 'bg-danger/60',
+      text: 'text-danger-ink',
+    };
+  }
+
+  return {
+    circle: 'border-hairline-strong bg-surface-2 text-ink-subtle',
+    line: 'bg-hairline-strong',
+    text: 'text-ink-subtle',
+  };
+}
+
+function workflowStepTone(status: PmoWorkflowExecutionStepStatus): {
+  badge: string;
+  label: string;
+} {
+  if (status === 'completed') {
+    return {
+      badge: 'bg-success-tint text-success-ink',
+      label: 'Completed',
+    };
+  }
+
+  if (status === 'in_progress') {
+    return {
+      badge: 'bg-warning-tint text-warning-ink',
+      label: 'In progress',
+    };
+  }
+
+  if (status === 'failed') {
+    return {
+      badge: 'bg-danger-tint text-danger-ink',
+      label: 'Failed',
+    };
+  }
+
+  if (status === 'needs_review') {
+    return {
+      badge: 'bg-primary-tint text-primary-ink',
+      label: 'Needs review',
+    };
+  }
+
+  return {
+    badge: 'bg-surface-2 text-ink-subtle',
+    label: 'Pending',
+  };
+}
+
+function documentStatusTone(status: PmoSessionDocumentProfileRecord['status']): {
+  badge: string;
+  label: string;
+} {
+  if (status === 'profiled') {
+    return {
+      badge: 'bg-success-tint text-success-ink',
+      label: 'Profiled',
+    };
+  }
+
+  if (status === 'profiling') {
+    return {
+      badge: 'bg-warning-tint text-warning-ink',
+      label: 'Profiling',
+    };
+  }
+
+  if (status === 'profile_failed') {
+    return {
+      badge: 'bg-danger-tint text-danger-ink',
+      label: 'Profile failed',
+    };
+  }
+
+  return {
+    badge: 'bg-surface-2 text-ink-subtle',
+    label: 'Uploaded',
+  };
+}
+
+function buildExecutionCards(session: PmoPlanningSession | null): Array<{
+  step_no: number;
+  step_name: string;
+  status: PmoWorkflowExecutionStepStatus;
+  description?: string;
+}> {
+  if (!session?.plan) {
+    return [];
+  }
+
+  if (session.execution_state?.steps?.length) {
+    return session.execution_state.steps
+      .slice()
+      .sort((a, b) => a.step_no - b.step_no)
+      .map((step) => ({
+        step_no: step.step_no,
+        step_name: step.step_name,
+        status: step.status,
+        description:
+          session.plan?.proposed_workflow.find((item) => item.step_no === step.step_no)
+            ?.description ?? '',
+      }));
+  }
+
+  const sortedWorkflow = session.plan.proposed_workflow
+    .slice()
+    .sort((a, b) => a.step_no - b.step_no);
+  if (sortedWorkflow.length === 0) {
+    return [
+      {
+        step_no: 1,
+        step_name: 'Workbook Profiling',
+        status: session.planning_state === 'approved_plan' ? 'in_progress' : 'pending',
+      },
+    ];
+  }
+
+  return sortedWorkflow.map((step, index) => ({
+    step_no: step.step_no,
+    step_name: step.step_name,
+    status:
+      session.planning_state === 'approved_plan'
+        ? index === 0
+          ? 'in_progress'
+          : 'pending'
+        : 'pending',
+    description: step.description,
+  }));
 }
 
 function buildPlanTimeline(
@@ -119,6 +300,15 @@ export function PmoPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
+  const [isAppendingDocument, setIsAppendingDocument] = useState(false);
+  const [isSavingProfilingReview, setIsSavingProfilingReview] = useState(false);
+  const [isApprovingProfiling, setIsApprovingProfiling] = useState(false);
+  const [profilingOverridesBySessionId, setProfilingOverridesBySessionId] = useState<
+    Record<string, Record<string, { finalArea: PmoProfilingArea; markIgnore: boolean }>>
+  >({});
+  const [waivedMissingAreasBySessionId, setWaivedMissingAreasBySessionId] = useState<
+    Record<string, Record<string, boolean>>
+  >({});
 
   const [uploadedInfo, setUploadedInfo] = useState<{
     ingestionSessionId: string;
@@ -145,6 +335,24 @@ export function PmoPage() {
   const targetGenerateSessionId = uploadedInfo?.ingestionSessionId ?? selectedUploadedSessionId;
 
   const timeline = buildPlanTimeline(selectedSession?.planning_state ?? null);
+  const executionCards = buildExecutionCards(selectedSession);
+  const executionState = selectedSession?.execution_state ?? null;
+  const profilingDocuments = selectedSession?.profiling_documents.length
+    ? selectedSession.profiling_documents
+    : (executionState?.documents ?? []);
+  const profilingSummary = selectedSession?.profiling_summary ?? executionState?.profiling_summary;
+  const profilingReviewState =
+    selectedSession?.profiling_review ?? executionState?.profiling_review;
+  const selectedSessionOverrides = selectedSession
+    ? (profilingOverridesBySessionId[selectedSession.ingestion_session_id] ?? {})
+    : {};
+  const selectedSessionWaivedMissingAreas = selectedSession
+    ? (waivedMissingAreasBySessionId[selectedSession.ingestion_session_id] ?? {})
+    : {};
+  const hasOutstandingMissingAreas =
+    (profilingSummary?.missing_recommended_data_areas ?? []).filter(
+      (area) => !selectedSessionWaivedMissingAreas[area],
+    ).length > 0;
 
   const feedbackHistoryItems = useMemo(() => {
     if (!selectedSession) {
@@ -162,6 +370,23 @@ export function PmoPage() {
       };
     });
   }, [selectedSession]);
+
+  const proposedWorkflowSteps = useMemo(() => {
+    const sessionPlan = selectedSession?.plan;
+    if (!sessionPlan?.proposed_workflow?.length) {
+      return [] as PmoPlan['proposed_workflow'];
+    }
+
+    return sessionPlan.proposed_workflow.slice().sort((a, b) => a.step_no - b.step_no);
+  }, [selectedSession]);
+
+  const proposedStepStatusByNo = useMemo(() => {
+    const map = new Map<number, PmoWorkflowExecutionStepStatus>();
+    for (const step of executionState?.steps ?? []) {
+      map.set(step.step_no, step.status);
+    }
+    return map;
+  }, [executionState]);
 
   const loadSessions = useCallback(async (keepSelection = true) => {
     setIsLoadingSessions(true);
@@ -191,7 +416,13 @@ export function PmoPage() {
   }, []);
 
   useEffect(() => {
-    void loadSessions(false);
+    const timer = window.setTimeout(() => {
+      void loadSessions(false);
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
   }, [loadSessions]);
 
   function refreshPage() {
@@ -323,16 +554,157 @@ export function PmoPage() {
 
     setIsApproving(true);
     try {
-      await pmoApi.approvePlan(selectedSession.ingestion_session_id);
+      const response = await pmoApi.approvePlan(selectedSession.ingestion_session_id);
       await loadSessions(true);
       toast.success('Plan approved', {
-        description: 'Workflow moved to the next step marker.',
+        description:
+          response.execution_state.current_step_status === 'failed'
+            ? 'Workflow started, but Workbook Profiling needs attention.'
+            : 'Workflow started and Workbook Profiling has been processed.',
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Plan approval failed.';
       toast.error('Approve failed', { description: message });
     } finally {
       setIsApproving(false);
+    }
+  }
+
+  async function handleAppendDocument(file: File) {
+    if (!selectedSession) {
+      toast.error('No session selected', {
+        description: 'Please select an approved session before appending a document.',
+      });
+      return;
+    }
+
+    if (selectedSession.planning_state !== 'approved_plan') {
+      toast.error('Cannot append document', {
+        description: 'Supplemental documents are allowed only after plan approval.',
+      });
+      return;
+    }
+
+    if (isAppendingDocument) {
+      return;
+    }
+
+    setIsAppendingDocument(true);
+    try {
+      const response = await pmoApi.appendSessionDocument(
+        selectedSession.ingestion_session_id,
+        file,
+      );
+
+      await loadSessions(true);
+      toast.success('Supplemental document processed', {
+        description:
+          response.document.status === 'profile_failed'
+            ? 'Document uploaded, but profiling failed. Check the error in Workbook Profiling card.'
+            : 'Document uploaded and profiled successfully in the current workflow session.',
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to append document.';
+      toast.error('Append failed', { description: message });
+    } finally {
+      setIsAppendingDocument(false);
+    }
+  }
+
+  async function handleSaveProfilingReview() {
+    if (!selectedSession) {
+      return;
+    }
+
+    if (selectedSession.planning_state !== 'approved_plan') {
+      toast.error('Cannot save review', {
+        description: 'Profiling review is available only after plan approval.',
+      });
+      return;
+    }
+
+    if (isSavingProfilingReview) {
+      return;
+    }
+
+    const sessionOverrides =
+      profilingOverridesBySessionId[selectedSession.ingestion_session_id] ?? {};
+    const overridesPayload: PmoProfilingSheetReviewOverride[] = Object.entries(sessionOverrides)
+      .map(([key, value]) => {
+        const [document_id, sheet_name] = key.split('::');
+        if (!document_id || !sheet_name) {
+          return null;
+        }
+
+        return {
+          document_id,
+          sheet_name,
+          final_area: value.finalArea,
+          mark_ignore: value.markIgnore,
+        };
+      })
+      .filter((item): item is PmoProfilingSheetReviewOverride => Boolean(item));
+
+    const waivedMap = waivedMissingAreasBySessionId[selectedSession.ingestion_session_id] ?? {};
+    const waivedMissingAreas = Object.entries(waivedMap)
+      .filter(([, waived]) => waived)
+      .map(([area]) => area) as Array<Exclude<PmoProfilingArea, 'unknown'>>;
+
+    setIsSavingProfilingReview(true);
+    try {
+      await pmoApi.updateProfilingReview({
+        ingestion_session_id: selectedSession.ingestion_session_id,
+        sheet_overrides: overridesPayload,
+        waived_missing_areas: waivedMissingAreas,
+      });
+      await loadSessions(true);
+      toast.success('Profiling review saved', {
+        description: 'Review edits were persisted. Gate remains in Needs Review until approval.',
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to save profiling review.';
+      toast.error('Save failed', { description: message });
+    } finally {
+      setIsSavingProfilingReview(false);
+    }
+  }
+
+  async function handleApproveProfilingContinue() {
+    if (!selectedSession) {
+      return;
+    }
+
+    if (selectedSession.planning_state !== 'approved_plan') {
+      toast.error('Cannot continue', {
+        description: 'Profiling gate is available only after plan approval.',
+      });
+      return;
+    }
+
+    if (hasOutstandingMissingAreas) {
+      toast.error('Missing required context', {
+        description:
+          'Please upload supplemental workbook(s) or waive remaining missing data areas before continuing.',
+      });
+      return;
+    }
+
+    if (isApprovingProfiling) {
+      return;
+    }
+
+    setIsApprovingProfiling(true);
+    try {
+      await pmoApi.approveProfilingContinue(selectedSession.ingestion_session_id);
+      await loadSessions(true);
+      toast.success('Profiling approved', {
+        description: 'Workbook Profiling gate approved. Workflow moved to the next step.',
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to approve profiling gate.';
+      toast.error('Approve failed', { description: message });
+    } finally {
+      setIsApprovingProfiling(false);
     }
   }
 
@@ -641,6 +1013,418 @@ export function PmoPage() {
                   </div>
                 ) : null}
 
+                {executionCards.length > 0 ? (
+                  <section className="rounded-lg border border-hairline bg-canvas px-3 py-2 text-caption text-ink-subtle">
+                    <p className="font-medium text-ink">Workflow execution</p>
+                    <p className="mt-1">
+                      Step cards are derived from the approved plan. Only the active step is
+                      interactive.
+                    </p>
+
+                    <ol className="mt-2 grid gap-2 md:grid-cols-2">
+                      {executionCards.map((step) => {
+                        const tone = workflowStepTone(step.status);
+                        const isCurrent =
+                          step.step_no ===
+                          (executionState?.current_step_no ?? executionCards[0]?.step_no);
+                        const isWorkbookProfilingStep =
+                          step.step_no === 1 || /workbook\s*profil/i.test(step.step_name);
+
+                        return (
+                          <li
+                            key={`${selectedSession.ingestion_session_id}-workflow-step-${step.step_no}`}
+                            className="rounded-lg border border-hairline bg-surface-1 px-3 py-2"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <p className="font-medium text-ink">
+                                  Step {step.step_no}: {step.step_name}
+                                </p>
+                                {step.description ? (
+                                  <p className="mt-0.5 text-ink-subtle">{step.description}</p>
+                                ) : null}
+                              </div>
+                              <div className="flex shrink-0 items-center gap-1">
+                                {isCurrent ? (
+                                  <span className="rounded-full bg-primary-tint px-2 py-0.5 text-caption font-medium text-primary-ink">
+                                    Active
+                                  </span>
+                                ) : null}
+                                <span
+                                  className={`rounded-full px-2 py-0.5 text-caption font-medium ${tone.badge}`}
+                                >
+                                  {tone.label}
+                                </span>
+                              </div>
+                            </div>
+
+                            {isWorkbookProfilingStep ? (
+                              <div className="mt-2 space-y-2 rounded-md border border-hairline bg-canvas p-2.5">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="font-medium text-ink">Workbook Profiling details</p>
+                                  <span
+                                    className={`rounded-full px-2 py-0.5 text-caption font-medium ${workflowStepTone(step.status).badge}`}
+                                  >
+                                    {workflowStepTone(step.status).label}
+                                  </span>
+                                  {profilingReviewState ? (
+                                    <span className="rounded-full bg-surface-2 px-2 py-0.5 text-caption text-ink-subtle">
+                                      Review:{' '}
+                                      {profilingReviewState.status === 'approved'
+                                        ? 'Approved'
+                                        : 'Needs review'}
+                                    </span>
+                                  ) : null}
+                                </div>
+
+                                {profilingSummary ? (
+                                  <div className="grid gap-2 text-ink-subtle sm:grid-cols-2 lg:grid-cols-4">
+                                    <p>
+                                      Documents:{' '}
+                                      <span className="font-medium text-ink">
+                                        {profilingSummary.profiled_document_count} /
+                                        {profilingSummary.document_count}
+                                      </span>
+                                    </p>
+                                    <p>
+                                      Sheets:{' '}
+                                      <span className="font-medium text-ink">
+                                        {profilingSummary.total_sheet_count}
+                                      </span>
+                                    </p>
+                                    <p>
+                                      Rows:{' '}
+                                      <span className="font-medium text-ink">
+                                        {profilingSummary.total_row_count}
+                                      </span>
+                                    </p>
+                                    <p>
+                                      Generated:{' '}
+                                      <span className="font-medium text-ink">
+                                        {formatLocalDate(profilingSummary.generated_at)}
+                                      </span>
+                                    </p>
+                                  </div>
+                                ) : (
+                                  <p className="text-ink-subtle">
+                                    No profiling summary yet. Approve plan to start profiling.
+                                  </p>
+                                )}
+
+                                {profilingSummary?.detected_data_areas.length ? (
+                                  <p>
+                                    Detected data areas:{' '}
+                                    <span className="font-medium text-ink">
+                                      {profilingSummary.detected_data_areas.join(', ')}
+                                    </span>
+                                  </p>
+                                ) : null}
+
+                                {profilingSummary?.missing_recommended_data_areas.length ? (
+                                  <div className="space-y-1 rounded-md border border-hairline bg-surface-1 p-2">
+                                    <p className="font-medium text-ink">
+                                      Missing recommended data areas
+                                    </p>
+                                    <ul className="space-y-1">
+                                      {profilingSummary.missing_recommended_data_areas.map(
+                                        (area) => {
+                                          const waived = Boolean(
+                                            selectedSessionWaivedMissingAreas[area],
+                                          );
+                                          return (
+                                            <li
+                                              key={`${selectedSession.ingestion_session_id}-missing-${area}`}
+                                            >
+                                              <label className="flex cursor-pointer items-center justify-between gap-2">
+                                                <span className="text-ink-subtle">
+                                                  <span className="font-medium text-ink">
+                                                    {area}
+                                                  </span>
+                                                </span>
+                                                <span className="inline-flex items-center gap-1 text-caption text-ink-subtle">
+                                                  <input
+                                                    type="checkbox"
+                                                    checked={waived}
+                                                    onChange={(event) => {
+                                                      const checked = event.target.checked;
+                                                      setWaivedMissingAreasBySessionId((prev) => ({
+                                                        ...prev,
+                                                        [selectedSession.ingestion_session_id]: {
+                                                          ...(prev[
+                                                            selectedSession.ingestion_session_id
+                                                          ] ?? {}),
+                                                          [area]: checked,
+                                                        },
+                                                      }));
+                                                    }}
+                                                  />
+                                                  Mark as not required
+                                                </span>
+                                              </label>
+                                            </li>
+                                          );
+                                        },
+                                      )}
+                                    </ul>
+                                  </div>
+                                ) : null}
+
+                                {profilingSummary?.suggested_next_step ? (
+                                  <p>
+                                    Recommendation:{' '}
+                                    <span className="font-medium text-ink">
+                                      {profilingSummary.suggested_next_step}
+                                    </span>
+                                  </p>
+                                ) : null}
+
+                                <div className="space-y-1.5">
+                                  <p className="font-medium text-ink">Profiled documents</p>
+                                  {profilingDocuments.length === 0 ? (
+                                    <p className="text-ink-subtle">No document records yet.</p>
+                                  ) : (
+                                    <ul className="space-y-1.5">
+                                      {profilingDocuments.map((doc) => {
+                                        const docTone = documentStatusTone(doc.status);
+                                        const sheetCount =
+                                          doc.profile_result?.workbook_summary.sheet_count ?? 0;
+                                        const rowCount =
+                                          doc.profile_result?.workbook_summary.total_rows ?? 0;
+
+                                        return (
+                                          <li
+                                            key={doc.document_id}
+                                            className="rounded-md border border-hairline bg-surface-1 px-2 py-1.5"
+                                          >
+                                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                              <p className="font-medium text-ink">
+                                                {doc.file_name}
+                                              </p>
+                                              <span
+                                                className={`rounded-full px-2 py-0.5 text-caption font-medium ${docTone.badge}`}
+                                              >
+                                                {docTone.label}
+                                              </span>
+                                            </div>
+                                            <div className="mt-1 grid gap-1 text-ink-subtle sm:grid-cols-3">
+                                              <p>Uploaded: {formatLocalDate(doc.uploaded_at)}</p>
+                                              <p>Sheets: {sheetCount}</p>
+                                              <p>Rows: {rowCount}</p>
+                                            </div>
+                                            {doc.profile_result?.sheets.length ? (
+                                              <div className="mt-2 overflow-x-auto">
+                                                <table className="min-w-full text-left text-caption">
+                                                  <thead className="border-b border-hairline text-ink-subtle">
+                                                    <tr>
+                                                      <th className="px-1.5 py-1">Sheet</th>
+                                                      <th className="px-1.5 py-1">
+                                                        Predicted meaning
+                                                      </th>
+                                                      <th className="px-1.5 py-1">Confidence</th>
+                                                      <th className="px-1.5 py-1">Action</th>
+                                                      <th className="px-1.5 py-1">Override</th>
+                                                    </tr>
+                                                  </thead>
+                                                  <tbody>
+                                                    {doc.profile_result.sheets.map((sheet) => {
+                                                      const key = profilingSheetKey(
+                                                        doc.document_id,
+                                                        sheet.sheet_name,
+                                                      );
+                                                      const override =
+                                                        selectedSessionOverrides[key];
+                                                      const effectiveArea = override?.markIgnore
+                                                        ? 'unknown'
+                                                        : (override?.finalArea ??
+                                                          sheet.final_decision?.area ??
+                                                          sheet.candidate_business_area);
+
+                                                      return (
+                                                        <tr
+                                                          key={`${doc.document_id}-${sheet.sheet_name}`}
+                                                          className="border-b border-hairline"
+                                                        >
+                                                          <td className="px-1.5 py-1 text-ink">
+                                                            {sheet.sheet_name}
+                                                          </td>
+                                                          <td className="px-1.5 py-1 text-ink-subtle">
+                                                            {sheet.likely_purpose}
+                                                          </td>
+                                                          <td className="px-1.5 py-1 text-ink-subtle">
+                                                            {sheet.final_decision?.confidence ??
+                                                              (sheet.confidence >= 0.8
+                                                                ? 'high'
+                                                                : sheet.confidence >= 0.55
+                                                                  ? 'medium'
+                                                                  : 'low')}
+                                                          </td>
+                                                          <td className="px-1.5 py-1 text-ink-subtle">
+                                                            {sheet.llm_interpretation
+                                                              ?.recommended_action ?? 'review'}
+                                                          </td>
+                                                          <td className="px-1.5 py-1">
+                                                            <div className="flex flex-wrap items-center gap-1">
+                                                              <select
+                                                                className="rounded border border-hairline bg-canvas px-1 py-0.5 text-caption"
+                                                                value={effectiveArea}
+                                                                onChange={(event) => {
+                                                                  const selectedArea = event.target
+                                                                    .value as PmoProfilingArea;
+                                                                  setProfilingOverridesBySessionId(
+                                                                    (prev) => ({
+                                                                      ...prev,
+                                                                      [selectedSession.ingestion_session_id]:
+                                                                        {
+                                                                          ...(prev[
+                                                                            selectedSession
+                                                                              .ingestion_session_id
+                                                                          ] ?? {}),
+                                                                          [key]: {
+                                                                            finalArea: selectedArea,
+                                                                            markIgnore:
+                                                                              selectedArea ===
+                                                                              'unknown',
+                                                                          },
+                                                                        },
+                                                                    }),
+                                                                  );
+                                                                }}
+                                                              >
+                                                                {PROFILING_AREAS.map((area) => (
+                                                                  <option key={area} value={area}>
+                                                                    {area}
+                                                                  </option>
+                                                                ))}
+                                                              </select>
+                                                              <label className="inline-flex items-center gap-1 text-caption text-ink-subtle">
+                                                                <input
+                                                                  type="checkbox"
+                                                                  checked={Boolean(
+                                                                    override?.markIgnore,
+                                                                  )}
+                                                                  onChange={(event) => {
+                                                                    const checked =
+                                                                      event.target.checked;
+                                                                    setProfilingOverridesBySessionId(
+                                                                      (prev) => ({
+                                                                        ...prev,
+                                                                        [selectedSession.ingestion_session_id]:
+                                                                          {
+                                                                            ...(prev[
+                                                                              selectedSession
+                                                                                .ingestion_session_id
+                                                                            ] ?? {}),
+                                                                            [key]: {
+                                                                              finalArea: checked
+                                                                                ? 'unknown'
+                                                                                : (override?.finalArea ??
+                                                                                  sheet
+                                                                                    .final_decision
+                                                                                    ?.area ??
+                                                                                  sheet.candidate_business_area),
+                                                                              markIgnore: checked,
+                                                                            },
+                                                                          },
+                                                                      }),
+                                                                    );
+                                                                  }}
+                                                                />
+                                                                Ignore
+                                                              </label>
+                                                            </div>
+                                                          </td>
+                                                        </tr>
+                                                      );
+                                                    })}
+                                                  </tbody>
+                                                </table>
+                                              </div>
+                                            ) : null}
+                                            {doc.error_message ? (
+                                              <p className="mt-1 text-danger-ink">
+                                                Error: {doc.error_message}
+                                              </p>
+                                            ) : null}
+                                          </li>
+                                        );
+                                      })}
+                                    </ul>
+                                  )}
+                                </div>
+
+                                {isCurrent && selectedSession.planning_state === 'approved_plan' ? (
+                                  <div className="space-y-2">
+                                    <Dropzone
+                                      accept={ACCEPT}
+                                      maxBytes={MAX_BYTES}
+                                      label="Upload supplemental workbook to this session"
+                                      hint="The new document is appended and profiled without restarting workflow"
+                                      pendingLabel="Uploading and profiling..."
+                                      tooLargeMessage="That file is over 50 MB. Try a smaller workbook."
+                                      isPending={isAppendingDocument}
+                                      onFile={handleAppendDocument}
+                                    />
+
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="secondary"
+                                        onClick={handleSaveProfilingReview}
+                                        disabled={isSavingProfilingReview}
+                                      >
+                                        {isSavingProfilingReview ? (
+                                          <>
+                                            <Loader2 className="size-4 animate-spin" />
+                                            Saving review...
+                                          </>
+                                        ) : (
+                                          'Save profiling review'
+                                        )}
+                                      </Button>
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="primary"
+                                        onClick={handleApproveProfilingContinue}
+                                        disabled={
+                                          isApprovingProfiling ||
+                                          hasOutstandingMissingAreas ||
+                                          step.status !== 'needs_review'
+                                        }
+                                      >
+                                        {isApprovingProfiling ? (
+                                          <>
+                                            <Loader2 className="size-4 animate-spin" />
+                                            Approving profiling...
+                                          </>
+                                        ) : (
+                                          'Approve Profiling & Continue'
+                                        )}
+                                      </Button>
+                                      {hasOutstandingMissingAreas ? (
+                                        <span className="text-caption text-warning-ink">
+                                          Outstanding missing data areas remain. Upload documents or
+                                          waive them first.
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                ) : null}
+                              </div>
+                            ) : (
+                              <p className="mt-2 rounded-md border border-dashed border-hairline-strong bg-canvas px-2 py-1.5 text-ink-subtle">
+                                This step is planned and read-only for now. Implementation will be
+                                added in subsequent iteration.
+                              </p>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  </section>
+                ) : null}
+
                 {plan ? (
                   <div className="rounded-lg border border-hairline bg-canvas px-3 py-2 text-caption text-ink-subtle">
                     <p className="font-medium text-ink">Proposed workflow</p>
@@ -659,6 +1443,56 @@ export function PmoPage() {
                       </span>
                     </p>
                   </div>
+                ) : null}
+
+                {proposedWorkflowSteps.length > 0 ? (
+                  <section className="rounded-lg border border-hairline bg-canvas px-3 py-2 text-caption text-ink-subtle">
+                    <p className="font-medium text-ink">Proposed workflow visual</p>
+                    <p className="mt-1">
+                      Steps are connected in order to make flow progression easier to scan.
+                    </p>
+
+                    <div className="mt-3 overflow-x-auto pb-1">
+                      <ol className="grid min-w-[520px] grid-cols-2 gap-x-2 gap-y-3 md:flex md:min-w-max md:items-start md:gap-0">
+                        {proposedWorkflowSteps.map((step, index) => {
+                          const isLast = index === proposedWorkflowSteps.length - 1;
+                          const stepStatus =
+                            proposedStepStatusByNo.get(step.step_no) ??
+                            (selectedSession?.planning_state === 'approved_plan' &&
+                            step.step_no === 1
+                              ? 'in_progress'
+                              : 'pending');
+                          const tone = proposedStepTone(stepStatus);
+
+                          return (
+                            <li
+                              key={`${selectedSession.ingestion_session_id}-proposed-visual-step-${step.step_no}`}
+                              className="flex items-start"
+                            >
+                              <div className="flex w-[140px] shrink-0 flex-col items-center">
+                                <span
+                                  className={`flex size-9 items-center justify-center rounded-full border text-body-sm font-semibold ${tone.circle}`}
+                                >
+                                  {step.step_no}
+                                </span>
+                                <p
+                                  className={`mt-2 px-1 text-center text-caption font-medium ${tone.text}`}
+                                >
+                                  {step.step_name}
+                                </p>
+                              </div>
+                              {!isLast ? (
+                                <span
+                                  aria-hidden="true"
+                                  className={`mt-[18px] hidden h-0.5 w-10 shrink-0 md:block ${tone.line}`}
+                                />
+                              ) : null}
+                            </li>
+                          );
+                        })}
+                      </ol>
+                    </div>
+                  </section>
                 ) : null}
 
                 <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">

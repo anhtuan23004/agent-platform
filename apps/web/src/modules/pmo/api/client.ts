@@ -85,6 +85,139 @@ export interface PmoPlan {
   };
 }
 
+export type PmoProfilingArea =
+  | 'resource_allocation'
+  | 'timesheet'
+  | 'member_master'
+  | 'project_master'
+  | 'leave'
+  | 'holiday'
+  | 'training'
+  | 'unknown';
+
+export interface PmoWorkbookSheetProfileSummary {
+  sheet_name: string;
+  row_count: number;
+  column_count: number;
+  header_row: number;
+  candidate_business_area: PmoProfilingArea;
+  confidence: number;
+  likely_purpose: string;
+  key_columns: string[];
+  sample_value_patterns: string[];
+  llm_interpretation?: {
+    probable_area: PmoProfilingArea | 'ignore';
+    confidence: 'low' | 'medium' | 'high';
+    rationale: string;
+    recommended_action: 'process' | 'review' | 'ignore';
+  };
+  final_decision?: {
+    area: PmoProfilingArea;
+    confidence: 'low' | 'medium' | 'high';
+    source:
+      | 'deterministic_only'
+      | 'deterministic_and_llm_agree'
+      | 'deterministic_conflict_with_llm'
+      | 'llm_only'
+      | 'user_override'
+      | 'unresolved';
+    requires_user_review: boolean;
+  };
+}
+
+export interface PmoWorkbookProfilingDocumentResult {
+  workbook_summary: {
+    file_name: string;
+    file_size_bytes: number | null;
+    mime_type: string;
+    uploaded_at: string;
+    sheet_count: number;
+    total_rows: number;
+    total_columns: number;
+    excluded_sheets: string[];
+    parse_errors: string[];
+  };
+  sheets: PmoWorkbookSheetProfileSummary[];
+  detected_data_areas: PmoProfilingArea[];
+  recommendations: {
+    missing_recommended_data_areas: PmoProfilingArea[];
+    likely_ignorable_sheets: string[];
+    suggested_next_step: string;
+  };
+  generated_at: string;
+}
+
+export interface PmoSessionDocumentProfileRecord {
+  document_id: string;
+  source_file_key: string;
+  file_name: string;
+  file_size_bytes: number | null;
+  mime_type: string;
+  uploaded_at: string;
+  status: 'uploaded' | 'profiling' | 'profiled' | 'profile_failed';
+  profile_result?: PmoWorkbookProfilingDocumentResult;
+  error_message?: string;
+}
+
+export type PmoWorkflowExecutionStepStatus =
+  | 'pending'
+  | 'in_progress'
+  | 'completed'
+  | 'needs_review'
+  | 'failed';
+
+export interface PmoProfilingSheetReviewOverride {
+  document_id: string;
+  sheet_name: string;
+  final_area: PmoProfilingArea;
+  mark_ignore: boolean;
+}
+
+export interface PmoProfilingReviewState {
+  status: 'needs_review' | 'approved';
+  sheet_overrides: PmoProfilingSheetReviewOverride[];
+  waived_missing_areas: Array<Exclude<PmoProfilingArea, 'unknown'>>;
+  last_updated_at: string;
+  approved_at?: string;
+  approved_by?: string;
+}
+
+export interface PmoWorkflowExecutionStep {
+  step_no: number;
+  step_name: string;
+  status: PmoWorkflowExecutionStepStatus;
+}
+
+export interface PmoWorkbookProfilingSessionSummary {
+  generated_at: string;
+  document_count: number;
+  profiled_document_count: number;
+  total_sheet_count: number;
+  total_row_count: number;
+  detected_data_areas: PmoProfilingArea[];
+  missing_recommended_data_areas: PmoProfilingArea[];
+  missing_recommended_data_areas_details: Array<{
+    data_area: Exclude<PmoProfilingArea, 'unknown'>;
+    source: 'goal_rule' | 'llm_interpretation' | 'combined';
+    reason: string;
+    confidence: 'low' | 'medium' | 'high';
+  }>;
+  likely_ignorable_sheets: string[];
+  suggested_next_step: string;
+}
+
+export interface PmoWorkflowExecutionState {
+  state_version: 1;
+  started_at: string;
+  updated_at: string;
+  current_step_no: number;
+  current_step_status: 'in_progress' | 'needs_review' | 'completed' | 'failed';
+  steps: PmoWorkflowExecutionStep[];
+  documents: PmoSessionDocumentProfileRecord[];
+  profiling_summary: PmoWorkbookProfilingSessionSummary | null;
+  profiling_review: PmoProfilingReviewState | null;
+}
+
 export interface PmoPlanningSession {
   ingestion_session_id: string;
   workbook_name: string;
@@ -102,6 +235,14 @@ export interface PmoPlanningSession {
   plan: PmoPlan | null;
   plan_version: number;
   feedback_history: string[];
+  execution_state: PmoWorkflowExecutionState | null;
+  profiling_documents: PmoSessionDocumentProfileRecord[];
+  profiling_summary: PmoWorkbookProfilingSessionSummary | null;
+  profiling_review: PmoProfilingReviewState | null;
+  workflow_current_step: string | null;
+  workflow_step_status: 'in_progress' | 'needs_review' | 'completed' | 'failed' | null;
+  workflow_started_at: string | null;
+  workflow_updated_at: string | null;
   plan_generated_at: string | null;
   plan_approved_at: string | null;
 }
@@ -129,6 +270,41 @@ export interface ApprovePlanResponse {
   ingestion_session_id: string;
   planning_state: 'approved_plan';
   approved_at: string;
+  execution_state: PmoWorkflowExecutionState;
+  profiling_documents: PmoSessionDocumentProfileRecord[];
+  profiling_summary: PmoWorkbookProfilingSessionSummary | null;
+  profiling_review: PmoProfilingReviewState | null;
+}
+
+export interface AppendSessionDocumentResponse {
+  ingestion_session_id: string;
+  document: PmoSessionDocumentProfileRecord;
+  execution_state: PmoWorkflowExecutionState;
+  profiling_documents: PmoSessionDocumentProfileRecord[];
+  profiling_summary: PmoWorkbookProfilingSessionSummary | null;
+  profiling_review: PmoProfilingReviewState | null;
+}
+
+export interface UpdateProfilingReviewInput {
+  ingestion_session_id: string;
+  sheet_overrides?: PmoProfilingSheetReviewOverride[];
+  waived_missing_areas?: Array<Exclude<PmoProfilingArea, 'unknown'>>;
+}
+
+export interface UpdateProfilingReviewResponse {
+  ingestion_session_id: string;
+  execution_state: PmoWorkflowExecutionState;
+  profiling_documents: PmoSessionDocumentProfileRecord[];
+  profiling_summary: PmoWorkbookProfilingSessionSummary | null;
+  profiling_review: PmoProfilingReviewState | null;
+}
+
+export interface ApproveProfilingContinueResponse {
+  ingestion_session_id: string;
+  execution_state: PmoWorkflowExecutionState;
+  profiling_documents: PmoSessionDocumentProfileRecord[];
+  profiling_summary: PmoWorkbookProfilingSessionSummary | null;
+  profiling_review: PmoProfilingReviewState | null;
 }
 
 export interface StartIngestWorkflowInput {
@@ -193,5 +369,47 @@ export const pmoApi = {
       credentials: 'include',
     });
     return jsonOrThrow<ApprovePlanResponse>(res);
+  },
+
+  async appendSessionDocument(
+    ingestionSessionId: string,
+    file: File,
+  ): Promise<AppendSessionDocumentResponse> {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const res = await fetch(
+      `/api/pmo/v1/ingestion-sessions/${ingestionSessionId}/documents/upload`,
+      {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+      },
+    );
+    return jsonOrThrow<AppendSessionDocumentResponse>(res);
+  },
+
+  async updateProfilingReview(
+    input: UpdateProfilingReviewInput,
+  ): Promise<UpdateProfilingReviewResponse> {
+    const res = await fetch('/api/pmo/v1/profiling/review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+      credentials: 'include',
+    });
+    return jsonOrThrow<UpdateProfilingReviewResponse>(res);
+  },
+
+  async approveProfilingContinue(
+    ingestionSessionId: string,
+  ): Promise<ApproveProfilingContinueResponse> {
+    const res = await fetch('/api/pmo/v1/profiling/approve-continue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ingestion_session_id: ingestionSessionId }),
+      credentials: 'include',
+    });
+    return jsonOrThrow<ApproveProfilingContinueResponse>(res);
   },
 };
