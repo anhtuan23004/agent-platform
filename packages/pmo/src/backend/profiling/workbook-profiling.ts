@@ -144,7 +144,8 @@ export type WorkflowExecutionStepStatus =
   | 'in_progress'
   | 'completed'
   | 'needs_review'
-  | 'failed';
+  | 'failed'
+  | 'cancelled';
 
 export interface WorkflowExecutionStep {
   step_no: number;
@@ -157,7 +158,7 @@ export interface WorkflowExecutionState {
   started_at: string;
   updated_at: string;
   current_step_no: number;
-  current_step_status: 'in_progress' | 'needs_review' | 'completed' | 'failed';
+  current_step_status: 'in_progress' | 'needs_review' | 'completed' | 'failed' | 'cancelled';
   steps: WorkflowExecutionStep[];
   documents: SessionDocumentProfileRecord[];
   profiling_summary: WorkbookProfilingSessionSummary | null;

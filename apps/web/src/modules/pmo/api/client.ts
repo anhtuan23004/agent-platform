@@ -164,7 +164,8 @@ export type PmoWorkflowExecutionStepStatus =
   | 'in_progress'
   | 'completed'
   | 'needs_review'
-  | 'failed';
+  | 'failed'
+  | 'cancelled';
 
 export interface PmoProfilingSheetReviewOverride {
   document_id: string;
@@ -211,7 +212,7 @@ export interface PmoWorkflowExecutionState {
   started_at: string;
   updated_at: string;
   current_step_no: number;
-  current_step_status: 'in_progress' | 'needs_review' | 'completed' | 'failed';
+  current_step_status: 'in_progress' | 'needs_review' | 'completed' | 'failed' | 'cancelled';
   steps: PmoWorkflowExecutionStep[];
   documents: PmoSessionDocumentProfileRecord[];
   profiling_summary: PmoWorkbookProfilingSessionSummary | null;
@@ -240,7 +241,13 @@ export interface PmoPlanningSession {
   profiling_summary: PmoWorkbookProfilingSessionSummary | null;
   profiling_review: PmoProfilingReviewState | null;
   workflow_current_step: string | null;
-  workflow_step_status: 'in_progress' | 'needs_review' | 'completed' | 'failed' | null;
+  workflow_step_status:
+    | 'in_progress'
+    | 'needs_review'
+    | 'completed'
+    | 'failed'
+    | 'cancelled'
+    | null;
   workflow_started_at: string | null;
   workflow_updated_at: string | null;
   plan_generated_at: string | null;
@@ -305,6 +312,14 @@ export interface ApproveProfilingContinueResponse {
   profiling_documents: PmoSessionDocumentProfileRecord[];
   profiling_summary: PmoWorkbookProfilingSessionSummary | null;
   profiling_review: PmoProfilingReviewState | null;
+}
+
+export interface CancelWorkflowResponse {
+  ingestion_session_id: string;
+  cancelled_at: string;
+  execution_state: PmoWorkflowExecutionState;
+  workflow_current_step: string | null;
+  workflow_step_status: 'in_progress' | 'needs_review' | 'completed' | 'failed' | 'cancelled';
 }
 
 export interface StartIngestWorkflowInput {
@@ -411,5 +426,15 @@ export const pmoApi = {
       credentials: 'include',
     });
     return jsonOrThrow<ApproveProfilingContinueResponse>(res);
+  },
+
+  async cancelWorkflow(ingestionSessionId: string): Promise<CancelWorkflowResponse> {
+    const res = await fetch('/api/pmo/v1/workflow/cancel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ingestion_session_id: ingestionSessionId }),
+      credentials: 'include',
+    });
+    return jsonOrThrow<CancelWorkflowResponse>(res);
   },
 };

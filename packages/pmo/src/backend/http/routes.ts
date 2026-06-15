@@ -241,13 +241,27 @@ function ensureExecutionSteps(plan: unknown): WorkflowExecutionStep[] {
   }));
 }
 
+function findProfilingStepNo(steps: WorkflowExecutionStep[]): number {
+  const profilingStep = steps.find((step) => /workbook\s*profil/i.test(step.step_name));
+  if (profilingStep) {
+    return profilingStep.step_no;
+  }
+
+  if (steps.length === 0) {
+    return 1;
+  }
+
+  return steps.reduce((min, step) => Math.min(min, step.step_no), Number.POSITIVE_INFINITY);
+}
+
 function setProfilingStepStatus(
   steps: WorkflowExecutionStep[],
+  profilingStepNo: number,
   status: ProfilingStepStatus,
 ): WorkflowExecutionStep[] {
   let hasProfilingStep = false;
   const mapped = steps.map((step) => {
-    if (step.step_no !== 1) {
+    if (step.step_no !== profilingStepNo) {
       return step;
     }
 
@@ -264,12 +278,41 @@ function setProfilingStepStatus(
 
   return [
     {
-      step_no: 1,
+      step_no: profilingStepNo,
       step_name: 'Workbook Profiling',
       status,
     },
     ...mapped,
   ];
+}
+
+function markStepsBeforeAsCompleted(
+  steps: WorkflowExecutionStep[],
+  stepNo: number,
+): WorkflowExecutionStep[] {
+  return steps.map((step) => {
+    if (step.step_no < stepNo) {
+      return {
+        ...step,
+        status: step.status === 'failed' ? 'failed' : 'completed',
+      };
+    }
+
+    return step;
+  });
+}
+
+function cancelOpenWorkflowSteps(steps: WorkflowExecutionStep[]): WorkflowExecutionStep[] {
+  return steps.map((step) => {
+    if (step.status === 'completed' || step.status === 'failed' || step.status === 'cancelled') {
+      return step;
+    }
+
+    return {
+      ...step,
+      status: 'cancelled',
+    };
+  });
 }
 
 function markLaterCompletedStepsNeedsReview(
@@ -362,11 +405,13 @@ function finalizeExecutionStateAfterProfiling(params: {
   documents: SessionDocumentProfileRecord[];
   nowIso: string;
 }): WorkflowExecutionState {
+  const profilingStepNo = findProfilingStepNo(params.baseState.steps);
   const summary = buildWorkbookProfilingSessionSummary(params.documents);
   const profilingStatus = deriveCurrentProfilingStepStatus(params.documents);
   const nextStatus: ProfilingStepStatus = profilingStatus === 'failed' ? 'failed' : 'needs_review';
-  const reviewedSteps = markLaterCompletedStepsNeedsReview(params.baseState.steps, 1);
-  const steps = setProfilingStepStatus(reviewedSteps, nextStatus);
+  const stepsBeforeCompleted = markStepsBeforeAsCompleted(params.baseState.steps, profilingStepNo);
+  const reviewedSteps = markLaterCompletedStepsNeedsReview(stepsBeforeCompleted, profilingStepNo);
+  const steps = setProfilingStepStatus(reviewedSteps, profilingStepNo, nextStatus);
   const currentReviewState = params.baseState.profiling_review;
   const reviewState: ProfilingReviewState =
     currentReviewState && currentReviewState.status === 'approved'
@@ -386,7 +431,7 @@ function finalizeExecutionStateAfterProfiling(params: {
   return {
     ...params.baseState,
     updated_at: params.nowIso,
-    current_step_no: 1,
+    current_step_no: profilingStepNo,
     current_step_status: nextStatus,
     steps,
     documents: params.documents,
@@ -414,9 +459,21 @@ function mapExecutionHistoryStatus(executionState: WorkflowExecutionState | null
 
   const total = executionState.steps.length;
   const completed = executionState.steps.filter((step) => step.status === 'completed').length;
+  const isCancelled =
+    executionState.current_step_status === 'cancelled' ||
+    executionState.steps.some((step) => step.status === 'cancelled');
   const failedStep = executionState.steps.find((step) => step.status === 'failed');
   const currentStep = executionState.steps.find((step) => step.status === 'in_progress');
   const progressPct = Math.round((completed / total) * 100);
+
+  if (isCancelled) {
+    return {
+      label: 'Cancelled',
+      active_gate: 'Workflow cancelled',
+      progress_text: `${completed} / ${total} workflow steps`,
+      progress_pct: progressPct,
+    };
+  }
 
   if (failedStep) {
     return {
@@ -461,6 +518,10 @@ const PlanGenerateRequestSchema = z.object({
 });
 
 const PlanApproveRequestSchema = z.object({
+  ingestion_session_id: z.string().uuid(),
+});
+
+const WorkflowCancelRequestSchema = z.object({
   ingestion_session_id: z.string().uuid(),
 });
 
@@ -1125,6 +1186,95 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
     });
   });
 
+  // POST /api/pmo/v1/workflow/cancel
+  // Cancels a currently running workflow execution.
+  app.post('/api/pmo/v1/workflow/cancel', async (c) => {
+    const session = c.get('user');
+    const body = await c.req.json().catch(() => ({}));
+    const parsed = WorkflowCancelRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: 'invalid_request', details: parsed.error.issues }, 400);
+    }
+
+    const { ingestion_session_id } = parsed.data;
+    const db = pmoDb();
+    const rows = await db
+      .select({
+        id: ingestionSessions.id,
+        workflow_execution_state: ingestionSessions.workflow_execution_state,
+      })
+      .from(ingestionSessions)
+      .where(
+        and(
+          eq(ingestionSessions.id, ingestion_session_id),
+          eq(ingestionSessions.tenant_id, session.tenant_id),
+        ),
+      )
+      .limit(1);
+
+    const row = rows[0];
+    if (!row) {
+      return c.json({ error: 'not_found', message: 'ingestion session not found' }, 404);
+    }
+
+    const executionState = readExecutionState(row.workflow_execution_state);
+    if (!executionState || executionState.steps.length === 0) {
+      return c.json(
+        {
+          error: 'invalid_state',
+          message: 'Workflow is not started or has no execution steps.',
+        },
+        409,
+      );
+    }
+
+    if (
+      executionState.current_step_status === 'completed' ||
+      executionState.current_step_status === 'failed' ||
+      executionState.current_step_status === 'cancelled'
+    ) {
+      return c.json(
+        {
+          error: 'invalid_state',
+          message: 'Workflow is already completed, failed, or cancelled.',
+        },
+        409,
+      );
+    }
+
+    const nowIso = new Date().toISOString();
+    const nextExecutionState: WorkflowExecutionState = {
+      ...executionState,
+      updated_at: nowIso,
+      current_step_status: 'cancelled',
+      steps: cancelOpenWorkflowSteps(executionState.steps),
+    };
+
+    await db
+      .update(ingestionSessions)
+      .set({
+        workflow_execution_state: nextExecutionState,
+        workflow_current_step: 'Workflow cancelled',
+        workflow_step_status: 'cancelled',
+        workflow_updated_at: asDateOrNull(nextExecutionState.updated_at),
+        finished_at: asDateOrNull(nowIso),
+      })
+      .where(
+        and(
+          eq(ingestionSessions.id, ingestion_session_id),
+          eq(ingestionSessions.tenant_id, session.tenant_id),
+        ),
+      );
+
+    return c.json({
+      ingestion_session_id,
+      cancelled_at: nowIso,
+      execution_state: nextExecutionState,
+      workflow_current_step: 'Workflow cancelled',
+      workflow_step_status: 'cancelled' as const,
+    });
+  });
+
   // POST /api/pmo/v1/ingestion-sessions/:id/documents/upload
   // Appends a supplemental workbook into an existing ingestion session and
   // profiles only that new document while preserving current workflow state.
@@ -1372,11 +1522,12 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
       mergedReviewState.waived_missing_areas,
     );
 
-    const nextSteps = setProfilingStepStatus(executionState.steps, 'needs_review');
+    const profilingStepNo = findProfilingStepNo(executionState.steps);
+    const nextSteps = setProfilingStepStatus(executionState.steps, profilingStepNo, 'needs_review');
     const nextExecutionState: WorkflowExecutionState = {
       ...executionState,
       updated_at: nowIso,
-      current_step_no: 1,
+      current_step_no: profilingStepNo,
       current_step_status: 'needs_review',
       steps: nextSteps,
       documents: documentsWithOverrides,
@@ -1452,7 +1603,9 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
       );
     }
 
-    if (executionState.current_step_no !== 1) {
+    const profilingStepNo = findProfilingStepNo(executionState.steps);
+
+    if (executionState.current_step_no !== profilingStepNo) {
       return c.json(
         {
           error: 'invalid_state',
@@ -1481,11 +1634,11 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
       createDefaultProfilingReviewState(nowIso);
 
     const sortedSteps = executionState.steps.slice().sort((a, b) => a.step_no - b.step_no);
-    const nextStep = sortedSteps.find((step) => step.step_no > 1);
-    const nextStepNo = nextStep?.step_no ?? 1;
+    const nextStep = sortedSteps.find((step) => step.step_no > profilingStepNo);
+    const nextStepNo = nextStep?.step_no ?? profilingStepNo;
 
     const nextSteps = sortedSteps.map((step) => {
-      if (step.step_no === 1) {
+      if (step.step_no === profilingStepNo) {
         return {
           ...step,
           status: 'completed' as const,

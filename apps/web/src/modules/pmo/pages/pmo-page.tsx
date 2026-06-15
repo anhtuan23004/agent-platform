@@ -35,7 +35,7 @@ type ExecutionCard = {
 };
 
 type ExecutionActionGroup = {
-  id: 'needs_action' | 'in_progress' | 'upcoming' | 'completed';
+  id: 'needs_action' | 'in_progress' | 'upcoming' | 'completed' | 'cancelled';
   title: string;
   hint: string;
   badgeTone: string;
@@ -72,6 +72,13 @@ function groupExecutionCardsByAction(cards: ExecutionCard[]): ExecutionActionGro
       badgeTone: 'bg-success-tint text-success-ink',
       steps: [],
     },
+    {
+      id: 'cancelled',
+      title: 'Cancelled',
+      hint: 'Workflow steps cancelled and no longer executable.',
+      badgeTone: 'bg-danger-tint text-danger-ink',
+      steps: [],
+    },
   ];
 
   for (const card of cards) {
@@ -87,6 +94,11 @@ function groupExecutionCardsByAction(cards: ExecutionCard[]): ExecutionActionGro
 
     if (card.status === 'pending') {
       groups[2]?.steps.push(card);
+      continue;
+    }
+
+    if (card.status === 'cancelled') {
+      groups[4]?.steps.push(card);
       continue;
     }
 
@@ -147,6 +159,14 @@ function toneForState(state: TimelineState): { marker: string; text: string } {
 }
 
 function statusTone(statusLabel: string): string {
+  if (statusLabel === 'Cancelled') {
+    return 'bg-danger-tint text-danger-ink';
+  }
+
+  if (statusLabel === 'Execution completed') {
+    return 'bg-success-tint text-success-ink';
+  }
+
   if (statusLabel === 'Approved') {
     return 'bg-success-tint text-success-ink';
   }
@@ -195,6 +215,14 @@ function proposedStepTone(status: PmoWorkflowExecutionStepStatus): {
     };
   }
 
+  if (status === 'cancelled') {
+    return {
+      circle: 'border-danger bg-danger text-white',
+      line: 'bg-danger/60',
+      text: 'text-danger-ink',
+    };
+  }
+
   return {
     circle: 'border-hairline-strong bg-surface-2 text-ink-subtle',
     line: 'bg-hairline-strong',
@@ -224,6 +252,13 @@ function workflowStepTone(status: PmoWorkflowExecutionStepStatus): {
     return {
       badge: 'bg-danger-tint text-danger-ink',
       label: 'Failed',
+    };
+  }
+
+  if (status === 'cancelled') {
+    return {
+      badge: 'bg-danger-tint text-danger-ink',
+      label: 'Cancelled',
     };
   }
 
@@ -367,6 +402,9 @@ export function PmoPage() {
   const [isAppendingDocument, setIsAppendingDocument] = useState(false);
   const [isSavingProfilingReview, setIsSavingProfilingReview] = useState(false);
   const [isApprovingProfiling, setIsApprovingProfiling] = useState(false);
+  const [isCancellingWorkflowBySessionId, setIsCancellingWorkflowBySessionId] = useState<
+    Record<string, boolean>
+  >({});
   const [profilingOverridesBySessionId, setProfilingOverridesBySessionId] = useState<
     Record<string, Record<string, { finalArea: PmoProfilingArea; markIgnore: boolean }>>
   >({});
@@ -777,6 +815,46 @@ export function PmoPage() {
     }
   }
 
+  function isWorkflowCancelable(run: PmoPlanningSession): boolean {
+    return (
+      run.workflow_step_status === 'in_progress' || run.workflow_step_status === 'needs_review'
+    );
+  }
+
+  async function handleCancelWorkflow(run: PmoPlanningSession) {
+    if (!isWorkflowCancelable(run)) {
+      toast.error('Cannot cancel workflow', {
+        description: 'Cancel is available only while the workflow is running.',
+      });
+      return;
+    }
+
+    if (isCancellingWorkflowBySessionId[run.ingestion_session_id]) {
+      return;
+    }
+
+    setIsCancellingWorkflowBySessionId((prev) => ({
+      ...prev,
+      [run.ingestion_session_id]: true,
+    }));
+
+    try {
+      await pmoApi.cancelWorkflow(run.ingestion_session_id);
+      await loadSessions(true);
+      toast.success('Workflow cancelled', {
+        description: 'The running workflow has been cancelled successfully.',
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to cancel workflow.';
+      toast.error('Cancel failed', { description: message });
+    } finally {
+      setIsCancellingWorkflowBySessionId((prev) => ({
+        ...prev,
+        [run.ingestion_session_id]: false,
+      }));
+    }
+  }
+
   const plan: PmoPlan | null = selectedSession?.plan ?? null;
 
   return (
@@ -936,13 +1014,17 @@ export function PmoPage() {
                       <th className="px-2 py-2">Status</th>
                       <th className="px-2 py-2">Active gate</th>
                       <th className="px-2 py-2">Progress</th>
-                      <th className="px-2 py-2">Review</th>
+                      <th className="px-2 py-2">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {sessions.map((run, index) => {
                       const selected =
                         run.ingestion_session_id === selectedSession?.ingestion_session_id;
+                      const canCancel = isWorkflowCancelable(run);
+                      const isCancelling =
+                        isCancellingWorkflowBySessionId[run.ingestion_session_id] ?? false;
+
                       return (
                         <tr
                           key={run.ingestion_session_id}
@@ -977,18 +1059,39 @@ export function PmoPage() {
                             </div>
                           </td>
                           <td className="px-2 py-2">
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="secondary"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setSelectedSessionId(run.ingestion_session_id);
-                                setIsReviewPanelOpen(true);
-                              }}
-                            >
-                              View
-                            </Button>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setSelectedSessionId(run.ingestion_session_id);
+                                  setIsReviewPanelOpen(true);
+                                }}
+                              >
+                                View
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                disabled={!canCancel || isCancelling}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void handleCancelWorkflow(run);
+                                }}
+                              >
+                                {isCancelling ? (
+                                  <>
+                                    <Loader2 className="size-4 animate-spin" />
+                                    Cancelling...
+                                  </>
+                                ) : (
+                                  'Cancel'
+                                )}
+                              </Button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1103,7 +1206,8 @@ export function PmoPage() {
                     </div>
                   ) : null}
 
-                  {proposedWorkflowSteps.length > 0 ? (
+                  {selectedSession.planning_state !== 'approved_plan' &&
+                  proposedWorkflowSteps.length > 0 ? (
                     <section className="rounded-lg border border-hairline bg-canvas px-3 py-2 text-caption text-ink-subtle">
                       <p className="font-medium text-ink">Proposed workflow visual</p>
                       <p className="mt-1">
@@ -1246,8 +1350,12 @@ export function PmoPage() {
                               const tone = workflowStepTone(step.status);
                               const isCurrent =
                                 step.step_no ===
-                                (executionState?.current_step_no ?? executionCards[0]?.step_no);
+                                  (executionState?.current_step_no ?? executionCards[0]?.step_no) &&
+                                executionState?.current_step_status !== 'cancelled';
                               const isWorkbookProfilingStep = /workbook\s*profil/i.test(
+                                step.step_name,
+                              );
+                              const isPlanApprovalStep = /plan\s*approval|approve\s*plan/i.test(
                                 step.step_name,
                               );
                               const shouldRenderProfilingDetails = isWorkbookProfilingStep;
@@ -1683,6 +1791,24 @@ export function PmoPage() {
                                           </div>
                                         </div>
                                       ) : null}
+                                    </div>
+                                  ) : isPlanApprovalStep ? (
+                                    <div className="mt-2 space-y-1.5 rounded-md border border-hairline bg-canvas p-2.5">
+                                      <p className="font-medium text-ink">Final plan snapshot</p>
+                                      <p>
+                                        <span className="font-medium text-ink">Plan title:</span>{' '}
+                                        {plan?.title ?? 'No generated plan title.'}
+                                      </p>
+                                      <p>
+                                        <span className="font-medium text-ink">
+                                          Interpreted goal:
+                                        </span>{' '}
+                                        {(plan?.goal_summary ?? selectedSession.goal) || goalDraft}
+                                      </p>
+                                      <p>
+                                        <span className="font-medium text-ink">Approved at:</span>{' '}
+                                        {formatLocalDate(selectedSession.plan_approved_at)}
+                                      </p>
                                     </div>
                                   ) : (
                                     <p className="mt-2 rounded-md border border-dashed border-hairline-strong bg-canvas px-2 py-1.5 text-ink-subtle">
