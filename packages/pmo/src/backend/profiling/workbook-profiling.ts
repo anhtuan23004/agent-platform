@@ -7,11 +7,12 @@ import { profileColumns } from '../ingestion/profile-columns.ts';
 export const ProfilingAreaSchema = z.enum([
   'resource_allocation',
   'timesheet',
+  'overbook_idle_config',
   'member_master',
   'project_master',
   'leave',
-  'holiday',
-  'training',
+  'calendar_weeks',
+  'kpi_norms',
   'unknown',
 ]);
 
@@ -242,42 +243,13 @@ function mapRoleToArea(role: string | null | undefined): ProfilingArea {
 
   if (role === 'resource_allocation') return 'resource_allocation';
   if (role === 'timesheet') return 'timesheet';
+  if (role === 'overbook_idle_config') return 'overbook_idle_config';
   if (role === 'member_master') return 'member_master';
   if (role === 'project_master') return 'project_master';
   if (role === 'leave') return 'leave';
-  if (role === 'calendar_weeks') return 'holiday';
+  if (role === 'calendar_weeks') return 'calendar_weeks';
+  if (role === 'kpi_norms') return 'kpi_norms';
   return 'unknown';
-}
-
-function inferGoalAreas(goal: string): ProfilingArea[] {
-  const normalized = goal.toLowerCase();
-  const expected = new Set<ProfilingArea>();
-
-  if (/ra|allocation|capacity|resource/.test(normalized)) expected.add('resource_allocation');
-  if (/timesheet|logged|actual|effort|utilization|utilisation/.test(normalized)) {
-    expected.add('timesheet');
-  }
-  if (/member|employee|staff|nhan su|nhân sự/.test(normalized)) expected.add('member_master');
-  if (/project|du an|dự án|engagement/.test(normalized)) expected.add('project_master');
-  if (/leave|holiday|absence|nghi phep|nghỉ phép/.test(normalized)) {
-    expected.add('leave');
-    expected.add('holiday');
-  }
-  if (/training|learning|upskill/.test(normalized)) expected.add('training');
-
-  // Keep fallback neutral when goal is vague instead of forcing RA assumptions.
-  if (expected.size === 0) {
-    return [];
-  }
-
-  if (
-    expected.has('resource_allocation') &&
-    /compare|variance|planned.*actual|actual.*planned/.test(normalized)
-  ) {
-    expected.add('timesheet');
-  }
-
-  return [...expected];
 }
 
 function confidenceBandFromScore(score: number): InterpretationConfidence {
@@ -535,22 +507,6 @@ export async function runWorkbookProfiling(
     ...new Set(sheets.map((sheet) => sheet.final_decision.area)),
   ].filter((area): area is KnownProfilingArea => area !== 'unknown');
 
-  const expectedAreas = inferGoalAreas(input.goal).filter(
-    (area): area is KnownProfilingArea => area !== 'unknown',
-  );
-
-  const missingByArea = new Map<KnownProfilingArea, MissingRecommendedDataAreaDetail>();
-  for (const area of expectedAreas) {
-    if (!detectedDataAreas.includes(area)) {
-      missingByArea.set(area, {
-        data_area: area,
-        source: 'goal_rule',
-        reason: 'Area inferred from goal keywords but not found in final sheet decisions.',
-        confidence: 'medium',
-      });
-    }
-  }
-
   if (interpretation) {
     const interpretedIgnorable = interpretation.sheet_interpretations
       .filter((entry) => entry.recommended_action === 'ignore' || entry.probable_area === 'ignore')
@@ -561,48 +517,18 @@ export async function runWorkbookProfiling(
         likelyIgnorableSheets.push(ignoredSheet);
       }
     }
-
-    for (const area of interpretation.missing_recommended_data_areas) {
-      if (area === 'unknown') {
-        continue;
-      }
-
-      const existing = missingByArea.get(area);
-      if (existing) {
-        missingByArea.set(area, {
-          ...existing,
-          source: 'combined',
-          reason:
-            `${existing.reason} LLM interpretation also suggests this area may be missing.`.trim(),
-          confidence: strongerConfidence(existing.confidence, 'medium'),
-        });
-      } else {
-        missingByArea.set(area, {
-          data_area: area,
-          source: 'llm_interpretation',
-          reason: 'Suggested by LLM interpretation as potentially missing workbook context.',
-          confidence: 'medium',
-        });
-      }
-    }
   }
-
-  const missingRecommendedDetails = [...missingByArea.values()];
-  const missingRecommended = missingRecommendedDetails.map((entry) => entry.data_area);
 
   return {
     workbook_summary: workbookSummary,
     sheets,
     detected_data_areas: detectedDataAreas,
     recommendations: {
-      missing_recommended_data_areas: missingRecommended,
-      missing_recommended_data_areas_details: missingRecommendedDetails,
+      missing_recommended_data_areas: [],
+      missing_recommended_data_areas_details: [],
       likely_ignorable_sheets: likelyIgnorableSheets,
       suggested_next_step:
-        interpretation?.next_step_recommendation ??
-        (missingRecommended.length > 0
-          ? `Consider uploading supplemental sheets for: ${missingRecommended.join(', ')}.`
-          : 'Workbook profiling is complete. Continue to sheet role detection and mapping proposal.'),
+        'Workbook profiling complete. Confirm sheet roles, then continue to validation.',
     },
     generated_at: new Date().toISOString(),
   };
@@ -624,55 +550,14 @@ export function buildWorkbookProfilingSessionSummary(
   const detectedAreas = [
     ...new Set(profiledResults.flatMap((result) => result.detected_data_areas)),
   ];
-  const missingAreaDetailsByArea = new Map<KnownProfilingArea, MissingRecommendedDataAreaDetail>();
-  const missingAreaDetailsRaw = profiledResults.flatMap((result) => {
-    if (Array.isArray(result.recommendations.missing_recommended_data_areas_details)) {
-      return result.recommendations.missing_recommended_data_areas_details;
-    }
-
-    return result.recommendations.missing_recommended_data_areas
-      .filter((area): area is KnownProfilingArea => area !== 'unknown')
-      .map((area) => ({
-        data_area: area,
-        source: 'goal_rule' as const,
-        reason: 'Legacy profile result did not include source-aware missing-area details.',
-        confidence: 'low' as const,
-      }));
-  });
-
-  for (const detail of missingAreaDetailsRaw) {
-    const existing = missingAreaDetailsByArea.get(detail.data_area);
-    if (!existing) {
-      missingAreaDetailsByArea.set(detail.data_area, detail);
-      continue;
-    }
-
-    missingAreaDetailsByArea.set(detail.data_area, {
-      ...existing,
-      source:
-        existing.source === detail.source
-          ? existing.source
-          : existing.source === 'combined' || detail.source === 'combined'
-            ? 'combined'
-            : 'combined',
-      confidence: strongerConfidence(existing.confidence, detail.confidence),
-      reason:
-        existing.reason === detail.reason ? existing.reason : `${existing.reason} ${detail.reason}`,
-    });
-  }
-
-  const missingAreaDetails = [...missingAreaDetailsByArea.values()];
-  const missingAreas = missingAreaDetails.map((detail) => detail.data_area);
   const likelyIgnorableSheets = [
     ...new Set(profiledResults.flatMap((result) => result.recommendations.likely_ignorable_sheets)),
   ];
 
   const suggestedNextStep =
-    missingAreas.length > 0
-      ? `Supplement workbook context for: ${missingAreas.join(', ')}. Then continue to next step.`
-      : profiledResults.length > 0
-        ? 'Workbook profiling complete. Continue to next workflow step.'
-        : 'Run workbook profiling to continue.';
+    profiledResults.length > 0
+      ? 'Workbook profiling complete. Confirm sheet roles, then continue to validation.'
+      : 'Run workbook profiling to continue.';
 
   return {
     generated_at: new Date().toISOString(),
@@ -687,8 +572,8 @@ export function buildWorkbookProfilingSessionSummary(
       0,
     ),
     detected_data_areas: detectedAreas,
-    missing_recommended_data_areas: missingAreas,
-    missing_recommended_data_areas_details: missingAreaDetails,
+    missing_recommended_data_areas: [],
+    missing_recommended_data_areas_details: [],
     likely_ignorable_sheets: likelyIgnorableSheets,
     suggested_next_step: suggestedNextStep,
   };
@@ -781,29 +666,6 @@ export function applyWaivedMissingAreas(
   summary: WorkbookProfilingSessionSummary,
   waivedAreas: KnownProfilingArea[],
 ): WorkbookProfilingSessionSummary {
-  if (waivedAreas.length === 0) {
-    return summary;
-  }
-
-  const waived = new Set(waivedAreas);
-  const missing_recommended_data_areas = summary.missing_recommended_data_areas.filter(
-    (area): area is KnownProfilingArea => area !== 'unknown' && !waived.has(area),
-  );
-
-  const missing_recommended_data_areas_details =
-    summary.missing_recommended_data_areas_details.filter(
-      (detail) => !waived.has(detail.data_area),
-    );
-
-  const suggested_next_step =
-    missing_recommended_data_areas.length > 0
-      ? `Supplement workbook context for: ${missing_recommended_data_areas.join(', ')}. Then continue to next step.`
-      : 'Workbook profiling review is complete. Continue to the next workflow step.';
-
-  return {
-    ...summary,
-    missing_recommended_data_areas,
-    missing_recommended_data_areas_details,
-    suggested_next_step,
-  };
+  void waivedAreas;
+  return summary;
 }

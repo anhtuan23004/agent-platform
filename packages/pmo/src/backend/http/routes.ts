@@ -173,6 +173,76 @@ function readProposedWorkflow(plan: unknown): ProposedWorkflowStep[] {
     .sort((a, b) => a.step_no - b.step_no);
 }
 
+function normalizeKnownProfilingArea(area: unknown): KnownProfilingArea | null {
+  if (
+    area === 'resource_allocation' ||
+    area === 'timesheet' ||
+    area === 'overbook_idle_config' ||
+    area === 'member_master' ||
+    area === 'project_master' ||
+    area === 'leave' ||
+    area === 'calendar_weeks' ||
+    area === 'kpi_norms'
+  ) {
+    return area;
+  }
+
+  if (area === 'holiday') {
+    return 'calendar_weeks';
+  }
+
+  return null;
+}
+
+function normalizeProfilingSummary(raw: unknown): WorkflowExecutionState['profiling_summary'] {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+
+  const summary = raw as {
+    generated_at?: unknown;
+    document_count?: unknown;
+    profiled_document_count?: unknown;
+    total_sheet_count?: unknown;
+    total_row_count?: unknown;
+    detected_data_areas?: unknown;
+    missing_recommended_data_areas?: unknown;
+    missing_recommended_data_areas_details?: unknown;
+    likely_ignorable_sheets?: unknown;
+  };
+
+  const detectedDataAreas = Array.isArray(summary.detected_data_areas)
+    ? [
+        ...new Set(
+          summary.detected_data_areas
+            .map((area) => normalizeKnownProfilingArea(area))
+            .filter((area): area is KnownProfilingArea => Boolean(area)),
+        ),
+      ]
+    : [];
+
+  return {
+    generated_at:
+      typeof summary.generated_at === 'string' && summary.generated_at.trim().length > 0
+        ? summary.generated_at
+        : new Date().toISOString(),
+    document_count: typeof summary.document_count === 'number' ? summary.document_count : 0,
+    profiled_document_count:
+      typeof summary.profiled_document_count === 'number' ? summary.profiled_document_count : 0,
+    total_sheet_count:
+      typeof summary.total_sheet_count === 'number' ? summary.total_sheet_count : 0,
+    total_row_count: typeof summary.total_row_count === 'number' ? summary.total_row_count : 0,
+    detected_data_areas: detectedDataAreas,
+    missing_recommended_data_areas: [],
+    missing_recommended_data_areas_details: [],
+    likely_ignorable_sheets: Array.isArray(summary.likely_ignorable_sheets)
+      ? summary.likely_ignorable_sheets.filter((item): item is string => typeof item === 'string')
+      : [],
+    suggested_next_step:
+      'Workbook profiling complete. Confirm sheet roles, then continue to validation.',
+  };
+}
+
 function readDocuments(raw: unknown): SessionDocumentProfileRecord[] {
   if (!Array.isArray(raw)) {
     return [];
@@ -219,7 +289,12 @@ function readExecutionState(raw: unknown): WorkflowExecutionState | null {
     return null;
   }
 
-  return raw as WorkflowExecutionState;
+  const state = raw as WorkflowExecutionState;
+
+  return {
+    ...state,
+    profiling_summary: normalizeProfilingSummary(state.profiling_summary),
+  };
 }
 
 function ensureExecutionSteps(plan: unknown): WorkflowExecutionStep[] {
@@ -546,11 +621,12 @@ const ProfilingSheetOverrideSchema = z.object({
   final_area: z.enum([
     'resource_allocation',
     'timesheet',
+    'overbook_idle_config',
     'member_master',
     'project_master',
     'leave',
-    'holiday',
-    'training',
+    'calendar_weeks',
+    'kpi_norms',
     'unknown',
   ]),
   mark_ignore: z.boolean().optional(),
@@ -564,11 +640,12 @@ const ProfilingReviewUpsertSchema = z.object({
       z.enum([
         'resource_allocation',
         'timesheet',
+        'overbook_idle_config',
         'member_master',
         'project_master',
         'leave',
-        'holiday',
-        'training',
+        'calendar_weeks',
+        'kpi_norms',
       ]),
     )
     .optional(),
@@ -612,11 +689,12 @@ function readProfilingReviewState(raw: unknown): ProfilingReviewState | null {
         (area): area is KnownProfilingArea =>
           area === 'resource_allocation' ||
           area === 'timesheet' ||
+          area === 'overbook_idle_config' ||
           area === 'member_master' ||
           area === 'project_master' ||
           area === 'leave' ||
-          area === 'holiday' ||
-          area === 'training',
+          area === 'calendar_weeks' ||
+          area === 'kpi_norms',
       )
     : [];
 
@@ -878,10 +956,7 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
           execution_state: executionState,
           profiling_documents: readDocuments(row.profiling_documents),
           profiling_summary:
-            executionState?.profiling_summary ??
-            (row.profiling_summary && typeof row.profiling_summary === 'object'
-              ? row.profiling_summary
-              : null),
+            executionState?.profiling_summary ?? normalizeProfilingSummary(row.profiling_summary),
           profiling_review: readProfilingReviewState(executionState?.profiling_review),
           workflow_current_step:
             row.workflow_current_step ??
@@ -1615,19 +1690,6 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
       );
     }
 
-    const summary = executionState.profiling_summary;
-    if (summary && summary.missing_recommended_data_areas.length > 0) {
-      return c.json(
-        {
-          error: 'missing_required_context',
-          message:
-            'Missing recommended data areas remain. Upload more documents or waive them before continue.',
-          missing_recommended_data_areas: summary.missing_recommended_data_areas,
-        },
-        409,
-      );
-    }
-
     const nowIso = new Date().toISOString();
     const currentReviewState =
       readProfilingReviewState(executionState.profiling_review) ??
@@ -1696,3 +1758,5 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
 
   return app;
 }
+
+export const normalizeProfilingSummaryForTests = normalizeProfilingSummary;

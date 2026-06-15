@@ -17,11 +17,12 @@ const MAX_BYTES = 50 * 1024 * 1024;
 const PROFILING_AREAS: PmoProfilingArea[] = [
   'resource_allocation',
   'timesheet',
+  'overbook_idle_config',
   'member_master',
   'project_master',
   'leave',
-  'holiday',
-  'training',
+  'calendar_weeks',
+  'kpi_norms',
   'unknown',
 ];
 
@@ -408,9 +409,6 @@ export function PmoPage() {
   const [profilingOverridesBySessionId, setProfilingOverridesBySessionId] = useState<
     Record<string, Record<string, { finalArea: PmoProfilingArea; markIgnore: boolean }>>
   >({});
-  const [waivedMissingAreasBySessionId, setWaivedMissingAreasBySessionId] = useState<
-    Record<string, Record<string, boolean>>
-  >({});
 
   const [uploadedInfo, setUploadedInfo] = useState<{
     ingestionSessionId: string;
@@ -448,13 +446,6 @@ export function PmoPage() {
   const selectedSessionOverrides = selectedSession
     ? (profilingOverridesBySessionId[selectedSession.ingestion_session_id] ?? {})
     : {};
-  const selectedSessionWaivedMissingAreas = selectedSession
-    ? (waivedMissingAreasBySessionId[selectedSession.ingestion_session_id] ?? {})
-    : {};
-  const hasOutstandingMissingAreas =
-    (profilingSummary?.missing_recommended_data_areas ?? []).filter(
-      (area) => !selectedSessionWaivedMissingAreas[area],
-    ).length > 0;
 
   const feedbackHistoryItems = useMemo(() => {
     if (!selectedSession) {
@@ -752,17 +743,11 @@ export function PmoPage() {
       })
       .filter((item): item is PmoProfilingSheetReviewOverride => Boolean(item));
 
-    const waivedMap = waivedMissingAreasBySessionId[selectedSession.ingestion_session_id] ?? {};
-    const waivedMissingAreas = Object.entries(waivedMap)
-      .filter(([, waived]) => waived)
-      .map(([area]) => area) as Array<Exclude<PmoProfilingArea, 'unknown'>>;
-
     setIsSavingProfilingReview(true);
     try {
       await pmoApi.updateProfilingReview({
         ingestion_session_id: selectedSession.ingestion_session_id,
         sheet_overrides: overridesPayload,
-        waived_missing_areas: waivedMissingAreas,
       });
       await loadSessions(true);
       toast.success('Profiling review saved', {
@@ -784,14 +769,6 @@ export function PmoPage() {
     if (selectedSession.planning_state !== 'approved_plan') {
       toast.error('Cannot continue', {
         description: 'Profiling gate is available only after plan approval.',
-      });
-      return;
-    }
-
-    if (hasOutstandingMissingAreas) {
-      toast.error('Missing required context', {
-        description:
-          'Please upload supplemental workbook(s) or waive remaining missing data areas before continuing.',
       });
       return;
     }
@@ -1360,6 +1337,9 @@ export function PmoPage() {
                               );
                               const shouldRenderProfilingDetails = isWorkbookProfilingStep;
                               const isProfilingStepReadOnly = isWorkbookProfilingStep && !isCurrent;
+                              const isApprovedReadOnly =
+                                isProfilingStepReadOnly &&
+                                profilingReviewState?.status === 'approved';
 
                               return (
                                 <li
@@ -1458,66 +1438,6 @@ export function PmoPage() {
                                         </p>
                                       ) : null}
 
-                                      {profilingSummary?.missing_recommended_data_areas.length ? (
-                                        <div className="space-y-1 rounded-md border border-hairline bg-surface-1 p-2">
-                                          <p className="font-medium text-ink">
-                                            Missing recommended data areas
-                                          </p>
-                                          <ul className="space-y-1">
-                                            {profilingSummary.missing_recommended_data_areas.map(
-                                              (area) => {
-                                                const waived = Boolean(
-                                                  selectedSessionWaivedMissingAreas[area],
-                                                );
-                                                return (
-                                                  <li
-                                                    key={`${selectedSession.ingestion_session_id}-missing-${area}`}
-                                                  >
-                                                    <label
-                                                      className={`flex items-center justify-between gap-2 ${
-                                                        isProfilingStepReadOnly
-                                                          ? 'cursor-default'
-                                                          : 'cursor-pointer'
-                                                      }`}
-                                                    >
-                                                      <span className="text-ink-subtle">
-                                                        <span className="font-medium text-ink">
-                                                          {area}
-                                                        </span>
-                                                      </span>
-                                                      <span className="inline-flex items-center gap-1 text-caption text-ink-subtle">
-                                                        <input
-                                                          type="checkbox"
-                                                          checked={waived}
-                                                          disabled={isProfilingStepReadOnly}
-                                                          onChange={(event) => {
-                                                            const checked = event.target.checked;
-                                                            setWaivedMissingAreasBySessionId(
-                                                              (prev) => ({
-                                                                ...prev,
-                                                                [selectedSession.ingestion_session_id]:
-                                                                  {
-                                                                    ...(prev[
-                                                                      selectedSession
-                                                                        .ingestion_session_id
-                                                                    ] ?? {}),
-                                                                    [area]: checked,
-                                                                  },
-                                                              }),
-                                                            );
-                                                          }}
-                                                        />
-                                                        Mark as not required
-                                                      </span>
-                                                    </label>
-                                                  </li>
-                                                );
-                                              },
-                                            )}
-                                          </ul>
-                                        </div>
-                                      ) : null}
-
                                       {profilingSummary?.suggested_next_step ? (
                                         <p>
                                           Recommendation:{' '}
@@ -1559,7 +1479,13 @@ export function PmoPage() {
                                                       {docTone.label}
                                                     </span>
                                                   </div>
-                                                  <div className="mt-1 grid gap-1 text-ink-subtle sm:grid-cols-3">
+                                                  <div
+                                                    className={`mt-1 grid gap-1 sm:grid-cols-3 ${
+                                                      isApprovedReadOnly
+                                                        ? 'text-ink-subtle'
+                                                        : 'text-ink'
+                                                    }`}
+                                                  >
                                                     <p>
                                                       Uploaded: {formatLocalDate(doc.uploaded_at)}
                                                     </p>
@@ -1608,10 +1534,22 @@ export function PmoPage() {
                                                                   <td className="px-1.5 py-1 text-ink">
                                                                     {sheet.sheet_name}
                                                                   </td>
-                                                                  <td className="px-1.5 py-1 text-ink-subtle">
+                                                                  <td
+                                                                    className={`px-1.5 py-1 ${
+                                                                      isApprovedReadOnly
+                                                                        ? 'text-ink-subtle'
+                                                                        : 'text-ink'
+                                                                    }`}
+                                                                  >
                                                                     {sheet.likely_purpose}
                                                                   </td>
-                                                                  <td className="px-1.5 py-1 text-ink-subtle">
+                                                                  <td
+                                                                    className={`px-1.5 py-1 ${
+                                                                      isApprovedReadOnly
+                                                                        ? 'text-ink-subtle'
+                                                                        : 'text-ink'
+                                                                    }`}
+                                                                  >
                                                                     {sheet.final_decision
                                                                       ?.confidence ??
                                                                       (sheet.confidence >= 0.8
@@ -1620,7 +1558,13 @@ export function PmoPage() {
                                                                           ? 'medium'
                                                                           : 'low')}
                                                                   </td>
-                                                                  <td className="px-1.5 py-1 text-ink-subtle">
+                                                                  <td
+                                                                    className={`px-1.5 py-1 ${
+                                                                      isApprovedReadOnly
+                                                                        ? 'text-ink-subtle'
+                                                                        : 'text-ink'
+                                                                    }`}
+                                                                  >
                                                                     {sheet.llm_interpretation
                                                                       ?.recommended_action ??
                                                                       'review'}
@@ -1769,7 +1713,6 @@ export function PmoPage() {
                                               onClick={handleApproveProfilingContinue}
                                               disabled={
                                                 isApprovingProfiling ||
-                                                hasOutstandingMissingAreas ||
                                                 step.status !== 'needs_review'
                                               }
                                             >
@@ -1782,12 +1725,6 @@ export function PmoPage() {
                                                 'Approve Profiling & Continue'
                                               )}
                                             </Button>
-                                            {hasOutstandingMissingAreas ? (
-                                              <span className="text-caption text-warning-ink">
-                                                Outstanding missing data areas remain. Upload
-                                                documents or waive them first.
-                                              </span>
-                                            ) : null}
                                           </div>
                                         </div>
                                       ) : null}

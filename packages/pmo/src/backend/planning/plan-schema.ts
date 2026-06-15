@@ -3,11 +3,12 @@ import { z } from 'zod';
 export const PlanDataAreaSchema = z.enum([
   'resource_allocation',
   'timesheet',
+  'overbook_idle_config',
   'member_master',
   'project_master',
   'leave',
-  'holiday',
-  'training',
+  'calendar_weeks',
+  'kpi_norms',
   'unknown',
 ]);
 

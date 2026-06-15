@@ -37,11 +37,12 @@ export interface PmoPlan {
       data_area:
         | 'resource_allocation'
         | 'timesheet'
+        | 'overbook_idle_config'
         | 'member_master'
         | 'project_master'
         | 'leave'
-        | 'holiday'
-        | 'training'
+        | 'calendar_weeks'
+        | 'kpi_norms'
         | 'unknown';
       reason: string;
       confidence: 'low' | 'medium' | 'high';
@@ -88,11 +89,12 @@ export interface PmoPlan {
 export type PmoProfilingArea =
   | 'resource_allocation'
   | 'timesheet'
+  | 'overbook_idle_config'
   | 'member_master'
   | 'project_master'
   | 'leave'
-  | 'holiday'
-  | 'training'
+  | 'calendar_weeks'
+  | 'kpi_norms'
   | 'unknown';
 
 export interface PmoWorkbookSheetProfileSummary {
