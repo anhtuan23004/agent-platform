@@ -22,11 +22,13 @@ export const ingestionSessions = pmoSchema.table(
     tenant_id: uuid('tenant_id').notNull(),
     status: text('status').notNull().default('uploaded'),
     // Status lifecycle:
-    // uploaded → profiling → awaiting_confirmation → confirmed → normalizing
+    // uploaded → generating_plan → plan_review → approved_plan
+    // → profiling → awaiting_confirmation → confirmed → normalizing
     // → staging_normalized → awaiting_publish_review → published
     // Terminal: failed, rejected
     source_file_key: text('source_file_key').notNull(),
     source_file_name: text('source_file_name').notNull(),
+    source_file_size_bytes: integer('source_file_size_bytes'),
     mime_type: text('mime_type').notNull(),
     // Reporting period (user selects at upload time)
     reporting_period_key: text('reporting_period_key'),
@@ -37,6 +39,13 @@ export const ingestionSessions = pmoSchema.table(
     confirmed_mapping: jsonb('confirmed_mapping'),
     workbook_confidence: real('workbook_confidence'),
     change_summary: jsonb('change_summary'),
+    // Planning state (before workbook parsing starts)
+    planning_goal: text('planning_goal'),
+    planning_plan: jsonb('planning_plan'),
+    planning_plan_version: integer('planning_plan_version').notNull().default(0),
+    planning_feedback_history: jsonb('planning_feedback_history'),
+    planning_last_generated_at: timestamp('planning_last_generated_at', { withTimezone: true }),
+    planning_approved_at: timestamp('planning_approved_at', { withTimezone: true }),
     // Publish audit
     publish_decision: text('publish_decision'),
     publish_reviewed_by: uuid('publish_reviewed_by'),
