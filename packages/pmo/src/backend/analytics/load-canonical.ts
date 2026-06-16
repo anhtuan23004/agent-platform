@@ -85,6 +85,7 @@ export async function loadCanonicalInputs(tenantId: string): Promise<CanonicalIn
         idle_threshold: overbookIdleConfig.idle_threshold,
         mismatch_pct_threshold: overbookIdleConfig.mismatch_pct_threshold,
         ot_max_hours_per_week: overbookIdleConfig.ot_max_hours_per_week,
+        required_training_hours: overbookIdleConfig.required_training_hours,
         effective_date: overbookIdleConfig.effective_date,
       })
       .from(overbookIdleConfig)

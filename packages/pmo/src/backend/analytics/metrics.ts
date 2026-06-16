@@ -1,5 +1,5 @@
 import { computeAvailableHours } from './available-hours.ts';
-import { computeBillableHours, computeLoggedHours, computePlannedHours } from './planned-hours.ts';
+import { computeBillableHours, computeLoggedHours, computePlannedHours, computeTrainingHours } from './planned-hours.ts';
 import type { AllocationRow, LeaveRow, TimesheetRow, WeekRow } from './types.ts';
 
 export interface WeekMetricInputs {
@@ -10,6 +10,7 @@ export interface WeekMetricInputs {
   timesheets: TimesheetRow[]; // member's timesheets
   leaves: LeaveRow[]; // all leaves (filtered inside by member)
   overtimeHours?: number; // approved OT hours for this member-week
+  requiredTrainingHours?: number; // N12 denominator (0 = not tracked)
 }
 
 export interface WeekMetrics {
@@ -20,12 +21,14 @@ export interface WeekMetrics {
   billableHours: number;
   benchHours: number;
   overtimeHours: number;
+  trainingHours: number;
   busyRate: number | null; // N01: planned / available
   utilization: number | null; // N02: logged / available
   billableRate: number | null; // N03: billable / logged
   benchRate: number | null; // N04: bench / available
   overtimeRatio: number | null; // N05: overtime / standard
   effortConsumption: number | null; // N06: logged / planned
+  trainingCompliance: number | null; // N12: training / required (null when no required training configured)
 }
 
 /**
@@ -51,6 +54,7 @@ export function computeWeekMetrics(inputs: WeekMetricInputs): WeekMetrics {
     timesheets,
     leaves,
     overtimeHours = 0,
+    requiredTrainingHours = 0,
   } = inputs;
 
   const availableHours = computeAvailableHours(memberId, stdHoursWeek, week, leaves);
@@ -58,6 +62,7 @@ export function computeWeekMetrics(inputs: WeekMetricInputs): WeekMetrics {
   const loggedHours = computeLoggedHours(timesheets, week);
   const expectedLoggedHours = stdHoursWeek > 0 ? plannedHours * (availableHours / stdHoursWeek) : 0;
   const billableHours = computeBillableHours(timesheets, week);
+  const trainingHours = computeTrainingHours(timesheets, week);
   const benchHours = Math.max(0, availableHours - plannedHours);
 
   const busyRate = availableHours > 0 ? plannedHours / availableHours : null;
@@ -66,6 +71,9 @@ export function computeWeekMetrics(inputs: WeekMetricInputs): WeekMetrics {
   const benchRate = availableHours > 0 ? benchHours / availableHours : null;
   const overtimeRatio = stdHoursWeek > 0 ? overtimeHours / stdHoursWeek : null;
   const effortConsumption = expectedLoggedHours > 0 ? loggedHours / expectedLoggedHours : null;
+  const trainingCompliance = requiredTrainingHours > 0
+    ? Math.min(trainingHours / requiredTrainingHours, 1)
+    : null;
 
   return {
     availableHours,
@@ -73,6 +81,7 @@ export function computeWeekMetrics(inputs: WeekMetricInputs): WeekMetrics {
     loggedHours,
     expectedLoggedHours,
     billableHours,
+    trainingHours,
     benchHours,
     overtimeHours,
     busyRate,
@@ -81,6 +90,7 @@ export function computeWeekMetrics(inputs: WeekMetricInputs): WeekMetrics {
     benchRate,
     overtimeRatio,
     effortConsumption,
+    trainingCompliance,
   };
 }
 

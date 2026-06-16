@@ -15,6 +15,13 @@
       "when": 1781534816339,
       "tag": "0001_classy_kabuki",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781597038989,
+      "tag": "0002_orange_betty_ross",
+      "breakpoints": true
     }
   ]
 }

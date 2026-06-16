@@ -43,3 +43,17 @@ export function computeBillableHours(timesheets: TimesheetRow[], week: WeekRow):
   }
   return hours;
 }
+
+/**
+ * Training hours = SUM of logged_hours where log_category is training
+ * (non-project, non-billable). Case-insensitive on 'training'.
+ */
+export function computeTrainingHours(timesheets: TimesheetRow[], week: WeekRow): number {
+  let hours = 0;
+  for (const ts of timesheets) {
+    if (!dateInWeek(ts.work_date, week)) continue;
+    if ((ts.log_category ?? '').trim().toLowerCase() !== 'training') continue;
+    hours += ts.logged_hours ?? 0;
+  }
+  return hours;
+}

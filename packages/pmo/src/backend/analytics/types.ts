@@ -8,7 +8,7 @@ export type RagColor = 'green' | 'yellow' | 'red' | 'none';
 
 export type IssueType = 'overbook' | 'idle' | 'mismatch_under' | 'mismatch_over' | 'ok';
 
-export type SuppressionReason = 'pre_hire' | 'holiday_week' | 'approved_leave' | 'approved_ot';
+export type SuppressionReason = 'pre_hire' | 'holiday_week' | 'approved_leave' | 'approved_ot' | 'training';
 
 // ── Source row shapes (subset of canonical tables this layer reads) ──────────
 
@@ -57,6 +57,7 @@ export interface Thresholds {
   idleThreshold: number; // busy < this → idle
   mismatchPctThreshold: number; // |ec - 1| > this → mismatch
   otMaxHoursPerWeek: number;
+  requiredTrainingHours: number; // N12 denominator (0 = not tracked)
 }
 
 export const DEFAULT_THRESHOLDS: Thresholds = {
@@ -65,6 +66,7 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
   idleThreshold: 0.75,
   mismatchPctThreshold: 0.2,
   otMaxHoursPerWeek: 48,
+  requiredTrainingHours: 0,
 };
 
 // ── Derived facts and findings ───────────────────────────────────────────────
@@ -77,16 +79,18 @@ export interface MemberWeekFact {
   plannedHours: number;
   loggedHours: number;
   expectedLoggedHours: number;
-  billableHours?: number;
-  benchHours?: number;
-  overtimeHours?: number;
+  billableHours: number;
+  benchHours: number;
+  overtimeHours: number;
+  trainingHours: number;
   // Metrics per REF_KPI_Norms (official formulas)
   busyRate: number | null; // N01: planned / available
   utilization: number | null; // N02: logged / available
-  billableRate?: number | null; // N03: billable / logged
-  benchRate?: number | null; // N04: bench / available
-  overtimeRatio?: number | null; // N05: overtime / standard
+  billableRate: number | null; // N03: billable / logged
+  benchRate: number | null; // N04: bench / available
+  overtimeRatio: number | null; // N05: overtime / standard
   effortConsumption: number | null; // N06: logged / planned
+  trainingCompliance: number | null; // N12: training / required
   ragColor: RagColor;
   issueType: IssueType;
 }

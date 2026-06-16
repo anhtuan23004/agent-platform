@@ -219,6 +219,7 @@ export const overbookIdleConfig = pmoSchema.table(
     idle_threshold: real('idle_threshold').notNull(),
     mismatch_pct_threshold: real('mismatch_pct_threshold'),
     ot_max_hours_per_week: real('ot_max_hours_per_week'),
+    required_training_hours: real('required_training_hours'),
     effective_date: timestamp('effective_date', { withTimezone: true }),
     // Metadata
     source_row: integer('source_row'),
@@ -322,10 +323,19 @@ export const memberWeekFacts = pmoSchema.table(
     planned_hours: real('planned_hours').notNull(),
     logged_hours: real('logged_hours').notNull(),
     expected_logged_hours: real('expected_logged_hours').notNull(),
+    // Hours (computed, not nullable)
+    billable_hours: real('billable_hours').notNull().default(0),
+    bench_hours: real('bench_hours').notNull().default(0),
+    overtime_hours: real('overtime_hours').notNull().default(0),
+    training_hours: real('training_hours').notNull().default(0),
     // Metrics (nullable when denominator is zero)
     busy_rate: real('busy_rate'),
-    effort_consumption: real('effort_consumption'),
     utilization: real('utilization'),
+    billable_rate: real('billable_rate'),
+    bench_rate: real('bench_rate'),
+    overtime_ratio: real('overtime_ratio'),
+    effort_consumption: real('effort_consumption'),
+    training_compliance: real('training_compliance'),
     // Classification
     rag_color: text('rag_color').notNull(), // green | yellow | red | none
     issue_type: text('issue_type').notNull(), // overbook|idle|mismatch_under|mismatch_over|ok

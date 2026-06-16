@@ -1,6 +1,7 @@
 import { classifyRag } from './classify.ts';
 import { sortWeeks } from './dates.ts';
 import { computeWeekMetrics, round4 } from './metrics.ts';
+import { computeOvertimeHours } from './available-hours.ts';
 import type {
   AllocationRow,
   LeaveRow,
@@ -70,14 +71,24 @@ export function buildMemberWeekFacts(inputs: BuildFactsInputs): MemberWeekFact[]
           plannedHours: 0,
           loggedHours: 0,
           expectedLoggedHours: 0,
+          billableHours: 0,
+          benchHours: 0,
+          overtimeHours: 0,
+          trainingHours: 0,
           busyRate: null,
-          effortConsumption: null,
           utilization: null,
+          billableRate: null,
+          benchRate: null,
+          overtimeRatio: null,
+          effortConsumption: null,
+          trainingCompliance: null,
           ragColor: 'none',
           issueType: 'ok',
         });
         continue;
       }
+
+      const overtimeHours = computeOvertimeHours(member.member_id, stdHoursWeek, week, leaves);
 
       const metrics = computeWeekMetrics({
         memberId: member.member_id,
@@ -86,6 +97,8 @@ export function buildMemberWeekFacts(inputs: BuildFactsInputs): MemberWeekFact[]
         allocations: memberAllocs,
         timesheets: memberTs,
         leaves,
+        overtimeHours,
+        requiredTrainingHours: thresholds.requiredTrainingHours,
       });
 
       const { ragColor, issueType } = classifyRag(metrics, thresholds);
@@ -98,9 +111,17 @@ export function buildMemberWeekFacts(inputs: BuildFactsInputs): MemberWeekFact[]
         plannedHours: round4(metrics.plannedHours) ?? 0,
         loggedHours: round4(metrics.loggedHours) ?? 0,
         expectedLoggedHours: round4(metrics.expectedLoggedHours) ?? 0,
+        billableHours: round4(metrics.billableHours) ?? 0,
+        benchHours: round4(metrics.benchHours) ?? 0,
+        overtimeHours: round4(metrics.overtimeHours) ?? 0,
+        trainingHours: round4(metrics.trainingHours) ?? 0,
         busyRate: round4(metrics.busyRate),
-        effortConsumption: round4(metrics.effortConsumption),
         utilization: round4(metrics.utilization),
+        billableRate: round4(metrics.billableRate),
+        benchRate: round4(metrics.benchRate),
+        overtimeRatio: round4(metrics.overtimeRatio),
+        effortConsumption: round4(metrics.effortConsumption),
+        trainingCompliance: round4(metrics.trainingCompliance),
         ragColor,
         issueType,
       });

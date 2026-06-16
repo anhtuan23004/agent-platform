@@ -6,6 +6,7 @@ export interface ConfigRow {
   idle_threshold: number | null;
   mismatch_pct_threshold: number | null;
   ot_max_hours_per_week: number | null;
+  required_training_hours: number | null;
   effective_date: Date | null;
 }
 
@@ -31,5 +32,6 @@ export function resolveThresholds(rows: ConfigRow[]): Thresholds {
     idleThreshold: latest.idle_threshold ?? DEFAULT_THRESHOLDS.idleThreshold,
     mismatchPctThreshold: latest.mismatch_pct_threshold ?? DEFAULT_THRESHOLDS.mismatchPctThreshold,
     otMaxHoursPerWeek: latest.ot_max_hours_per_week ?? DEFAULT_THRESHOLDS.otMaxHoursPerWeek,
+    requiredTrainingHours: latest.required_training_hours ?? DEFAULT_THRESHOLDS.requiredTrainingHours,
   };
 }

@@ -41,6 +41,16 @@ function hasApprovedOt(memberId: string, week: WeekRow, leaves: LeaveRow[]): boo
   );
 }
 
+function hasTraining(memberId: string, week: WeekRow, leaves: LeaveRow[]): boolean {
+  return leaves.some(
+    (l) =>
+      l.member_id === memberId &&
+      l.approved === true &&
+      l.leave_type.trim().toLowerCase() === 'training' &&
+      dateInWeek(l.leave_date, week),
+  );
+}
+
 function groupByMember(facts: MemberWeekFact[]): Map<string, MemberWeekFact[]> {
   const map = new Map<string, MemberWeekFact[]>();
   for (const fact of facts) {
@@ -57,9 +67,10 @@ function groupByMember(facts: MemberWeekFact[]): Map<string, MemberWeekFact[]> {
  * - Busy rate is constant across weeks (planned/std), so the member value is
  *   the mean of in-scope weeks' busy.
  * - Effort consumption is Σlogged / Σexpected over in-scope weeks, EXCLUDING
- *   full-leave weeks (available = 0 → approved_leave) and approved-OT weeks
- *   (approved_ot). Holiday/partial-leave weeks stay in — their expected hours
- *   are already prorated, so they neither inflate nor deflate the ratio.
+ *   full-leave weeks (available = 0 → approved_leave), approved-OT weeks
+ *   (approved_ot), and training-weeks (training). Holiday/partial-leave weeks
+ *   stay in — their expected hours are already prorated, so they neither
+ *   inflate nor deflate the ratio.
  */
 export function analyzeMembers(facts: MemberWeekFact[], ctx: FindingsContext): MemberAnalysis[] {
   const byMember = groupByMember(facts);
@@ -83,6 +94,10 @@ export function analyzeMembers(facts: MemberWeekFact[], ctx: FindingsContext): M
       const week = ctx.weeksById.get(fact.weekId);
       if (week && hasApprovedOt(memberId, week, ctx.leaves)) {
         excludedWeeks.push({ weekId: fact.weekId, reason: 'approved_ot' });
+        continue;
+      }
+      if (week && hasTraining(memberId, week, ctx.leaves)) {
+        excludedWeeks.push({ weekId: fact.weekId, reason: 'training' });
         continue;
       }
       if (fact.availableHours === 0) {
