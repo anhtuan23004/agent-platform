@@ -172,6 +172,28 @@ function plannerStatusFromRuntimeStatuses(statuses: string[]): PlannerStepStatus
   return 'pending';
 }
 
+function plannerStatusFromDecoratedStatus(status: string | undefined): PlannerStepStatus | null {
+  if (!status) return null;
+  const normalized = status.toLowerCase();
+
+  if (normalized === 'success' || normalized === 'completed') return 'completed';
+  if (normalized === 'failed' || normalized === 'error') return 'failed';
+  if (normalized === 'running' || normalized === 'in_progress') return 'in_progress';
+  if (normalized === 'suspended' || normalized === 'paused' || normalized === 'needs_review') {
+    return 'needs_review';
+  }
+  if (normalized === 'skipped' || normalized === 'cancelled' || normalized === 'canceled') {
+    return 'cancelled';
+  }
+  if (normalized === 'pending') return 'pending';
+
+  return null;
+}
+
+function plannerGraphStepId(step: { step_no: number; step_name: string }): string {
+  return `${step.step_no}. ${step.step_name}`;
+}
+
 function plannerStatusTone(
   status: PlannerStepStatus,
 ): 'success' | 'destructive' | 'warning' | 'secondary' {
@@ -277,6 +299,17 @@ function CurrentRunTab({ run, snapshot, plannerSteps, plannerStepsLoading }: Cur
     if (plannerSteps.length === 0) return [];
 
     return plannerSteps.map((plannerStep) => {
+      const decoratedEntry = snapshotContext?.[plannerGraphStepId(plannerStep)] as
+        | StepContextEntry
+        | undefined;
+      const decoratedStatus = plannerStatusFromDecoratedStatus(decoratedEntry?.status);
+      if (decoratedStatus) {
+        return {
+          ...plannerStep,
+          status: decoratedStatus,
+        };
+      }
+
       const matchedStatuses = contextEntries
         .filter(([stepId]) => plannerStepMatchesRuntimeStep(plannerStep, stepId))
         .map(([, entry]) => {
@@ -295,7 +328,7 @@ function CurrentRunTab({ run, snapshot, plannerSteps, plannerStepsLoading }: Cur
         status,
       };
     });
-  }, [contextEntries, plannerSteps, run.status]);
+  }, [contextEntries, plannerSteps, run.status, snapshotContext]);
 
   const steps = useMemo<[string, StepContextEntry][]>(() => {
     return contextEntries.map(([key, val]) => [key, (val ?? {}) as StepContextEntry]);

@@ -56,6 +56,55 @@ describe('upsertRuntimeExecutionState', () => {
     expect(readCurrentStepName(confirmReviewState)).toBe('Mapping proposal and validation');
   });
 
+  it('moves from mapping confirmation to normalization when planner has a normalization step', () => {
+    const mappingReviewState = {
+      state_version: 1 as const,
+      started_at: '2026-06-16T10:00:00.000Z',
+      updated_at: '2026-06-16T10:10:00.000Z',
+      current_step_no: 2,
+      current_step_status: 'needs_review' as const,
+      steps: [
+        {
+          step_no: 1,
+          step_name: 'Workbook Profiling',
+          status: 'completed' as const,
+        },
+        {
+          step_no: 2,
+          step_name: 'Mapping proposal and validation',
+          status: 'needs_review' as const,
+        },
+        {
+          step_no: 3,
+          step_name: 'Normalization and DB diff',
+          status: 'pending' as const,
+        },
+        {
+          step_no: 4,
+          step_name: 'Publish after approval',
+          status: 'pending' as const,
+        },
+      ],
+      documents: [],
+      profiling_summary: null,
+      profiling_review: null,
+    };
+
+    const nextState = upsertRuntimeExecutionState({
+      existingState: mappingReviewState,
+      planningPlan: plannerPlan,
+      runtimeStepId: 'pmo.ingest.confirmMapping',
+      transition: 'completed',
+      nowIso: '2026-06-16T10:15:00.000Z',
+    });
+
+    expect(nextState.current_step_no).toBe(3);
+    expect(nextState.current_step_status).toBe('in_progress');
+    expect(nextState.steps.find((step) => step.step_no === 2)?.status).toBe('completed');
+    expect(nextState.steps.find((step) => step.step_no === 3)?.status).toBe('in_progress');
+    expect(readCurrentStepName(nextState)).toBe('Normalization and DB diff');
+  });
+
   it('does not move backward when execution has already advanced beyond matched runtime step', () => {
     const advancedState = {
       state_version: 1 as const,

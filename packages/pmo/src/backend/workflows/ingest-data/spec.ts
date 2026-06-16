@@ -29,6 +29,7 @@ import {
   type RuntimeWorkflowStepId,
   type RuntimeWorkflowTransition,
   readCurrentStepName,
+  readWorkflowExecutionState,
   upsertRuntimeExecutionState,
 } from './runtime-execution-state.ts';
 import {
@@ -271,9 +272,24 @@ async function syncRuntimeExecutionState(params: {
     const row = rows[0];
     if (!row) return;
 
+    const existingExecutionState = readWorkflowExecutionState(row.workflow_execution_state);
+    if (params.runtimeStepId === 'pmo.ingest.detect' && params.transition !== 'failed') {
+      const detectStepNo =
+        existingExecutionState?.steps.find((step) => /profil|schema|detect/i.test(step.step_name))
+          ?.step_no ?? existingExecutionState?.steps[0]?.step_no;
+
+      if (
+        typeof detectStepNo === 'number' &&
+        typeof existingExecutionState?.current_step_no === 'number' &&
+        existingExecutionState.current_step_no > detectStepNo
+      ) {
+        return;
+      }
+    }
+
     const nowIso = new Date().toISOString();
     const nextExecutionState = upsertRuntimeExecutionState({
-      existingState: row.workflow_execution_state,
+      existingState: existingExecutionState ?? row.workflow_execution_state,
       planningPlan: row.planning_plan,
       runtimeStepId: params.runtimeStepId,
       transition: params.transition,

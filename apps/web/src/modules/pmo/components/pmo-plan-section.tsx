@@ -226,7 +226,7 @@ export function PmoPlanSection(props: PmoPlanSectionProps) {
                 Approving...
               </>
             ) : (
-              'Approve plan & start'
+              'Approve plan'
             )}
           </Button>
         </div>

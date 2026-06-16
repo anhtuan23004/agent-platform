@@ -58,7 +58,7 @@ function readIngestionSessionId(inputSummary: unknown): string | null {
 }
 
 async function listPlannerStepsForSession(ingestionSessionId: string): Promise<PlannerStepRow[]> {
-  const res = await fetch('/api/pmo/v1/planning/sessions', {
+  const res = await fetch('/api/pmo/v1/ingestion-sessions', {
     credentials: 'include',
   });
 

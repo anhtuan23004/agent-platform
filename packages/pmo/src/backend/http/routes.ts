@@ -1679,8 +1679,14 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
     }
 
     const profilingStepNo = findProfilingStepNo(executionState.steps);
+    const nowIso = new Date().toISOString();
+    const currentReviewState =
+      readProfilingReviewState(executionState.profiling_review) ??
+      createDefaultProfilingReviewState(nowIso);
+    const isProfilingCurrent = executionState.current_step_no === profilingStepNo;
+    const isPastProfilingStep = executionState.current_step_no > profilingStepNo;
 
-    if (executionState.current_step_no !== profilingStepNo) {
+    if (!isProfilingCurrent && !(isPastProfilingStep && currentReviewState.status !== 'approved')) {
       return c.json(
         {
           error: 'invalid_state',
@@ -1690,14 +1696,13 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
       );
     }
 
-    const nowIso = new Date().toISOString();
-    const currentReviewState =
-      readProfilingReviewState(executionState.profiling_review) ??
-      createDefaultProfilingReviewState(nowIso);
-
     const sortedSteps = executionState.steps.slice().sort((a, b) => a.step_no - b.step_no);
-    const nextStep = sortedSteps.find((step) => step.step_no > profilingStepNo);
-    const nextStepNo = nextStep?.step_no ?? profilingStepNo;
+    const nextStep = isProfilingCurrent
+      ? sortedSteps.find((step) => step.step_no > profilingStepNo)
+      : null;
+    const nextStepNo = isProfilingCurrent
+      ? (nextStep?.step_no ?? profilingStepNo)
+      : executionState.current_step_no;
 
     const nextSteps = sortedSteps.map((step) => {
       if (step.step_no === profilingStepNo) {
@@ -1707,7 +1712,7 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
         };
       }
 
-      if (nextStep && step.step_no === nextStep.step_no) {
+      if (isProfilingCurrent && nextStep && step.step_no === nextStep.step_no) {
         return {
           ...step,
           status: 'in_progress' as const,
@@ -1721,7 +1726,11 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
       ...executionState,
       updated_at: nowIso,
       current_step_no: nextStepNo,
-      current_step_status: nextStep ? 'in_progress' : 'completed',
+      current_step_status: isProfilingCurrent
+        ? nextStep
+          ? 'in_progress'
+          : 'completed'
+        : executionState.current_step_status,
       steps: nextSteps,
       profiling_review: {
         ...currentReviewState,

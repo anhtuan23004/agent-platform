@@ -74,6 +74,10 @@ export function PmoProfilingDetailsPanel(props: PmoProfilingDetailsPanelProps) {
     onSelectSheetArea,
     onToggleSheetIgnore,
   } = props;
+  const canApproveProfiling =
+    profilingReviewState?.status === 'needs_review' &&
+    stepStatus !== 'failed' &&
+    stepStatus !== 'cancelled';
 
   return (
     <div className="mt-2 space-y-2 rounded-md border border-hairline bg-canvas p-2.5">
@@ -318,7 +322,7 @@ export function PmoProfilingDetailsPanel(props: PmoProfilingDetailsPanelProps) {
               size="sm"
               variant="primary"
               onClick={handleApproveProfilingContinue}
-              disabled={isApprovingProfiling || stepStatus !== 'needs_review'}
+              disabled={isApprovingProfiling || !canApproveProfiling}
             >
               {isApprovingProfiling ? (
                 <>

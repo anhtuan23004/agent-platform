@@ -220,54 +220,20 @@ export function usePmoSessionActions(
 
     setIsApproving(true);
     try {
-      const response = await pmoApi.approvePlan(selectedSession.ingestion_session_id);
-      const sourceFileKey =
-        response.profiling_documents[0]?.source_file_key ?? profilingDocuments[0]?.source_file_key;
+      await pmoApi.approvePlan(selectedSession.ingestion_session_id);
+      await loadSessions(true);
 
-      let startedRunId: string | null = null;
-      let startWorkflowError: string | null = null;
-
-      if (!sourceFileKey) {
-        startWorkflowError = 'No source workbook key found to start workflow run.';
-      } else {
-        try {
-          const started = await pmoApi.startIngestWorkflow({
-            ingestionSessionId: selectedSession.ingestion_session_id,
-            fileKey: sourceFileKey,
-            reportingPeriodKey: reportingPeriodKey.trim() || undefined,
-          });
-          startedRunId = started.runId;
-        } catch (startErr) {
-          startWorkflowError =
-            startErr instanceof Error ? startErr.message : 'Failed to start workflow run.';
-        }
-      }
-
-      await Promise.all([loadSessions(true), refreshWorkflowRuntime()]);
-
-      if (startWorkflowError) {
-        toast.error('Plan approved but workflow did not start', {
-          description: startWorkflowError,
-        });
-      } else {
-        toast.success('Plan approved and workflow started', {
-          description: `Planner run ${shortId(startedRunId ?? '')} is now the source of truth for current step execution.`,
-        });
-      }
+      toast.success('Plan approved', {
+        description:
+          'Workbook Profiling is ready for PMO review before the runtime workflow starts.',
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Plan approval failed.';
       toast.error('Approve failed', { description: message });
     } finally {
       setIsApproving(false);
     }
-  }, [
-    isApproving,
-    loadSessions,
-    profilingDocuments,
-    refreshWorkflowRuntime,
-    reportingPeriodKey,
-    selectedSession,
-  ]);
+  }, [isApproving, loadSessions, selectedSession]);
 
   const handleAppendDocument = useCallback(
     async (file: File) => {
@@ -383,18 +349,62 @@ export function usePmoSessionActions(
 
     setIsApprovingProfiling(true);
     try {
-      await pmoApi.approveProfilingContinue(selectedSession.ingestion_session_id);
-      await loadSessions(true);
-      toast.success('Profiling approved', {
-        description: 'Workbook Profiling gate approved. Workflow moved to the next step.',
-      });
+      const response = await pmoApi.approveProfilingContinue(selectedSession.ingestion_session_id);
+      const existingRuntimeRun = runtimeRunBySessionId.get(selectedSession.ingestion_session_id);
+      const sourceFileKey =
+        response.profiling_documents[0]?.source_file_key ?? profilingDocuments[0]?.source_file_key;
+
+      let startedRunId: string | null = null;
+      let startWorkflowError: string | null = null;
+
+      if (!existingRuntimeRun) {
+        if (!sourceFileKey) {
+          startWorkflowError = 'No source workbook key found to start workflow run.';
+        } else {
+          try {
+            const started = await pmoApi.startIngestWorkflow({
+              ingestionSessionId: selectedSession.ingestion_session_id,
+              fileKey: sourceFileKey,
+              reportingPeriodKey: reportingPeriodKey.trim() || undefined,
+            });
+            startedRunId = started.runId;
+          } catch (startErr) {
+            startWorkflowError =
+              startErr instanceof Error ? startErr.message : 'Failed to start workflow run.';
+          }
+        }
+      }
+
+      await Promise.all([loadSessions(true), refreshWorkflowRuntime()]);
+
+      if (startWorkflowError) {
+        toast.error('Profiling approved but workflow did not start', {
+          description: startWorkflowError,
+        });
+      } else if (startedRunId) {
+        toast.success('Profiling approved and workflow started', {
+          description: `Workflow run ${shortId(startedRunId)} is now synchronized from PMO decisions.`,
+        });
+      } else {
+        toast.success('Profiling approved', {
+          description: 'Workflow moved to the next PMO-controlled step.',
+        });
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to approve profiling gate.';
       toast.error('Approve failed', { description: message });
     } finally {
       setIsApprovingProfiling(false);
     }
-  }, [isApprovingProfiling, loadSessions, selectedSession]);
+  }, [
+    isApprovingProfiling,
+    loadSessions,
+    profilingDocuments,
+    refreshWorkflowRuntime,
+    reportingPeriodKey,
+    runtimeRunBySessionId,
+    selectedSession,
+  ]);
 
   const isRuntimeRunCancelable = useCallback((status: string | null | undefined): boolean => {
     return status === 'running' || status === 'paused';

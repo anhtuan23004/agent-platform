@@ -163,7 +163,12 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
   const shouldRenderProfilingDetails = isWorkbookProfilingStep;
   const shouldRenderMappingDetails =
     isCurrent && (Boolean(selectedMappingApproval) || isLikelyMappingStep);
-  const isProfilingStepReadOnly = isWorkbookProfilingStep && !isCurrent;
+  const hasOpenProfilingReview =
+    isWorkbookProfilingStep &&
+    selectedSession.planning_state === 'approved_plan' &&
+    profilingReviewState?.status === 'needs_review';
+  const isProfilingPanelCurrent = isCurrent || hasOpenProfilingReview;
+  const isProfilingStepReadOnly = isWorkbookProfilingStep && !isProfilingPanelCurrent;
   const isApprovedReadOnly = isProfilingStepReadOnly && profilingReviewState?.status === 'approved';
 
   return (
@@ -190,7 +195,7 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
       {shouldRenderProfilingDetails ? (
         <PmoProfilingDetailsPanel
           stepStatus={step.status}
-          isCurrent={isCurrent}
+          isCurrent={isProfilingPanelCurrent}
           isProfilingStepReadOnly={isProfilingStepReadOnly}
           isApprovedReadOnly={isApprovedReadOnly}
           profilingReviewState={profilingReviewState}

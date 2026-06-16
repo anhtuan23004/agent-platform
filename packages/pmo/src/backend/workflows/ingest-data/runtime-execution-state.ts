@@ -181,10 +181,11 @@ export function readWorkflowExecutionState(raw: unknown): WorkflowExecutionState
 
   const startedAt = typeof raw.started_at === 'string' ? raw.started_at : new Date().toISOString();
   const updatedAt = typeof raw.updated_at === 'string' ? raw.updated_at : startedAt;
+  const firstStepNo = sortSteps(steps)[0]?.step_no ?? 1;
   const currentStepNo =
     typeof raw.current_step_no === 'number' && Number.isFinite(raw.current_step_no)
       ? Math.trunc(raw.current_step_no)
-      : sortSteps(steps)[0]!.step_no;
+      : firstStepNo;
 
   const currentStepStatus =
     raw.current_step_status === 'in_progress' ||
