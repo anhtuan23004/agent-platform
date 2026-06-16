@@ -219,18 +219,14 @@ function parseFraction(
 
 function isRenderableApprovalPayload(
   payload: unknown,
-): payload is { details: unknown[]; primary: { label: string }; decline: { label: string } } {
+): payload is { details: unknown[]; primary: { label: string }; decline?: { label: string } } {
   if (!payload || typeof payload !== 'object') return false;
   const card = payload as {
     details?: unknown;
     primary?: { label?: unknown };
     decline?: { label?: unknown };
   };
-  return (
-    Array.isArray(card.details) &&
-    typeof card.primary?.label === 'string' &&
-    typeof card.decline?.label === 'string'
-  );
+  return Array.isArray(card.details) && typeof card.primary?.label === 'string';
 }
 
 function kvTablesFromPayload(payload: unknown): Array<Array<{ k: string; v: string }>> {
@@ -280,16 +276,39 @@ function isMappingApprovalRow(approval: WorkflowApprovalRow): boolean {
 }
 
 function readIngestionSessionIdFromApproval(approval: WorkflowApprovalRow): string | null {
+  const uuidMatch = (value: string): string | null => {
+    const match = value.match(
+      /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i,
+    );
+    return match ? match[0] : null;
+  };
+
   const tables = kvTablesFromPayload(approval.proposedPayload);
   for (const table of tables) {
     for (const row of table) {
-      if (row.k.trim().toLowerCase() !== 'ingestion session') continue;
+      const normalizedKey = row.k.trim().toLowerCase();
+      if (
+        normalizedKey !== 'ingestion session' &&
+        normalizedKey !== 'ingestion session id' &&
+        normalizedKey !== 'session id'
+      ) {
+        continue;
+      }
+
       const value = row.v.trim();
-      if (value.length > 0) return value;
+      if (value.length > 0) return uuidMatch(value) ?? value;
     }
   }
 
   return null;
+}
+
+function sessionIdsMatch(left: string | null, right: string | null): boolean {
+  if (!left || !right) return false;
+  const a = left.trim().toLowerCase();
+  const b = right.trim().toLowerCase();
+  if (!a || !b) return false;
+  return a === b || a.includes(b) || b.includes(a);
 }
 
 function parseMappingItems(
@@ -764,17 +783,27 @@ export function PmoPage() {
     ? (profilingOverridesBySessionId[selectedSession.ingestion_session_id] ?? {})
     : {};
 
+  const mappingApprovals = useMemo(
+    () => (pendingApprovals.data ?? []).filter((approval) => isMappingApprovalRow(approval)),
+    [pendingApprovals.data],
+  );
+
   const selectedMappingApproval = useMemo(() => {
     if (!selectedSession) return null;
-    const approvals = pendingApprovals.data ?? [];
-    return (
-      approvals.find((approval) => {
-        if (!isMappingApprovalRow(approval)) return false;
-        const ingestionSessionId = readIngestionSessionIdFromApproval(approval);
-        return ingestionSessionId === selectedSession.ingestion_session_id;
-      }) ?? null
-    );
-  }, [pendingApprovals.data, selectedSession]);
+
+    const exactMatch = mappingApprovals.find((approval) => {
+      const ingestionSessionId = readIngestionSessionIdFromApproval(approval);
+      return sessionIdsMatch(ingestionSessionId, selectedSession.ingestion_session_id);
+    });
+    if (exactMatch) return exactMatch;
+
+    // Fallback for cards that do not carry a parseable session id.
+    if (mappingApprovals.length === 1) {
+      return mappingApprovals[0] ?? null;
+    }
+
+    return null;
+  }, [mappingApprovals, selectedSession]);
 
   const selectedMappingView = useMemo(
     () => parseMappingView(selectedMappingApproval),
@@ -2575,7 +2604,9 @@ export function PmoPage() {
                                         </>
                                       ) : (
                                         <p className="text-ink-subtle">
-                                          No pending column mapping proposal for this session.
+                                          {mappingApprovals.length > 0
+                                            ? 'Found pending mapping approvals, but they are not linked to the currently selected session. Try Refresh or select a different session.'
+                                            : 'No pending column mapping proposal for this session.'}
                                         </p>
                                       )}
                                     </div>
