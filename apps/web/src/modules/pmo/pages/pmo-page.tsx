@@ -1855,13 +1855,17 @@ export function PmoPage() {
                               const isWorkbookProfilingStep = /workbook\s*profil/i.test(
                                 step.step_name,
                               );
-                              const isColumnMappingStep =
-                                step.step_no === 3 ||
-                                /column\s*mapping\s*proposal/i.test(step.step_name);
+                              const isLikelyMappingStep =
+                                /column\s*mapping|mapping\s*proposal|confirm\s*mapping/i.test(
+                                  step.step_name,
+                                );
                               const isPlanApprovalStep = /plan\s*approval|approve\s*plan/i.test(
                                 step.step_name,
                               );
                               const shouldRenderProfilingDetails = isWorkbookProfilingStep;
+                              const shouldRenderMappingDetails =
+                                isCurrent &&
+                                (Boolean(selectedMappingApproval) || isLikelyMappingStep);
                               const isProfilingStepReadOnly = isWorkbookProfilingStep && !isCurrent;
                               const isApprovedReadOnly =
                                 isProfilingStepReadOnly &&
@@ -2255,11 +2259,11 @@ export function PmoPage() {
                                         </div>
                                       ) : null}
                                     </div>
-                                  ) : isColumnMappingStep && isCurrent ? (
+                                  ) : shouldRenderMappingDetails ? (
                                     <div className="mt-2 space-y-2 rounded-md border border-hairline bg-canvas p-2.5">
                                       <div className="flex flex-wrap items-center gap-2">
                                         <p className="font-medium text-ink">
-                                          Step 3: Column mapping proposal
+                                          Column mapping proposal
                                         </p>
                                         <span
                                           className={`rounded-full px-2 py-0.5 text-caption font-medium ${workflowStepTone(step.status).badge}`}
