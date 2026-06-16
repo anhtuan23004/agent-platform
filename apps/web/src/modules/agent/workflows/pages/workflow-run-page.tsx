@@ -1,7 +1,7 @@
 import { Button, PageChrome } from '@seta/shared-ui';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import type { WorkflowApprovalRow } from '../api/schemas.ts';
 import { workflowsApi } from '../api/workflows.ts';
 import { cardToolId } from '../components/decided-approval.ts';
@@ -18,8 +18,58 @@ import { workflowsQueryKeys } from '../state/query-keys.ts';
 
 const TERMINAL = new Set(['success', 'failed', 'tripwire', 'canceled']);
 
+interface PlannerStepRow {
+  step_no: number;
+  step_name: string;
+  description?: string;
+}
+
+interface PlanningSessionLite {
+  ingestion_session_id: string;
+  plan?: {
+    proposed_workflow?: PlannerStepRow[];
+  } | null;
+}
+
+interface ListPlanningSessionsLiteResponse {
+  items: PlanningSessionLite[];
+}
+
 function workflowLabel(workflowId: string): string {
   return workflowId.replace(/^.*\./, '');
+}
+
+function readIngestionSessionId(inputSummary: unknown): string | null {
+  if (!inputSummary || typeof inputSummary !== 'object') return null;
+  const summary = inputSummary as {
+    ingestionSessionId?: unknown;
+    ingestion_session_id?: unknown;
+  };
+
+  if (typeof summary.ingestionSessionId === 'string' && summary.ingestionSessionId.trim()) {
+    return summary.ingestionSessionId.trim();
+  }
+
+  if (typeof summary.ingestion_session_id === 'string' && summary.ingestion_session_id.trim()) {
+    return summary.ingestion_session_id.trim();
+  }
+
+  return null;
+}
+
+async function listPlannerStepsForSession(ingestionSessionId: string): Promise<PlannerStepRow[]> {
+  const res = await fetch('/api/pmo/v1/planning/sessions', {
+    credentials: 'include',
+  });
+
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(body.message ?? res.statusText);
+  }
+
+  const sessions = (await res.json()) as ListPlanningSessionsLiteResponse;
+  const matched = sessions.items.find((item) => item.ingestion_session_id === ingestionSessionId);
+  return matched?.plan?.proposed_workflow ?? [];
 }
 
 /**
@@ -82,6 +132,24 @@ export function WorkflowRunPage({ runId }: WorkflowRunPageProps) {
   const snapshotQuery = useWorkflowRunSnapshot(runId);
   const approvalsQuery = usePendingApprovals();
   const decide = useDecideApproval(runId, { workflowHint: runQuery.data?.workflowId });
+  const runData = runQuery.data;
+  const ingestionSessionId =
+    runData?.workflowId === 'pmo.ingestData' ? readIngestionSessionId(runData.inputSummary) : null;
+
+  const plannerStepsQuery = useQuery({
+    queryKey: ['pmo', 'planner-steps', ingestionSessionId],
+    enabled: Boolean(ingestionSessionId),
+    queryFn: () => {
+      if (!ingestionSessionId) return [];
+      return listPlannerStepsForSession(ingestionSessionId);
+    },
+    staleTime: 15_000,
+  });
+
+  const plannerSteps = useMemo(
+    () => [...(plannerStepsQuery.data ?? [])].sort((a, b) => a.step_no - b.step_no),
+    [plannerStepsQuery.data],
+  );
 
   const onReplay = useCallback(
     async (args: { stepId: string; originalPayload: unknown }) => {
@@ -127,7 +195,7 @@ export function WorkflowRunPage({ runId }: WorkflowRunPageProps) {
       </PageChrome>
     );
   }
-  if (!runQuery.data) {
+  if (!runData) {
     return (
       <PageChrome breadcrumb={workflowsBreadcrumb} title="Run not found">
         <div className="grid h-full place-items-center p-8 text-sm">
@@ -142,7 +210,8 @@ export function WorkflowRunPage({ runId }: WorkflowRunPageProps) {
     );
   }
 
-  const run = runQuery.data;
+  const run = runData;
+
   const myApproval = approvalsQuery.data?.find((a) => a.runId === runId) ?? null;
   const fallbackPayload = cardFromSnapshot(snapshotQuery.data);
   const resolvedPayload = myApproval?.proposedPayload ?? fallbackPayload;
@@ -222,6 +291,8 @@ export function WorkflowRunPage({ runId }: WorkflowRunPageProps) {
           run={run}
           streamEvents={runQuery.streamEvents}
           snapshot={snapshotQuery.data}
+          plannerSteps={plannerSteps}
+          plannerStepsLoading={plannerStepsQuery.isLoading}
         />
       </div>
     </PageChrome>

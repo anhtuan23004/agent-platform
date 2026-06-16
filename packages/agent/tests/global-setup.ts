@@ -21,6 +21,7 @@ export default async function (): Promise<() => Promise<void>> {
         { name: 'core', dir: resolve(__dirname, '../../core/drizzle/migrations') },
         { name: 'identity', dir: resolve(__dirname, '../../identity/drizzle') },
         { name: 'planner', dir: resolve(__dirname, '../../planner/drizzle') },
+        { name: 'pmo', dir: resolve(__dirname, '../../pmo/drizzle/migrations') },
         { name: 'agent', dir: resolve(__dirname, '../drizzle') },
       ],
     });

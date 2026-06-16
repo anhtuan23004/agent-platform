@@ -1,9 +1,6 @@
 import { useMemo } from 'react';
-import type { WorkflowApprovalRow, WorkflowRunRow } from '../../agent/workflows/api/schemas.ts';
-import { usePendingApprovals } from '../../agent/workflows/hooks/use-pending-approvals.ts';
-import { useWorkflowRunSnapshot } from '../../agent/workflows/hooks/use-workflow-run-snapshot.ts';
-import { useWorkflowRuns } from '../../agent/workflows/hooks/use-workflow-runs.ts';
 import type { PmoPlanningSession } from '../api/client';
+import type { WorkflowApprovalRow, WorkflowRunRow } from '../api/workflow-runtime';
 import {
   buildExecutionRuntimeTimeline,
   buildPlanningTimeline,
@@ -20,6 +17,11 @@ import {
   sessionIdsMatch,
   type TimelineState,
 } from '../pages/pmo-page.logic';
+import {
+  useWorkflowRuntimePendingApprovals,
+  useWorkflowRuntimeRunSnapshot,
+  useWorkflowRuntimeRuns,
+} from './use-workflow-runtime';
 
 export interface GroupedMappingItemsBySheet {
   sheetName: string;
@@ -33,8 +35,9 @@ export interface UsePmoWorkflowRuntimeOptions {
 }
 
 export interface UsePmoWorkflowRuntimeResult {
-  pendingApprovals: ReturnType<typeof usePendingApprovals>;
-  workflowRuns: ReturnType<typeof useWorkflowRuns>;
+  pendingApprovals: ReturnType<typeof useWorkflowRuntimePendingApprovals>;
+  workflowRuns: ReturnType<typeof useWorkflowRuntimeRuns>;
+  runtimeRunBySessionId: Map<string, { runId: string; status: WorkflowRunRow['status'] }>;
   mappingApprovals: WorkflowApprovalRow[];
   selectedMappingApproval: WorkflowApprovalRow | null;
   selectedMappingView: MappingViewModel | null;
@@ -49,9 +52,9 @@ export function usePmoWorkflowRuntime(
 ): UsePmoWorkflowRuntimeResult {
   const { selectedSession, executionCards, executionCurrentStepNo } = options;
 
-  const pendingApprovals = usePendingApprovals();
+  const pendingApprovals = useWorkflowRuntimePendingApprovals();
 
-  const workflowRuns = useWorkflowRuns({
+  const workflowRuns = useWorkflowRuntimeRuns({
     scope: 'self',
     workflowId: 'pmo.ingestData',
   });
@@ -61,8 +64,26 @@ export function usePmoWorkflowRuntime(
     [workflowRuns.data],
   );
 
+  const runtimeRunBySessionId = useMemo(() => {
+    const map = new Map<string, { runId: string; status: WorkflowRunRow['status'] }>();
+    for (const run of pmoIngestRuns) {
+      const ingestionSessionId = readIngestionSessionIdFromRunInput(run.inputSummary);
+      if (!ingestionSessionId || map.has(ingestionSessionId)) continue;
+      map.set(ingestionSessionId, {
+        runId: run.runId,
+        status: run.status,
+      });
+    }
+    return map;
+  }, [pmoIngestRuns]);
+
   const selectedWorkflowRun = useMemo(() => {
     if (!selectedSession) return null;
+
+    const directMatch = runtimeRunBySessionId.get(selectedSession.ingestion_session_id);
+    if (directMatch) {
+      return pmoIngestRuns.find((run) => run.runId === directMatch.runId) ?? null;
+    }
 
     const matchedBySession = pmoIngestRuns.find((run) => {
       const ingestionSessionId = readIngestionSessionIdFromRunInput(run.inputSummary);
@@ -71,7 +92,7 @@ export function usePmoWorkflowRuntime(
     if (matchedBySession) return matchedBySession;
 
     return null;
-  }, [pmoIngestRuns, selectedSession]);
+  }, [pmoIngestRuns, runtimeRunBySessionId, selectedSession]);
 
   const mappingApprovals = useMemo(
     () => (pendingApprovals.data ?? []).filter((approval) => isMappingApprovalRow(approval)),
@@ -100,10 +121,10 @@ export function usePmoWorkflowRuntime(
     }
 
     return null;
-  }, [mappingApprovals, selectedSession, selectedWorkflowRun?.runId]);
+  }, [mappingApprovals, selectedSession, selectedWorkflowRun]);
 
   const selectedWorkflowRunId = selectedWorkflowRun?.runId ?? selectedMappingApproval?.runId ?? '';
-  const selectedWorkflowRunSnapshot = useWorkflowRunSnapshot(selectedWorkflowRunId);
+  const selectedWorkflowRunSnapshot = useWorkflowRuntimeRunSnapshot(selectedWorkflowRunId);
 
   const selectedMappingView = useMemo(
     () => parseMappingView(selectedMappingApproval),
@@ -135,12 +156,12 @@ export function usePmoWorkflowRuntime(
     }
 
     return groups;
-  }, [selectedMappingView?.items]);
+  }, [selectedMappingView]);
 
   const runtimeActiveStepId = useMemo(() => {
     if (selectedMappingApproval?.stepId) return selectedMappingApproval.stepId;
     return readActiveWorkflowStepId(selectedWorkflowRunSnapshot.data);
-  }, [selectedMappingApproval?.stepId, selectedWorkflowRunSnapshot.data]);
+  }, [selectedMappingApproval, selectedWorkflowRunSnapshot.data]);
 
   const hasRuntimeCurrentStepMatch = useMemo(() => {
     if (!runtimeActiveStepId) return false;
@@ -185,6 +206,7 @@ export function usePmoWorkflowRuntime(
   return {
     pendingApprovals,
     workflowRuns,
+    runtimeRunBySessionId,
     mappingApprovals,
     selectedMappingApproval,
     selectedMappingView,

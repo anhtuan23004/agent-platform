@@ -39,4 +39,16 @@ describe('AgentRegistry', () => {
     });
     expect(() => AgentRegistry.snapshot()).toThrow(RegistryNotFrozenError);
   });
+
+  it('registers and resolves workflow snapshot decorators by workflow id', () => {
+    AgentRegistry.registerWorkflowSnapshotDecorator({
+      id: 'pmo.dynamic-graph',
+      workflowIds: ['pmo.ingestData'],
+      decorate: async (args) => args.snapshot,
+    });
+
+    const decorators = AgentRegistry.listWorkflowSnapshotDecorators('pmo.ingestData');
+    expect(decorators).toHaveLength(1);
+    expect(decorators[0]?.id).toBe('pmo.dynamic-graph');
+  });
 });

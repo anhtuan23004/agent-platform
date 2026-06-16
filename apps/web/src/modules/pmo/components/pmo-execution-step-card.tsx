@@ -1,4 +1,3 @@
-import type { WorkflowApprovalRow } from '../../agent/workflows/api/schemas.ts';
 import type {
   PmoPlan,
   PmoPlanningSession,
@@ -8,6 +7,7 @@ import type {
   PmoWorkbookProfilingSessionSummary,
   PmoWorkflowExecutionStepStatus,
 } from '../api/client';
+import type { WorkflowApprovalRow } from '../api/workflow-runtime';
 import type { GroupedMappingItemsBySheet } from '../hooks/use-pmo-workflow-runtime';
 import {
   type ExecutionCard,

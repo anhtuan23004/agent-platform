@@ -1,9 +1,9 @@
-import type { WorkflowApprovalRow, WorkflowRunRow } from '../../agent/workflows/api/schemas.ts';
 import type {
   PmoPlanningSession,
   PmoSessionDocumentProfileRecord,
   PmoWorkflowExecutionStepStatus,
 } from '../api/client';
+import type { WorkflowApprovalRow, WorkflowRunRow } from '../api/workflow-runtime';
 
 export type TimelineState = 'done' | 'current' | 'pending';
 
@@ -344,18 +344,22 @@ export function executionStepMatchesRuntimeStep(
   const stepName = step.step_name.toLowerCase();
 
   if (runtime.includes('confirmmapping')) {
+    if (step.step_no === 2) return true;
     return /mapping|confirm/.test(stepName);
   }
 
   if (runtime.includes('normalize')) {
-    return /normalize|staging/.test(stepName);
+    if (step.step_no === 3) return true;
+    return /normalize|staging|diff/.test(stepName);
   }
 
   if (runtime.includes('reviewchanges')) {
+    if (step.step_no === 4) return true;
     return /review|readiness|impact|database|publish/.test(stepName);
   }
 
   if (runtime.includes('detect')) {
+    if (step.step_no === 1) return true;
     return /profil|schema|detect/.test(stepName);
   }
 
@@ -695,6 +699,40 @@ export function buildExecutionCards(session: PmoPlanningSession | null): Executi
     return [];
   }
 
+  const sortedWorkflow = session.plan.proposed_workflow
+    .slice()
+    .sort((a, b) => a.step_no - b.step_no);
+
+  if (sortedWorkflow.length > 0) {
+    const statusByStepNo = new Map<number, PmoWorkflowExecutionStepStatus>();
+    for (const step of session.execution_state?.steps ?? []) {
+      statusByStepNo.set(step.step_no, step.status);
+    }
+
+    const cards = sortedWorkflow.map((step, index) => ({
+      step_no: step.step_no,
+      step_name: step.step_name,
+      status:
+        statusByStepNo.get(step.step_no) ??
+        (session.planning_state === 'approved_plan' && index === 0 ? 'in_progress' : 'pending'),
+      description: step.description,
+    }));
+
+    // Keep unexpected runtime-only steps visible for observability if they exist.
+    const plannerStepNos = new Set(cards.map((step) => step.step_no));
+    const runtimeOnlySteps = (session.execution_state?.steps ?? [])
+      .filter((step) => !plannerStepNos.has(step.step_no))
+      .sort((a, b) => a.step_no - b.step_no)
+      .map((step) => ({
+        step_no: step.step_no,
+        step_name: step.step_name,
+        status: step.status,
+        description: '',
+      }));
+
+    return [...cards, ...runtimeOnlySteps].sort((a, b) => a.step_no - b.step_no);
+  }
+
   if (session.execution_state?.steps?.length) {
     return session.execution_state.steps
       .slice()
@@ -703,15 +741,10 @@ export function buildExecutionCards(session: PmoPlanningSession | null): Executi
         step_no: step.step_no,
         step_name: step.step_name,
         status: step.status,
-        description:
-          session.plan?.proposed_workflow.find((item) => item.step_no === step.step_no)
-            ?.description ?? '',
+        description: '',
       }));
   }
 
-  const sortedWorkflow = session.plan.proposed_workflow
-    .slice()
-    .sort((a, b) => a.step_no - b.step_no);
   if (sortedWorkflow.length === 0) {
     return [
       {

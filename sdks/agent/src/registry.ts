@@ -67,6 +67,21 @@ export interface WorkflowSpec {
   dedupeKey?: WorkflowDedupeKey;
 }
 
+export interface WorkflowSnapshotDecoratorArgs {
+  runId: string;
+  workflowId: string;
+  tenantId: string;
+  inputSummary: unknown;
+  runStatus: string;
+  snapshot: Record<string, unknown>;
+}
+
+export interface WorkflowSnapshotDecoratorSpec {
+  id: string;
+  workflowIds: string[];
+  decorate: (args: WorkflowSnapshotDecoratorArgs) => Promise<Record<string, unknown>>;
+}
+
 export class RegistryFrozenError extends Error {
   constructor() {
     super('AgentRegistry is frozen; register at module load time only.');
@@ -83,6 +98,7 @@ const state = {
   specialists: [] as SpecialistSpec[],
   crossReadTools: [] as CrossModuleReadToolSpec<unknown, unknown>[],
   workflows: [] as WorkflowSpec[],
+  workflowSnapshotDecorators: [] as WorkflowSnapshotDecoratorSpec[],
 };
 
 export const AgentRegistry = {
@@ -101,6 +117,21 @@ export const AgentRegistry = {
     assertNoSessionField(spec.inputSchema, spec.id);
     state.workflows.push(spec);
   },
+  registerWorkflowSnapshotDecorator(spec: WorkflowSnapshotDecoratorSpec): void {
+    if (state.frozen) throw new RegistryFrozenError();
+    if (!spec.id.trim()) {
+      throw new Error('Workflow snapshot decorator must define a non-empty id');
+    }
+    if (!Array.isArray(spec.workflowIds) || spec.workflowIds.length === 0) {
+      throw new Error(
+        `Workflow snapshot decorator ${spec.id} must declare at least one workflowId`,
+      );
+    }
+    if (state.workflowSnapshotDecorators.some((decorator) => decorator.id === spec.id)) {
+      throw new Error(`duplicate workflow snapshot decorator id: ${spec.id}`);
+    }
+    state.workflowSnapshotDecorators.push(spec);
+  },
   freeze(): void {
     state.frozen = true;
   },
@@ -112,6 +143,11 @@ export const AgentRegistry = {
   },
   listWorkflows(domain: Domain): WorkflowSpec[] {
     return state.workflows.filter((w) => w.domain === domain);
+  },
+  listWorkflowSnapshotDecorators(workflowId: string): WorkflowSnapshotDecoratorSpec[] {
+    return state.workflowSnapshotDecorators.filter((decorator) =>
+      decorator.workflowIds.includes(workflowId),
+    );
   },
   /**
    * Look up a workflow spec by the intrinsic Mastra workflow id
@@ -134,6 +170,7 @@ export const AgentRegistry = {
       specialists: state.specialists.slice(),
       crossReadTools: state.crossReadTools.slice(),
       workflows: state.workflows.slice(),
+      workflowSnapshotDecorators: state.workflowSnapshotDecorators.slice(),
     };
   },
   __resetForTests(): void {
@@ -141,5 +178,6 @@ export const AgentRegistry = {
     state.specialists = [];
     state.crossReadTools = [];
     state.workflows = [];
+    state.workflowSnapshotDecorators = [];
   },
 };

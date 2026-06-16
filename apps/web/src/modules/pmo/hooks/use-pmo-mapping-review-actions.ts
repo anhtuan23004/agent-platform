@@ -1,12 +1,12 @@
 import { toast } from '@seta/shared-ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { WorkflowApprovalRow } from '../../agent/workflows/api/schemas.ts';
-import { useSubmitDecision } from '../../agent/workflows/hooks/use-submit-decision.ts';
+import type { WorkflowApprovalRow } from '../api/workflow-runtime';
 import type {
   MappingAlternateOption,
   MappingProgressItem,
   MappingViewModel,
 } from '../pages/pmo-page.logic';
+import { useSubmitWorkflowRuntimeDecision } from './use-workflow-runtime';
 
 interface UsePmoMappingReviewActionsOptions {
   selectedSessionId: string | null;
@@ -43,13 +43,13 @@ export function usePmoMappingReviewActions(
     refreshMappingApprovals,
   } = options;
 
-  const submitDecision = useSubmitDecision();
+  const submitDecision = useSubmitWorkflowRuntimeDecision();
   const [editingMappingKey, setEditingMappingKey] = useState<string | null>(null);
   const [selectedMappingAlternate, setSelectedMappingAlternate] = useState<number | null>(null);
 
   const editingMappingItem = useMemo(
     () => selectedMappingView?.items.find((item) => item.key === editingMappingKey) ?? null,
-    [selectedMappingView?.items, editingMappingKey],
+    [selectedMappingView, editingMappingKey],
   );
 
   const editingMappingAlternates = useMemo(() => {

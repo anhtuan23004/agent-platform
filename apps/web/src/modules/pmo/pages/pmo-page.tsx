@@ -83,6 +83,7 @@ export function PmoPage() {
   const {
     pendingApprovals,
     workflowRuns,
+    runtimeRunBySessionId,
     mappingApprovals,
     selectedMappingApproval,
     selectedMappingView,
@@ -130,11 +131,49 @@ export function PmoPage() {
     return map;
   }, [executionState]);
 
+  const selectedRuntimeRun = selectedSession
+    ? (runtimeRunBySessionId.get(selectedSession.ingestion_session_id) ?? null)
+    : null;
+  const runtimeCancelled = selectedRuntimeRun?.status === 'canceled';
+
+  const executionCardsForDisplay = useMemo(() => {
+    if (!runtimeCancelled) return executionCards;
+
+    return executionCards.map((step) => {
+      if (step.status === 'completed' || step.status === 'failed' || step.status === 'cancelled') {
+        return step;
+      }
+
+      return {
+        ...step,
+        status: 'cancelled' as const,
+      };
+    });
+  }, [executionCards, runtimeCancelled]);
+
+  const sessionsForHistory = useMemo(() => {
+    return sessions.map((run) => {
+      const runtimeStatus = runtimeRunBySessionId.get(run.ingestion_session_id)?.status;
+      if (runtimeStatus !== 'canceled') return run;
+
+      if (run.workflow_step_status === 'cancelled' && run.status_label === 'Cancelled') {
+        return run;
+      }
+
+      return {
+        ...run,
+        status_label: 'Cancelled',
+        active_gate: 'Workflow cancelled',
+        workflow_step_status: 'cancelled' as const,
+      };
+    });
+  }, [sessions, runtimeRunBySessionId]);
+
   const executionActionGroups = useMemo(
-    () => groupExecutionCardsByAction(executionCards),
-    [executionCards],
+    () => groupExecutionCardsByAction(executionCardsForDisplay),
+    [executionCardsForDisplay],
   );
-  const firstExecutionStepNo = executionCards[0]?.step_no ?? null;
+  const firstExecutionStepNo = executionCardsForDisplay[0]?.step_no ?? null;
 
   const loadSessions = useCallback(async (keepSelection = true) => {
     setIsLoadingSessions(true);
@@ -202,6 +241,7 @@ export function PmoPage() {
     setIsReviewPanelOpen,
     setUploadedInfo,
     refreshWorkflowRuntime,
+    runtimeRunBySessionId,
   });
 
   const {
@@ -289,7 +329,9 @@ export function PmoPage() {
   const plan: PmoPlan | null = selectedSession?.plan ?? null;
   const executionRuntime = {
     executionCurrentStepNo: executionState?.current_step_no ?? null,
-    executionCurrentStepStatus: executionState?.current_step_status ?? null,
+    executionCurrentStepStatus: runtimeCancelled
+      ? ('cancelled' as const)
+      : (executionState?.current_step_status ?? null),
     firstExecutionStepNo,
     runtimeActiveStepId,
     hasRuntimeCurrentStepMatch,
@@ -464,7 +506,7 @@ export function PmoPage() {
           </section>
 
           <PmoSessionHistoryPanel
-            sessions={sessions}
+            sessions={sessionsForHistory}
             selectedSessionId={selectedSession?.ingestion_session_id ?? null}
             isLoadingSessions={isLoadingSessions}
             isCancellingWorkflowBySessionId={isCancellingWorkflowBySessionId}
@@ -510,7 +552,7 @@ export function PmoPage() {
                   feedbackHistoryItems={feedbackHistoryItems}
                 />
 
-                {executionCards.length > 0 ? (
+                {executionCardsForDisplay.length > 0 ? (
                   <PmoWorkflowExecutionSection
                     selectedSession={selectedSession}
                     executionActionGroups={executionActionGroups}

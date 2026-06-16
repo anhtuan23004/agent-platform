@@ -8,6 +8,7 @@ import {
   type PmoSessionDocumentProfileRecord,
   pmoApi,
 } from '../api/client';
+import { workflowRuntimeApi } from '../api/workflow-runtime';
 import { shortId } from '../pages/pmo-page.logic';
 
 export interface UploadedWorkbookInfo {
@@ -34,6 +35,7 @@ interface UsePmoSessionActionsOptions {
   setIsReviewPanelOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setUploadedInfo: React.Dispatch<React.SetStateAction<UploadedWorkbookInfo | null>>;
   refreshWorkflowRuntime: () => Promise<void>;
+  runtimeRunBySessionId: Map<string, { runId: string; status: string }>;
 }
 
 interface UsePmoSessionActionsResult {
@@ -72,6 +74,7 @@ export function usePmoSessionActions(
     setIsReviewPanelOpen,
     setUploadedInfo,
     refreshWorkflowRuntime,
+    runtimeRunBySessionId,
   } = options;
 
   const [isUploading, setIsUploading] = useState(false);
@@ -393,11 +396,21 @@ export function usePmoSessionActions(
     }
   }, [isApprovingProfiling, loadSessions, selectedSession]);
 
-  const isWorkflowCancelable = useCallback((run: PmoPlanningSession): boolean => {
-    return (
-      run.workflow_step_status === 'in_progress' || run.workflow_step_status === 'needs_review'
-    );
+  const isRuntimeRunCancelable = useCallback((status: string | null | undefined): boolean => {
+    return status === 'running' || status === 'paused';
   }, []);
+
+  const isWorkflowCancelable = useCallback(
+    (run: PmoPlanningSession): boolean => {
+      const runtimeStatus = runtimeRunBySessionId.get(run.ingestion_session_id)?.status;
+      return (
+        isRuntimeRunCancelable(runtimeStatus) ||
+        run.workflow_step_status === 'in_progress' ||
+        run.workflow_step_status === 'needs_review'
+      );
+    },
+    [isRuntimeRunCancelable, runtimeRunBySessionId],
+  );
 
   const handleCancelWorkflow = useCallback(
     async (run: PmoPlanningSession) => {
@@ -418,11 +431,55 @@ export function usePmoSessionActions(
       }));
 
       try {
-        await pmoApi.cancelWorkflow(run.ingestion_session_id);
-        await loadSessions(true);
-        toast.success('Workflow cancelled', {
-          description: 'The running workflow has been cancelled successfully.',
-        });
+        const runtimeRun = runtimeRunBySessionId.get(run.ingestion_session_id);
+        const shouldCancelRuntime = isRuntimeRunCancelable(runtimeRun?.status);
+        const shouldCancelPmo =
+          run.workflow_step_status === 'in_progress' || run.workflow_step_status === 'needs_review';
+
+        let canceledRuntime = false;
+        let canceledPmo = false;
+        const failures: string[] = [];
+
+        if (shouldCancelRuntime && runtimeRun?.runId) {
+          try {
+            await workflowRuntimeApi.cancelRun(runtimeRun.runId);
+            canceledRuntime = true;
+          } catch (err) {
+            const message = err instanceof Error ? err.message : 'Failed to cancel workflow run.';
+            failures.push(message);
+          }
+        }
+
+        if (shouldCancelPmo) {
+          try {
+            await pmoApi.cancelWorkflow(run.ingestion_session_id);
+            canceledPmo = true;
+          } catch (err) {
+            const message = err instanceof Error ? err.message : 'Failed to update PMO session.';
+            failures.push(message);
+          }
+        }
+
+        if (!canceledRuntime && !canceledPmo) {
+          throw new Error(failures.join(' | ') || 'Failed to cancel workflow.');
+        }
+
+        await Promise.all([loadSessions(true), refreshWorkflowRuntime()]);
+
+        if (canceledRuntime && canceledPmo) {
+          toast.success('Workflow cancelled', {
+            description: 'Cancelled on both PMO session and Agent workflow run.',
+          });
+        } else if (canceledRuntime) {
+          toast.success('Workflow run cancelled', {
+            description:
+              'Agent workflow run is cancelled and PMO page will reflect runtime status.',
+          });
+        } else {
+          toast.success('PMO session cancelled', {
+            description: 'PMO execution state is cancelled. Agent run may already be terminal.',
+          });
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to cancel workflow.';
         toast.error('Cancel failed', { description: message });
@@ -433,7 +490,14 @@ export function usePmoSessionActions(
         }));
       }
     },
-    [isCancellingWorkflowBySessionId, isWorkflowCancelable, loadSessions],
+    [
+      isCancellingWorkflowBySessionId,
+      isRuntimeRunCancelable,
+      isWorkflowCancelable,
+      loadSessions,
+      refreshWorkflowRuntime,
+      runtimeRunBySessionId,
+    ],
   );
 
   return {

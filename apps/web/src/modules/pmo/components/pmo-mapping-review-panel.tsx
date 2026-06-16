@@ -1,6 +1,6 @@
 import { Button } from '@seta/shared-ui';
 import { Fragment } from 'react';
-import type { WorkflowApprovalRow } from '../../agent/workflows/api/schemas.ts';
+import type { WorkflowApprovalRow } from '../api/workflow-runtime';
 import type { GroupedMappingItemsBySheet } from '../hooks/use-pmo-workflow-runtime';
 import {
   type MappingAlternateOption,
