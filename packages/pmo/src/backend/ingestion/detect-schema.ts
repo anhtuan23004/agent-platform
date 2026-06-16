@@ -27,13 +27,18 @@ export interface SchemaDetectionResult {
   };
 }
 
+export interface DetectSchemaOptions {
+  parsedWorkbook?: Awaited<ReturnType<typeof parseWorkbook>>;
+}
+
 // ── Main orchestration function ──────────────────────────────────────────────
 
 export async function detectSchema(
   fileBuffer: Buffer | ArrayBuffer | Uint8Array,
+  options?: DetectSchemaOptions,
 ): Promise<SchemaDetectionResult> {
   // 1. Parse workbook → sheets with full rows
-  const parseResult = await parseWorkbook(fileBuffer);
+  const parseResult = options?.parsedWorkbook ?? (await parseWorkbook(fileBuffer));
 
   // 2. Profile each sheet's columns
   const profiles = parseResult.sheets.map((sheet) => profileColumns(sheet));

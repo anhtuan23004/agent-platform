@@ -164,7 +164,7 @@ describe('getWorkflowRunSnapshot', () => {
         kind: 'run-started',
         runId,
         eventSeq: 1,
-        workflowId: 'pmo.ingestData',
+        workflowId: 'pmo.ingestData.v2',
         tenantId: me.tenant_id,
         startedBy: me.user_id,
         startedVia: 'event',
@@ -240,7 +240,7 @@ describe('getWorkflowRunSnapshot', () => {
       );
 
       await workflowsStore.persistWorkflowSnapshot({
-        workflowName: 'pmo.ingestData',
+        workflowName: 'pmo.ingestData.v2',
         runId,
         snapshot: {
           runId,

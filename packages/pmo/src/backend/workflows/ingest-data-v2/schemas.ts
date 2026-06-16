@@ -164,3 +164,35 @@ export const PublishOutputSchema = z.object({
   rowsSkipped: z.record(z.string(), z.number()),
   status: z.enum(['published', 'rejected']),
 });
+
+// ── Dynamic runtime v2 suspend/resume schemas ───────────────────────────────
+
+export const DynamicPlannerResumeSchema = z
+  .object({
+    decision: z.enum(['approve', 'reject', 'modify']).optional(),
+    plannerStepId: z.string().optional(),
+    approvedItemKey: z.string().optional(),
+    approvedItemKeys: z.array(z.string()).optional(),
+    approvedByByItemKey: z.record(z.string(), z.string()).optional(),
+    proceedToNextStep: z.boolean().optional(),
+    mappingOverride: MappingOverrideSchema.optional(),
+    mappingOverrides: z.array(MappingOverrideSchema).optional(),
+    memberMasterAdditions: z.array(MemberMasterAdditionSchema).optional(),
+    note: z.string().optional(),
+  })
+  .passthrough();
+
+export const DynamicPlannerSuspendSchema = ApprovalCardSchema;
+
+export const IngestDataV2InputSchema = IngestInputSchema;
+
+export const IngestDataV2OutputSchema = z.object({
+  ingestionSessionId: z.string().uuid(),
+  status: z.enum(['published', 'rejected', 'completed']),
+  rowsWritten: z.record(z.string(), z.number()).default({}),
+  rowsUpdated: z.record(z.string(), z.number()).default({}),
+  rowsSkipped: z.record(z.string(), z.number()).default({}),
+});
+
+export type DynamicPlannerResume = z.infer<typeof DynamicPlannerResumeSchema>;
+export type IngestDataV2Output = z.infer<typeof IngestDataV2OutputSchema>;

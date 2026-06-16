@@ -763,7 +763,7 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
 
   // POST /api/pmo/v1/upload-complete
   // Called after client uploads file to S3. Returns canonical payload to start
-  // pmo.ingestData via /api/agent/v1/workflows/runs/pmo.ingestData/start.
+  // PMO ingest workflow via /api/agent/v1/workflows/runs/{workflowId}/start.
   app.post('/api/pmo/v1/upload-complete', async (c) => {
     const session = c.get('user');
     const body = await c.req.json().catch(() => ({}));
@@ -805,7 +805,7 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
         reportingPeriodKey: row.reporting_period_key ?? undefined,
       },
       message:
-        'Upload recorded. Start workflow via /api/agent/v1/workflows/runs/pmo.ingestData/start.',
+        'Upload recorded. Start workflow via /api/agent/v1/workflows/runs/{workflowId}/start.',
     });
   });
 
@@ -875,7 +875,7 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
           reportingPeriodKey: reportingPeriodKey,
         },
         message:
-          'File uploaded. Start workflow via /api/agent/v1/workflows/runs/pmo.ingestData/start.',
+          'File uploaded. Start workflow via /api/agent/v1/workflows/runs/{workflowId}/start.',
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

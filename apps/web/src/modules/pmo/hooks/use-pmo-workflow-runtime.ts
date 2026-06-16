@@ -68,7 +68,7 @@ export function usePmoWorkflowRuntime(
 
   const workflowRuns = useWorkflowRuntimeRuns({
     scope: 'self',
-    workflowId: 'pmo.ingestData',
+    workflowId: 'pmo.ingestData.v2',
   });
 
   const pmoIngestRuns = useMemo(

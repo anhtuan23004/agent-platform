@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { shouldBlockPublishApprove } from '../../../../src/backend/workflows/ingest-data/review-gates.ts';
+import { shouldBlockPublishApprove } from '../../../../src/backend/workflows/ingest-data-v2/review-gates.ts';
 
 describe('shouldBlockPublishApprove', () => {
   it('returns true when blocking issues exist even if duplicate_in_upload is zero', () => {

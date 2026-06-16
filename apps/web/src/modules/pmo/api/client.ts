@@ -363,7 +363,9 @@ export const pmoApi = {
   },
 
   async startIngestWorkflow(input: StartIngestWorkflowInput): Promise<StartIngestWorkflowResponse> {
-    const res = await fetch('/api/agent/v1/workflows/runs/pmo.ingestData/start', {
+    const workflowId = 'pmo.ingestData.v2';
+
+    const res = await fetch(`/api/agent/v1/workflows/runs/${workflowId}/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),

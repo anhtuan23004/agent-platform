@@ -43,11 +43,11 @@ describe('AgentRegistry', () => {
   it('registers and resolves workflow snapshot decorators by workflow id', () => {
     AgentRegistry.registerWorkflowSnapshotDecorator({
       id: 'pmo.dynamic-graph',
-      workflowIds: ['pmo.ingestData'],
+      workflowIds: ['pmo.ingestData.v2'],
       decorate: async (args) => args.snapshot,
     });
 
-    const decorators = AgentRegistry.listWorkflowSnapshotDecorators('pmo.ingestData');
+    const decorators = AgentRegistry.listWorkflowSnapshotDecorators('pmo.ingestData.v2');
     expect(decorators).toHaveLength(1);
     expect(decorators[0]?.id).toBe('pmo.dynamic-graph');
   });

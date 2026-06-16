@@ -134,7 +134,9 @@ export function WorkflowRunPage({ runId }: WorkflowRunPageProps) {
   const decide = useDecideApproval(runId, { workflowHint: runQuery.data?.workflowId });
   const runData = runQuery.data;
   const ingestionSessionId =
-    runData?.workflowId === 'pmo.ingestData' ? readIngestionSessionId(runData.inputSummary) : null;
+    runData && (runData.workflowId === 'pmo.ingestData.v2' || runData.workflowId === 'ingestDataV2')
+      ? readIngestionSessionId(runData.inputSummary)
+      : null;
 
   const plannerStepsQuery = useQuery({
     queryKey: ['pmo', 'planner-steps', ingestionSessionId],

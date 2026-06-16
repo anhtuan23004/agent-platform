@@ -44,7 +44,7 @@ function dropFile(file: File) {
 function makeRunRow(partial?: Partial<Record<string, unknown>>) {
   return {
     runId: 'run-123',
-    workflowId: 'pmo.ingestData',
+    workflowId: 'pmo.ingestData.v2',
     tenantId: '11111111-1111-4111-8111-111111111111',
     startedBy: '22222222-2222-4222-8222-222222222222',
     startedVia: 'event',
@@ -342,7 +342,7 @@ function createFetchMock(opts?: {
         feedback_history: [],
       });
     }
-    if (url === '/api/agent/v1/workflows/runs/pmo.ingestData/start') {
+    if (url === '/api/agent/v1/workflows/runs/pmo.ingestData.v2/start') {
       return mockJsonResponse(opts?.startResponse ?? { runId: 'run-123' }, startStatus);
     }
     if (/^\/api\/agent\/v1\/workflows\/approvals\/[^/]+\/decide$/.test(url)) {
@@ -422,7 +422,7 @@ describe('PmoPage', () => {
 
     expect(
       fetchMock.mock.calls.some(
-        (entry) => String(entry[0]) === '/api/agent/v1/workflows/runs/pmo.ingestData/start',
+        (entry) => String(entry[0]) === '/api/agent/v1/workflows/runs/pmo.ingestData.v2/start',
       ),
     ).toBe(false);
 
@@ -485,7 +485,7 @@ describe('PmoPage', () => {
 
     expect(
       fetchMock.mock.calls.some(
-        (entry) => String(entry[0]) === '/api/agent/v1/workflows/runs/pmo.ingestData/start',
+        (entry) => String(entry[0]) === '/api/agent/v1/workflows/runs/pmo.ingestData.v2/start',
       ),
     ).toBe(false);
   });

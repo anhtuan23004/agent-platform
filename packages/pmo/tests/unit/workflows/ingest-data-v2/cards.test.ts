@@ -4,7 +4,7 @@ import {
   buildMappingReviewCard,
   buildPublishReviewCard,
   collectMappingReviewItems,
-} from '../../../../src/backend/workflows/ingest-data/cards.ts';
+} from '../../../../src/backend/workflows/ingest-data-v2/cards.ts';
 
 interface KvTableBlock {
   kind: 'kvTable';

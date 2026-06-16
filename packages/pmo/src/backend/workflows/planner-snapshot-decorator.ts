@@ -210,7 +210,7 @@ function plannerGraphStepId(step: PlannerStep): string {
 
 export const pmoPlannerSnapshotDecorator: WorkflowSnapshotDecoratorSpec = {
   id: 'pmo.planner.snapshot-graph',
-  workflowIds: ['pmo.ingestData', 'ingestData'],
+  workflowIds: ['pmo.ingestData.v2', 'ingestDataV2'],
   decorate: async ({ inputSummary, runStatus, snapshot, tenantId }) => {
     const ingestionSessionId = readIngestionSessionId(inputSummary);
     if (!ingestionSessionId) return snapshot;
