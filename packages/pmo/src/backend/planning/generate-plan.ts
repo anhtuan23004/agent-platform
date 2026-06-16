@@ -1,5 +1,6 @@
 import { Agent } from '@mastra/core/agent';
 import { type PmoWorkflowPlan, PmoWorkflowPlanSchema } from './plan-schema.ts';
+import { enrichPlannerWorkflowSteps } from './step-metadata.ts';
 
 interface UploadedFileInput {
   file_name: string;
@@ -143,6 +144,9 @@ Output:
   "proposed_workflow": [
     {
       "step_no": 1,
+      "planner_step_id": "pmo.planner.step.1.workbook_profiling",
+      "action_id": "workbook_profiling",
+      "review_type": "profiling",
       "step_name": "Workbook profiling",
       "description": "After plan approval, parse workbook structure and detect candidate sheet roles and schema hints.",
       "agent_responsibility": "Inspect workbook and infer candidate mappings with confidence.",
@@ -151,6 +155,9 @@ Output:
     },
     {
       "step_no": 2,
+      "planner_step_id": "pmo.planner.step.2.column_mapping",
+      "action_id": "column_mapping",
+      "review_type": "mapping",
       "step_name": "Mapping proposal and validation",
       "description": "Prepare a mapping proposal from inferred workbook schema to PMO target model.",
       "agent_responsibility": "Generate mapping proposal and flag ambiguous fields.",
@@ -159,6 +166,9 @@ Output:
     },
     {
       "step_no": 3,
+      "planner_step_id": "pmo.planner.step.3.normalize_to_staging",
+      "action_id": "normalize_to_staging",
+      "review_type": "normalization",
       "step_name": "Normalization and DB diff",
       "description": "Normalize accepted mapping into staging and summarize expected DB changes.",
       "agent_responsibility": "Compute inserts and updates summary with traceable rationale.",
@@ -167,6 +177,9 @@ Output:
     },
     {
       "step_no": 4,
+      "planner_step_id": "pmo.planner.step.4.publish_after_approval",
+      "action_id": "publish_after_approval",
+      "review_type": "publish",
       "step_name": "Publish after approval",
       "description": "Apply approved changes to target tables and finalize ingestion record.",
       "agent_responsibility": "Execute publish only after explicit user approval.",
@@ -293,6 +306,9 @@ Output:
   "proposed_workflow": [
     {
       "step_no": 1,
+      "planner_step_id": "pmo.planner.step.1.workbook_profiling",
+      "action_id": "workbook_profiling",
+      "review_type": "profiling",
       "step_name": "Workbook profiling",
       "description": "Inspect workbook structure and detect candidate sheet roles.",
       "agent_responsibility": "Parse workbook and produce validation observations.",
@@ -301,6 +317,9 @@ Output:
     },
     {
       "step_no": 2,
+      "planner_step_id": "pmo.planner.step.2.column_mapping",
+      "action_id": "column_mapping",
+      "review_type": "mapping",
       "step_name": "Mapping proposal",
       "description": "Build mapping proposal and isolate uncertain fields.",
       "agent_responsibility": "Propose mapping with confidence markers.",
@@ -309,6 +328,9 @@ Output:
     },
     {
       "step_no": 3,
+      "planner_step_id": "pmo.planner.step.3.database_change_summary",
+      "action_id": "database_change_summary",
+      "review_type": "publish",
       "step_name": "Readiness summary",
       "description": "Summarize readiness for later normalization and publication phases.",
       "agent_responsibility": "Provide clear next-step criteria instead of publishing now.",
@@ -376,6 +398,9 @@ Output:
 
 ## Final output rules
 - Return exactly one JSON object that matches the schema.
+- Every proposed_workflow item must include planner_step_id, action_id, and review_type.
+- Use action_id values only from: workbook_profiling, column_mapping, normalize_to_staging, database_change_summary, publish_after_approval, generic_review.
+- Use review_type values only from: none, profiling, mapping, normalization, publish, generic.
 - Do not include markdown.
 - Do not include any explanatory text outside the JSON object.
 `;
@@ -430,5 +455,8 @@ export async function generatePmoWorkflowPlan(
     throw new Error('planning_model_no_structured_output');
   }
 
-  return result.object;
+  return {
+    ...result.object,
+    proposed_workflow: enrichPlannerWorkflowSteps(result.object.proposed_workflow),
+  };
 }

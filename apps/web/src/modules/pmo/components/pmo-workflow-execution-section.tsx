@@ -3,8 +3,10 @@ import type { ExecutionActionGroup } from '../pages/pmo-page.logic';
 import {
   PmoExecutionStepCard,
   type PmoExecutionStepMappingProps,
+  type PmoExecutionStepNormalizationProps,
   type PmoExecutionStepPlanProps,
   type PmoExecutionStepProfilingProps,
+  type PmoExecutionStepPublishProps,
   type PmoExecutionStepRuntimeProps,
 } from './pmo-execution-step-card';
 
@@ -13,12 +15,23 @@ interface PmoWorkflowExecutionSectionProps {
   executionActionGroups: ExecutionActionGroup[];
   runtime: PmoExecutionStepRuntimeProps;
   mapping: PmoExecutionStepMappingProps;
+  normalization: PmoExecutionStepNormalizationProps;
+  publish: PmoExecutionStepPublishProps;
   profiling: PmoExecutionStepProfilingProps;
   plan: PmoExecutionStepPlanProps;
 }
 
 export function PmoWorkflowExecutionSection(props: PmoWorkflowExecutionSectionProps) {
-  const { selectedSession, executionActionGroups, runtime, mapping, profiling, plan } = props;
+  const {
+    selectedSession,
+    executionActionGroups,
+    runtime,
+    mapping,
+    normalization,
+    publish,
+    profiling,
+    plan,
+  } = props;
 
   return (
     <section className="rounded-lg border border-hairline bg-surface-1 p-4 text-caption text-ink-subtle">
@@ -53,6 +66,8 @@ export function PmoWorkflowExecutionSection(props: PmoWorkflowExecutionSectionPr
                   step={step}
                   runtime={runtime}
                   mapping={mapping}
+                  normalization={normalization}
+                  publish={publish}
                   profiling={profiling}
                   plan={plan}
                 />

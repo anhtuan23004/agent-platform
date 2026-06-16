@@ -12,6 +12,8 @@ import { PmoPlanSection } from '../components/pmo-plan-section';
 import { PmoSessionHistoryPanel } from '../components/pmo-session-history-panel';
 import { PmoWorkflowExecutionSection } from '../components/pmo-workflow-execution-section';
 import { usePmoMappingReviewActions } from '../hooks/use-pmo-mapping-review-actions';
+import { usePmoNormalizationReviewActions } from '../hooks/use-pmo-normalization-review-actions';
+import { usePmoPublishReviewActions } from '../hooks/use-pmo-publish-review-actions';
 import { type UploadedWorkbookInfo, usePmoSessionActions } from '../hooks/use-pmo-session-actions';
 import { usePmoWorkflowRuntime } from '../hooks/use-pmo-workflow-runtime';
 import {
@@ -88,6 +90,12 @@ export function PmoPage() {
     selectedMappingApproval,
     selectedMappingView,
     groupedMappingItems,
+    normalizationApprovals,
+    selectedNormalizationApproval,
+    selectedNormalizationView,
+    publishApprovals,
+    selectedPublishApproval,
+    selectedPublishView,
     runtimeActiveStepId,
     hasRuntimeCurrentStepMatch,
     timeline,
@@ -266,6 +274,28 @@ export function PmoPage() {
     refreshMappingApprovals,
   });
 
+  const { isSubmittingPublishDecision, approvePublish, rejectPublish } = usePmoPublishReviewActions(
+    {
+      selectedPublishApproval,
+      loadSessions,
+      refreshWorkflowRuntime,
+    },
+  );
+
+  const {
+    memberAdditionDrafts,
+    canApproveNormalization,
+    isSubmittingNormalizationDecision,
+    updateMemberAdditionDraft,
+    approveNormalization,
+    rejectNormalization,
+  } = usePmoNormalizationReviewActions({
+    selectedNormalizationApproval,
+    selectedNormalizationView,
+    loadSessions,
+    refreshWorkflowRuntime,
+  });
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void loadSessions(false);
@@ -355,6 +385,27 @@ export function PmoPage() {
     proceedToNextWorkflowStep,
     selectMappingAlternate,
     cancelMappingModify,
+  };
+
+  const executionNormalization = {
+    selectedNormalizationApproval,
+    normalizationApprovalsCount: normalizationApprovals.length,
+    selectedNormalizationView,
+    memberAdditionDrafts,
+    canApproveNormalization,
+    isSubmittingNormalizationDecision,
+    updateMemberAdditionDraft,
+    approveNormalization,
+    rejectNormalization,
+  };
+
+  const executionPublish = {
+    selectedPublishApproval,
+    publishApprovalsCount: publishApprovals.length,
+    selectedPublishView,
+    isSubmittingPublishDecision,
+    approvePublish,
+    rejectPublish,
   };
 
   const executionProfiling = {
@@ -558,6 +609,8 @@ export function PmoPage() {
                     executionActionGroups={executionActionGroups}
                     runtime={executionRuntime}
                     mapping={executionMapping}
+                    normalization={executionNormalization}
+                    publish={executionPublish}
                     profiling={executionProfiling}
                     plan={executionPlan}
                   />

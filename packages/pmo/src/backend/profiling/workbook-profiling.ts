@@ -150,6 +150,9 @@ export type WorkflowExecutionStepStatus =
 
 export interface WorkflowExecutionStep {
   step_no: number;
+  planner_step_id?: string;
+  action_id?: string;
+  review_type?: string;
   step_name: string;
   status: WorkflowExecutionStepStatus;
 }

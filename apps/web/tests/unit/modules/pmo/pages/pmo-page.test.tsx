@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ children, ...rest }: React.PropsWithChildren<Record<string, unknown>>) => {
@@ -65,8 +65,226 @@ function makeRunRow(partial?: Partial<Record<string, unknown>>) {
   };
 }
 
+function makePlan() {
+  return {
+    title: 'PMO ingestion plan',
+    goal_summary: 'Ingest this workbook and prepare data for RA calculation.',
+    uploaded_file_summary: {
+      file_name: 'pmo_2025-w35.xlsx',
+      file_size: '12 KB',
+      uploaded_at: '2026-06-13T08:00:00.000Z',
+      file_type: 'xlsx',
+    },
+    scope_assumption: {
+      likely_data_areas: [],
+      basis: 'test',
+    },
+    proposed_workflow: [
+      {
+        step_no: 1,
+        step_name: 'Workbook profiling',
+        description: 'Profile workbook sheets before mapping.',
+        agent_responsibility: 'Profile workbook',
+        user_responsibility: 'Confirm detected sheets',
+        requires_user_review: true,
+      },
+      {
+        step_no: 2,
+        step_name: 'Column mapping proposal',
+        description: 'Map workbook fields to PMO target columns.',
+        agent_responsibility: 'Propose mappings',
+        user_responsibility: 'Approve or modify mappings',
+        requires_user_review: true,
+      },
+      {
+        step_no: 3,
+        step_name: 'Validation and normalization to staging',
+        description: 'Validate normalized rows before staging.',
+        agent_responsibility: 'Normalize and validate data',
+        user_responsibility: 'Resolve data quality findings',
+        requires_user_review: true,
+      },
+      {
+        step_no: 4,
+        step_name: 'Database comparison and change summary',
+        description: 'Compare staged rows with database records.',
+        agent_responsibility: 'Summarize database changes',
+        user_responsibility: 'Review changes',
+        requires_user_review: true,
+      },
+      {
+        step_no: 5,
+        step_name: 'Publish only after final approval',
+        description: 'Publish approved changes.',
+        agent_responsibility: 'Publish changes',
+        user_responsibility: 'Approve final publish',
+        requires_user_review: true,
+      },
+    ],
+    review_gates: [],
+    state_management_plan: {
+      state_to_save: [],
+      resume_behavior: 'resume from PMO-approved step',
+    },
+    risks_and_assumptions: [],
+    not_yet_performed: [],
+    approval_policy: {
+      can_continue_after_plan_approval: true,
+      requires_mapping_review_before_normalization: true,
+      requires_db_change_review_before_publish: true,
+      will_publish_without_user_approval: false,
+    },
+    next_action: {
+      label: 'Approve plan',
+      description: 'Approve the plan to start profiling.',
+    },
+  };
+}
+
+function workflowStepNoFromApproval(stepId: string): number {
+  if (/mapping|confirmMapping/i.test(stepId)) return 2;
+  if (/normaliz|validate|validation/i.test(stepId)) return 3;
+  if (/reviewChanges|publish|confirmPublish/i.test(stepId)) return 4;
+  return 1;
+}
+
+function makePlanningSession(partial?: Partial<Record<string, unknown>>) {
+  const currentStepNo = Number(partial?.currentStepNo ?? 1);
+  const currentStepStatus =
+    (partial?.currentStepStatus as
+      | 'in_progress'
+      | 'needs_review'
+      | 'completed'
+      | 'cancelled'
+      | undefined) ?? 'needs_review';
+  const steps = makePlan().proposed_workflow.map((step) => ({
+    step_no: step.step_no,
+    step_name: step.step_name,
+    status:
+      step.step_no < currentStepNo
+        ? ('completed' as const)
+        : step.step_no === currentStepNo
+          ? currentStepStatus
+          : ('pending' as const),
+  }));
+
+  return {
+    ingestion_session_id:
+      (partial?.ingestion_session_id as string | undefined) ??
+      '629d3033-67df-4d5b-a270-77d690c43c13',
+    workbook_name: (partial?.workbook_name as string | undefined) ?? 'pmo_2025-w35.xlsx',
+    workbook_size_bytes: 12_345,
+    workbook_size: '12.1 KB',
+    file_type: 'xlsx',
+    uploaded_at: '2026-06-13T08:00:00.000Z',
+    operator: 'PMO User',
+    planning_state: 'approved_plan',
+    status_label: currentStepStatus === 'needs_review' ? 'Needs review' : 'In progress',
+    active_gate: steps.find((step) => step.step_no === currentStepNo)?.step_name ?? 'Workflow',
+    progress_text: `Step ${currentStepNo}/5`,
+    progress_pct: currentStepNo * 20,
+    goal: 'Ingest this workbook and prepare data for RA calculation.',
+    plan: makePlan(),
+    plan_version: 1,
+    feedback_history: [],
+    execution_state: {
+      state_version: 1,
+      started_at: '2026-06-13T08:00:00.000Z',
+      updated_at: '2026-06-13T08:00:00.000Z',
+      current_step_no: currentStepNo,
+      current_step_status: currentStepStatus,
+      steps,
+      documents: [
+        {
+          document_id: 'doc-1',
+          source_file_key: 'tenant/pmo/session/pmo_2025-w35.xlsx',
+          file_name: (partial?.workbook_name as string | undefined) ?? 'pmo_2025-w35.xlsx',
+          file_size_bytes: 12_345,
+          mime_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          uploaded_at: '2026-06-13T08:00:00.000Z',
+          status: 'profiled',
+        },
+      ],
+      profiling_summary: null,
+      profiling_review: {
+        status: 'approved',
+        sheet_overrides: [],
+        waived_missing_areas: [],
+        last_updated_at: '2026-06-13T08:00:00.000Z',
+      },
+    },
+    profiling_documents: [],
+    profiling_summary: null,
+    profiling_review: {
+      status: 'approved',
+      sheet_overrides: [],
+      waived_missing_areas: [],
+      last_updated_at: '2026-06-13T08:00:00.000Z',
+    },
+    workflow_current_step: steps.find((step) => step.step_no === currentStepNo)?.step_name ?? null,
+    workflow_step_status: currentStepStatus,
+    workflow_started_at: '2026-06-13T08:00:00.000Z',
+    workflow_updated_at: '2026-06-13T08:00:00.000Z',
+    plan_generated_at: '2026-06-13T08:00:00.000Z',
+    plan_approved_at: '2026-06-13T08:00:00.000Z',
+    ...partial,
+  };
+}
+
+function planningSessionFromRun(run: unknown, pendingApprovals: unknown[]) {
+  const row = run as {
+    runId?: string;
+    status?: string;
+    inputSummary?: { ingestionSessionId?: string; fileKey?: string };
+    startedAt?: string;
+  };
+  const approvalsForRun = pendingApprovals.filter(
+    (item) => (item as { runId?: string }).runId === row.runId,
+  ) as Array<{ stepId?: string }>;
+  const approvalStepNo = approvalsForRun.reduce(
+    (maxStepNo, approval) =>
+      Math.max(maxStepNo, approval.stepId ? workflowStepNoFromApproval(approval.stepId) : 0),
+    0,
+  );
+  const currentStepNo = approvalStepNo
+    ? approvalStepNo
+    : row.status === 'success' || row.status === 'canceled'
+      ? 5
+      : 1;
+  const terminal = row.status === 'success' || row.status === 'canceled';
+  const currentStepStatus = terminal
+    ? row.status === 'canceled'
+      ? 'cancelled'
+      : 'completed'
+    : approvalStepNo
+      ? 'needs_review'
+      : 'in_progress';
+
+  const fileKey = row.inputSummary?.fileKey ?? 'tenant/pmo/session/pmo_2025-w35.xlsx';
+  const workbookName = fileKey.split('/').at(-1) ?? 'pmo_2025-w35.xlsx';
+
+  return makePlanningSession({
+    ingestion_session_id:
+      row.inputSummary?.ingestionSessionId ?? '629d3033-67df-4d5b-a270-77d690c43c13',
+    workbook_name: workbookName,
+    uploaded_at: row.startedAt ?? '2026-06-13T08:00:00.000Z',
+    currentStepNo,
+    currentStepStatus,
+    status_label:
+      row.status === 'success'
+        ? 'Completed'
+        : row.status === 'canceled'
+          ? 'Cancelled'
+          : currentStepStatus === 'needs_review'
+            ? 'Needs review'
+            : 'In progress',
+    workflow_step_status: currentStepStatus,
+  });
+}
+
 function createFetchMock(opts?: {
   runRows?: unknown[];
+  planningSessions?: unknown[];
   pendingApprovals?: unknown[];
   snapshotResponse?: unknown;
   uploadResponse?: unknown;
@@ -80,6 +298,8 @@ function createFetchMock(opts?: {
 }) {
   const runRows = opts?.runRows ?? [];
   const pendingApprovals = opts?.pendingApprovals ?? [];
+  const planningSessions =
+    opts?.planningSessions ?? runRows.map((run) => planningSessionFromRun(run, pendingApprovals));
   const uploadStatus = opts?.uploadStatus ?? 200;
   const startStatus = opts?.startStatus ?? 200;
   const decideStatus = opts?.decideStatus ?? 200;
@@ -91,11 +311,17 @@ function createFetchMock(opts?: {
     if (url.startsWith('/api/agent/v1/workflows/runs?')) {
       return mockJsonResponse({ rows: runRows, nextCursor: null });
     }
+    if (url === '/api/agent/v1/workflows/sse-token') {
+      return mockJsonResponse({ token: 'test-sse-token' });
+    }
     if (/^\/api\/agent\/v1\/workflows\/runs\/[^/]+\/snapshot$/.test(url)) {
       return mockJsonResponse(opts?.snapshotResponse ?? {});
     }
     if (url === '/api/agent/v1/workflows/my-pending-approvals') {
       return mockJsonResponse(pendingApprovals);
+    }
+    if (url === '/api/pmo/v1/ingestion-sessions') {
+      return mockJsonResponse({ items: planningSessions });
     }
     if (url === '/api/pmo/v1/upload') {
       return mockJsonResponse(
@@ -106,6 +332,15 @@ function createFetchMock(opts?: {
         },
         uploadStatus,
       );
+    }
+    if (url === '/api/pmo/v1/plan/generate') {
+      return mockJsonResponse({
+        ingestion_session_id: '11111111-1111-4111-8111-111111111111',
+        planning_state: 'plan_review',
+        plan: makePlan(),
+        plan_version: 1,
+        feedback_history: [],
+      });
     }
     if (url === '/api/agent/v1/workflows/runs/pmo.ingestData/start') {
       return mockJsonResponse(opts?.startResponse ?? { runId: 'run-123' }, startStatus);
@@ -136,11 +371,20 @@ function findCall(
 }
 
 describe('PmoPage', () => {
+  beforeEach(() => {
+    class TestEventSource {
+      addEventListener = vi.fn();
+      close = vi.fn();
+    }
+
+    vi.stubGlobal('EventSource', TestEventSource);
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
-  it('uploads workbook, then starts pmo.ingestData workflow only after clicking Process', async () => {
+  it('uploads workbook, then generates a plan only after clicking Analyze', async () => {
     const fetchMock = createFetchMock({
       runRows: [
         makeRunRow({
@@ -182,15 +426,13 @@ describe('PmoPage', () => {
       ),
     ).toBe(false);
 
-    expect(screen.getByRole('button', { name: 'Process' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Analyze & generate plan' })).toBeEnabled();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Process' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Analyze & generate plan' }));
 
     await waitFor(() => {
       expect(
-        fetchMock.mock.calls.some(
-          (entry) => String(entry[0]) === '/api/agent/v1/workflows/runs/pmo.ingestData/start',
-        ),
+        fetchMock.mock.calls.some((entry) => String(entry[0]) === '/api/pmo/v1/plan/generate'),
       ).toBe(true);
     });
 
@@ -204,17 +446,13 @@ describe('PmoPage', () => {
     expect(sentFile).toBeInstanceOf(File);
     expect((sentFile as File).name).toBe('workbook.xlsx');
 
-    const startCall = findCall(
-      fetchMock,
-      (url) => url === '/api/agent/v1/workflows/runs/pmo.ingestData/start',
-    );
-    expect(startCall[0]).toBe('/api/agent/v1/workflows/runs/pmo.ingestData/start');
-    expect(startCall[1]?.method).toBe('POST');
-    expect(startCall[1]?.headers).toEqual({ 'Content-Type': 'application/json' });
-    expect(JSON.parse(String(startCall[1]?.body))).toEqual({
-      ingestionSessionId: '11111111-1111-4111-8111-111111111111',
-      fileKey: 'tenant/pmo/session/workbook.xlsx',
-      reportingPeriodKey: '2026-W24',
+    const generateCall = findCall(fetchMock, (url) => url === '/api/pmo/v1/plan/generate');
+    expect(generateCall[0]).toBe('/api/pmo/v1/plan/generate');
+    expect(generateCall[1]?.method).toBe('POST');
+    expect(generateCall[1]?.headers).toEqual({ 'Content-Type': 'application/json' });
+    expect(JSON.parse(String(generateCall[1]?.body))).toEqual({
+      ingestion_session_id: '11111111-1111-4111-8111-111111111111',
+      goal: 'Ingest this workbook and prepare data for RA calculation.',
     });
 
     await waitFor(() => {
@@ -313,10 +551,10 @@ describe('PmoPage', () => {
       expect(screen.getAllByText(/Needs review/i).length).toBeGreaterThan(0);
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Review now' }));
+    fireEvent.click(screen.getByRole('button', { name: 'View' }));
 
     await waitFor(() => {
-      expect(screen.getAllByText('Review changes').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Review staging changes').length).toBeGreaterThan(0);
       expect(screen.getByRole('button', { name: 'Approve publish' })).toBeInTheDocument();
     });
   });
@@ -416,7 +654,7 @@ describe('PmoPage', () => {
       expect(screen.getAllByText(/Needs review/i).length).toBeGreaterThan(0);
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Review now' }));
+    fireEvent.click(screen.getByRole('button', { name: 'View' }));
 
     await waitFor(() => {
       expect(screen.getByText('Review column mappings')).toBeInTheDocument();
@@ -544,7 +782,7 @@ describe('PmoPage', () => {
       expect(screen.getAllByText(/Needs review/i).length).toBeGreaterThan(0);
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Review now' }));
+    fireEvent.click(screen.getByRole('button', { name: 'View' }));
 
     await waitFor(() => {
       expect(screen.getByText('Sheet: DS01')).toBeInTheDocument();
@@ -655,18 +893,18 @@ describe('PmoPage', () => {
     render(withQuery(<PmoPage />));
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Review now' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'View' })).toBeInTheDocument();
+      expect(screen.getAllByRole('button', { name: 'View' }).length).toBeGreaterThanOrEqual(2);
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'View' }));
+    const summaryRowCell = screen.getAllByText('summary.xlsx').find((node) => node.closest('tr'));
+    expect(summaryRowCell).toBeTruthy();
+    fireEvent.click(
+      within(summaryRowCell?.closest('tr') as HTMLElement).getByRole('button', { name: 'View' }),
+    );
 
     await waitFor(() => {
-      expect(
-        screen.getByText(
-          'Summary view is available after mapping and DB review approvals are completed.',
-        ),
-      ).toBeInTheDocument();
+      expect(screen.getByText('Workflow execution')).toBeInTheDocument();
+      expect(screen.queryByText('Review column mappings')).not.toBeInTheDocument();
     });
   });
 
@@ -793,8 +1031,15 @@ describe('PmoPage', () => {
     render(withQuery(<PmoPage />));
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /DB changes/i })).toBeEnabled();
-      expect(screen.getAllByText('Review changes').length).toBeGreaterThan(0);
+      expect(screen.getByRole('button', { name: 'View' })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'View' }));
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Database comparison and change summary').length).toBeGreaterThan(
+        0,
+      );
+      expect(screen.queryByText('Review column mappings')).not.toBeInTheDocument();
     });
   });
 
@@ -868,15 +1113,8 @@ describe('PmoPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Member ID')).toBeInTheDocument();
-      expect(screen.getByText('dim_resource_allocation.member_id')).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: /DB changes/i }));
-
-    await waitFor(() => {
-      expect(screen.getAllByText('resource_allocation').length).toBeGreaterThan(0);
-      expect(screen.getByText('Selected table details')).toBeInTheDocument();
+      expect(screen.getByText('Workflow execution')).toBeInTheDocument();
+      expect(screen.getAllByText('Completed').length).toBeGreaterThan(0);
     });
 
     const canceledRowCell = screen.getAllByText('canceled.xlsx').find((node) => node.closest('tr'));
@@ -886,8 +1124,8 @@ describe('PmoPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Member ID')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /mapping columns/i })).toBeEnabled();
+      expect(screen.getByText('Workflow execution')).toBeInTheDocument();
+      expect(screen.getAllByText('Cancelled').length).toBeGreaterThan(0);
     });
   });
 
@@ -981,11 +1219,13 @@ describe('PmoPage', () => {
       expect(screen.getAllByText(/Needs review/i).length).toBeGreaterThan(0);
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Review now' }));
+    fireEvent.click(screen.getByRole('button', { name: 'View' }));
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Next step' })).toBeEnabled();
-      expect(screen.getByRole('button', { name: /db changes/i })).toBeDisabled();
+      expect(screen.getAllByText('Validation and normalization to staging').length).toBeGreaterThan(
+        0,
+      );
       expect(screen.getAllByText('22222222').length).toBeGreaterThan(0);
     });
 
@@ -1005,6 +1245,130 @@ describe('PmoPage', () => {
     expect(decideCall[1]?.method).toBe('POST');
     expect(JSON.parse(String(decideCall[1]?.body))).toEqual({
       decision: 'approve',
+    });
+  });
+
+  it('shows normalization findings and submits missing member master additions', async () => {
+    const fetchMock = createFetchMock({
+      runRows: [
+        makeRunRow({
+          runId: 'run-normalization-review',
+          status: 'paused',
+          inputSummary: {
+            ingestionSessionId: '629d3033-67df-4d5b-a270-77d690c43c13',
+            fileKey: 'tenant/pmo/session/pmo_2025-w35.xlsx',
+            reportingPeriodKey: '2026-W24',
+          },
+        }),
+      ],
+      pendingApprovals: [
+        {
+          approvalId: 'approval-normalization-1',
+          runId: 'run-normalization-review',
+          stepId: 'pmo.ingest.normalizeToStaging',
+          proposedPayload: {
+            toolCallId: 'workflow:run-normalization-review:pmo_reviewNormalization',
+            intent: 'Review normalized data before staging',
+            riskBadge: 'write',
+            summary: 'Normalized data has blocking member master findings.',
+            details: [
+              {
+                kind: 'kvTable',
+                rows: [
+                  { k: 'Rows to stage', v: '12' },
+                  { k: 'Duplicates in upload', v: '0' },
+                  { k: 'Blocking issues', v: '1' },
+                ],
+              },
+              {
+                kind: 'kvTable',
+                rows: [
+                  {
+                    k: 'resource_allocation',
+                    v: 'stage=12 | new=8 | updated=4 | duplicates=0',
+                  },
+                ],
+              },
+              {
+                kind: 'kvTable',
+                rows: [
+                  {
+                    k: 'Blocking member_id issue',
+                    v: "member_id 'M-404' not found in member_master or active database",
+                  },
+                ],
+              },
+            ],
+            primary: { label: 'Resolve findings', argsPatch: { decision: 'approve' } },
+            alternates: [],
+            decline: { label: 'Reject normalization', argsPatch: { decision: 'reject' } },
+            meta: {
+              tenantId: '11111111-1111-4111-8111-111111111111',
+              userId: '22222222-2222-4222-8222-222222222222',
+              agentPath: ['supervisor', 'work', 'pmo'],
+              toolId: 'pmo_reviewNormalization',
+              ts: '2026-06-13T08:00:00.000Z',
+            },
+          },
+          approverUserId: '22222222-2222-4222-8222-222222222222',
+          surfaceCanvas: true,
+          surfaceChatThreadId: null,
+          agentic: false,
+          status: 'pending',
+          decisionPayload: null,
+          decidedAt: null,
+          expiresAt: '2099-01-01T00:00:00.000Z',
+          createdAt: '2026-06-13T08:00:00.000Z',
+        },
+      ],
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(withQuery(<PmoPage />));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'View' })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'View' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Validate normalized data')).toBeInTheDocument();
+      expect(screen.getByDisplayValue('M-404')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Add members & continue' })).toBeDisabled();
+    });
+
+    fireEvent.change(screen.getByLabelText('Full name'), {
+      target: { value: 'Missing Member' },
+    });
+    fireEvent.change(screen.getByLabelText('Department'), {
+      target: { value: 'Delivery' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add members & continue' }));
+
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some((entry) =>
+          /^\/api\/agent\/v1\/workflows\/approvals\/[^/]+\/decide$/.test(String(entry[0])),
+        ),
+      ).toBe(true);
+    });
+
+    const decideCall = findCall(fetchMock, (url) =>
+      /^\/api\/agent\/v1\/workflows\/approvals\/[^/]+\/decide$/.test(url),
+    );
+    expect(JSON.parse(String(decideCall[1]?.body))).toEqual({
+      decision: 'modify',
+      payloadPatch: {
+        decision: 'approve',
+        memberMasterAdditions: [
+          {
+            member_id: 'M-404',
+            full_name: 'Missing Member',
+            department: 'Delivery',
+          },
+        ],
+      },
     });
   });
 
@@ -1089,13 +1453,13 @@ describe('PmoPage', () => {
       expect(screen.getAllByText(/Needs review/i).length).toBeGreaterThan(0);
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Review now' }));
+    fireEvent.click(screen.getByRole('button', { name: 'View' }));
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Cancel workflow' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled();
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel workflow' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 
     await waitFor(() => {
       expect(
@@ -1222,7 +1586,7 @@ describe('PmoPage', () => {
       expect(screen.getAllByText(/Needs review/i).length).toBeGreaterThan(0);
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Review now' }));
+    fireEvent.click(screen.getByRole('button', { name: 'View' }));
 
     await waitFor(() => {
       expect(screen.getByText('Review column mappings')).toBeInTheDocument();
@@ -1237,7 +1601,6 @@ describe('PmoPage', () => {
           /modify only changes the source column from sheet data\. target db column stays/i,
         ),
       ).toBeInTheDocument();
-      expect(screen.getByText(/color guide:/i)).toBeInTheDocument();
       expect(
         screen.getByRole('button', {
           name: /DS03_Overbook_Idle_Config\s*\.\s*Overbook_limit/i,

@@ -1,0 +1,83 @@
+import { toast } from '@seta/shared-ui';
+import { useCallback } from 'react';
+import type { WorkflowApprovalRow } from '../api/workflow-runtime';
+import { useSubmitWorkflowRuntimeDecision } from './use-workflow-runtime';
+
+interface UsePmoPublishReviewActionsOptions {
+  selectedPublishApproval: WorkflowApprovalRow | null;
+  loadSessions: (keepSelection?: boolean) => Promise<void>;
+  refreshWorkflowRuntime: () => Promise<void>;
+}
+
+interface UsePmoPublishReviewActionsResult {
+  isSubmittingPublishDecision: boolean;
+  approvePublish: () => void;
+  rejectPublish: () => void;
+}
+
+export function usePmoPublishReviewActions(
+  options: UsePmoPublishReviewActionsOptions,
+): UsePmoPublishReviewActionsResult {
+  const { selectedPublishApproval, loadSessions, refreshWorkflowRuntime } = options;
+  const submitDecision = useSubmitWorkflowRuntimeDecision();
+
+  const refreshAfterDecision = useCallback(async () => {
+    await Promise.all([refreshWorkflowRuntime(), loadSessions(true)]);
+  }, [loadSessions, refreshWorkflowRuntime]);
+
+  const approvePublish = useCallback(() => {
+    if (!selectedPublishApproval) return;
+
+    submitDecision.mutate(
+      {
+        approvalId: selectedPublishApproval.approvalId,
+        agentic: selectedPublishApproval.agentic,
+        decision: 'approve',
+      },
+      {
+        onSuccess: async () => {
+          toast.success('Publish approved', {
+            description: 'The workflow will continue from the PMO publish decision.',
+          });
+          await refreshAfterDecision();
+        },
+        onError: (err) => {
+          toast.error('Failed to approve publish', {
+            description: err instanceof Error ? err.message : String(err),
+          });
+        },
+      },
+    );
+  }, [refreshAfterDecision, selectedPublishApproval, submitDecision]);
+
+  const rejectPublish = useCallback(() => {
+    if (!selectedPublishApproval) return;
+
+    submitDecision.mutate(
+      {
+        approvalId: selectedPublishApproval.approvalId,
+        agentic: selectedPublishApproval.agentic,
+        decision: 'reject',
+      },
+      {
+        onSuccess: async () => {
+          toast.success('Publish rejected', {
+            description: 'The workflow was stopped by the PMO publish decision.',
+          });
+          await refreshAfterDecision();
+        },
+        onError: (err) => {
+          toast.error('Failed to reject publish', {
+            description: err instanceof Error ? err.message : String(err),
+          });
+        },
+      },
+    );
+  }, [refreshAfterDecision, selectedPublishApproval, submitDecision]);
+
+  return {
+    isSubmittingPublishDecision: submitDecision.isPending,
+    approvePublish,
+    rejectPublish,
+  };
+}

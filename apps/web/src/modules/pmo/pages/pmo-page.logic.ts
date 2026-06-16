@@ -7,8 +7,27 @@ import type { WorkflowApprovalRow, WorkflowRunRow } from '../api/workflow-runtim
 
 export type TimelineState = 'done' | 'current' | 'pending';
 
+export type PmoPlanActionId =
+  | 'workbook_profiling'
+  | 'column_mapping'
+  | 'normalize_to_staging'
+  | 'database_change_summary'
+  | 'publish_after_approval'
+  | 'generic_review';
+
+export type PmoReviewType =
+  | 'none'
+  | 'profiling'
+  | 'mapping'
+  | 'normalization'
+  | 'publish'
+  | 'generic';
+
 export type ExecutionCard = {
   step_no: number;
+  planner_step_id?: string;
+  action_id?: string;
+  review_type?: string;
   step_name: string;
   status: PmoWorkflowExecutionStepStatus;
   description?: string;
@@ -51,6 +70,27 @@ export interface MappingViewModel {
   currentKey: string | null;
   alternatesByItemKey: Map<string, MappingAlternateOption[]>;
   awaitingNextStep: boolean;
+}
+
+export interface PublishReviewViewModel {
+  summary: string;
+  primaryLabel: string;
+  declineLabel: string | null;
+  canApprove: boolean;
+  summaryRows: Array<{ k: string; v: string }>;
+  tableRows: Array<{ k: string; v: string }>;
+  issueRows: Array<{ k: string; v: string }>;
+  checklist: string[];
+}
+
+export interface MissingMemberReference {
+  memberId: string;
+  source: string;
+  reason: string;
+}
+
+export interface NormalizationReviewViewModel extends PublishReviewViewModel {
+  missingMembers: MissingMemberReference[];
 }
 
 export function groupExecutionCardsByAction(cards: ExecutionCard[]): ExecutionActionGroup[] {
@@ -238,7 +278,31 @@ function cardToolIdFromPayload(payload: unknown): string | null {
   return typeof toolId === 'string' ? toolId : null;
 }
 
+function cardMetaStringFromPayload(payload: unknown, key: string): string | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const meta = (payload as { meta?: unknown }).meta;
+  if (!meta || typeof meta !== 'object') return null;
+  const value = (meta as Record<string, unknown>)[key];
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+export function readPlannerStepIdFromApproval(approval: WorkflowApprovalRow): string | null {
+  return cardMetaStringFromPayload(approval.proposedPayload, 'plannerStepId');
+}
+
+export function readActionIdFromApproval(approval: WorkflowApprovalRow): string | null {
+  return cardMetaStringFromPayload(approval.proposedPayload, 'actionId');
+}
+
+export function readReviewTypeFromApproval(approval: WorkflowApprovalRow): string | null {
+  return cardMetaStringFromPayload(approval.proposedPayload, 'reviewType');
+}
+
 export function isMappingApprovalRow(approval: WorkflowApprovalRow): boolean {
+  const reviewType = readReviewTypeFromApproval(approval);
+  const actionId = readActionIdFromApproval(approval);
+  if (reviewType === 'mapping' || actionId === 'column_mapping') return true;
+
   const stepId = approval.stepId;
   if (
     stepId === 'pmo.ingest.confirmMapping' ||
@@ -249,6 +313,46 @@ export function isMappingApprovalRow(approval: WorkflowApprovalRow): boolean {
   }
 
   return cardToolIdFromPayload(approval.proposedPayload) === 'pmo_confirmMapping';
+}
+
+export function isPublishApprovalRow(approval: WorkflowApprovalRow): boolean {
+  const reviewType = readReviewTypeFromApproval(approval);
+  const actionId = readActionIdFromApproval(approval);
+  if (
+    reviewType === 'publish' ||
+    actionId === 'publish_after_approval' ||
+    actionId === 'database_change_summary'
+  ) {
+    return true;
+  }
+
+  const stepId = approval.stepId;
+  if (
+    stepId === 'pmo.ingest.reviewChanges' ||
+    stepId === 'reviewChanges' ||
+    stepId.endsWith('.reviewChanges')
+  ) {
+    return true;
+  }
+
+  return cardToolIdFromPayload(approval.proposedPayload) === 'pmo_confirmPublish';
+}
+
+export function isNormalizationApprovalRow(approval: WorkflowApprovalRow): boolean {
+  const reviewType = readReviewTypeFromApproval(approval);
+  const actionId = readActionIdFromApproval(approval);
+  if (reviewType === 'normalization' || actionId === 'normalize_to_staging') return true;
+
+  const stepId = approval.stepId;
+  if (
+    stepId === 'pmo.ingest.normalizeToStaging' ||
+    stepId === 'normalizeToStaging' ||
+    stepId.endsWith('.normalizeToStaging')
+  ) {
+    return true;
+  }
+
+  return cardToolIdFromPayload(approval.proposedPayload) === 'pmo_reviewNormalization';
 }
 
 export function readIngestionSessionIdFromApproval(approval: WorkflowApprovalRow): string | null {
@@ -342,24 +446,34 @@ export function executionStepMatchesRuntimeStep(
 ): boolean {
   const runtime = runtimeStepId.toLowerCase();
   const stepName = step.step_name.toLowerCase();
+  const actionId = step.action_id;
+  const plannerStepId = step.planner_step_id?.toLowerCase();
+
+  if (plannerStepId && runtime.includes(plannerStepId)) return true;
 
   if (runtime.includes('confirmmapping')) {
-    if (step.step_no === 2) return true;
+    if (actionId === 'column_mapping') return true;
+    if (actionId) return false;
     return /mapping|confirm/.test(stepName);
   }
 
   if (runtime.includes('normalize')) {
-    if (step.step_no === 3) return true;
-    return /normalize|staging|diff/.test(stepName);
+    if (actionId === 'normalize_to_staging') return true;
+    if (actionId) return false;
+    return /normalize|staging|diff|validate|validation|data\s*quality|duplicate|anomal/.test(
+      stepName,
+    );
   }
 
   if (runtime.includes('reviewchanges')) {
-    if (step.step_no === 4) return true;
-    return /review|readiness|impact|database|publish/.test(stepName);
+    if (actionId === 'publish_after_approval') return true;
+    if (actionId) return false;
+    return /review|readiness|impact|database|change\s*summary|publish/.test(stepName);
   }
 
   if (runtime.includes('detect')) {
-    if (step.step_no === 1) return true;
+    if (actionId === 'workbook_profiling') return true;
+    if (actionId) return false;
     return /profil|schema|detect/.test(stepName);
   }
 
@@ -523,6 +637,118 @@ function parseMappingViewPayload(payload: unknown): MappingViewModel | null {
 export function parseMappingView(approval: WorkflowApprovalRow | null): MappingViewModel | null {
   if (!approval) return null;
   return parseMappingViewPayload(approval.proposedPayload);
+}
+
+function textDetailsFromPayload(payload: unknown): string[] {
+  if (!isRenderableApprovalPayload(payload)) return [];
+  const out: string[] = [];
+
+  for (const detail of payload.details) {
+    if (!detail || typeof detail !== 'object') continue;
+    if ((detail as { kind?: unknown }).kind !== 'text') continue;
+
+    const body = (detail as { body?: unknown }).body;
+    if (typeof body !== 'string') continue;
+
+    const lines = body
+      .split('\n')
+      .map((line) => line.replace(/^[-*]\s*/, '').trim())
+      .filter(Boolean);
+    out.push(...lines);
+  }
+
+  return out;
+}
+
+function publishPrimaryApproves(payload: unknown): boolean {
+  if (!payload || typeof payload !== 'object') return false;
+  const primary = (payload as { primary?: unknown }).primary;
+  if (!primary || typeof primary !== 'object') return false;
+  const argsPatch = (primary as { argsPatch?: unknown }).argsPatch;
+  if (!argsPatch || typeof argsPatch !== 'object') return false;
+  return (argsPatch as { decision?: unknown }).decision === 'approve';
+}
+
+export function parsePublishReviewView(
+  approval: WorkflowApprovalRow | null,
+): PublishReviewViewModel | null {
+  if (!approval || !isRenderableApprovalPayload(approval.proposedPayload)) return null;
+
+  const payload = approval.proposedPayload as {
+    summary?: unknown;
+    primary: { label: string };
+    decline?: { label?: unknown };
+  };
+  const tables = kvTablesFromPayload(payload);
+  const summaryRows = tables[0] ?? [];
+  const tableRows = tables[1] ?? [];
+  const issueRows =
+    tables
+      .slice()
+      .reverse()
+      .find((table) =>
+        table.some((row) => /issue|severity|blocking|error/i.test(`${row.k} ${row.v}`)),
+      ) ?? [];
+
+  const summary = typeof payload.summary === 'string' ? payload.summary : 'Review publish changes.';
+  const declineLabel =
+    payload.decline && typeof payload.decline === 'object'
+      ? (((payload.decline as { label?: unknown }).label as string | undefined) ?? null)
+      : null;
+
+  return {
+    summary,
+    primaryLabel: payload.primary.label,
+    declineLabel,
+    canApprove: publishPrimaryApproves(payload),
+    summaryRows,
+    tableRows,
+    issueRows,
+    checklist: textDetailsFromPayload(payload),
+  };
+}
+
+function missingMembersFromIssueRows(
+  rows: Array<{ k: string; v: string }>,
+): MissingMemberReference[] {
+  const byMemberId = new Map<string, MissingMemberReference>();
+  for (const row of rows) {
+    if (!/\bmember_id\b/i.test(row.k)) continue;
+    if (!/not found in member_master/i.test(row.v)) continue;
+
+    const match = row.v.match(/'([^']+)'/);
+    const memberId = match?.[1]?.trim();
+    if (!memberId) continue;
+
+    const existing = byMemberId.get(memberId);
+    if (existing) {
+      byMemberId.set(memberId, {
+        ...existing,
+        source: `${existing.source}; ${row.k}`,
+      });
+      continue;
+    }
+
+    byMemberId.set(memberId, {
+      memberId,
+      source: row.k,
+      reason: row.v,
+    });
+  }
+
+  return [...byMemberId.values()];
+}
+
+export function parseNormalizationReviewView(
+  approval: WorkflowApprovalRow | null,
+): NormalizationReviewViewModel | null {
+  const base = parsePublishReviewView(approval);
+  if (!base) return null;
+
+  return {
+    ...base,
+    missingMembers: missingMembersFromIssueRows(base.issueRows),
+  };
 }
 
 export function toneForState(state: TimelineState): { marker: string; text: string } {
@@ -694,6 +920,40 @@ export function documentStatusTone(status: PmoSessionDocumentProfileRecord['stat
   };
 }
 
+function inferActionIdFromStepName(stepName: string): PmoPlanActionId {
+  const normalized = stepName.toLowerCase();
+  if (/publish|final\s*approval|upsert|write\s+target/.test(normalized)) {
+    return 'publish_after_approval';
+  }
+  if (
+    /normaliz|staging|clean|transform|validate|validation|data\s*quality|duplicate|anomal/.test(
+      normalized,
+    )
+  ) {
+    return 'normalize_to_staging';
+  }
+  if (/column|field|mapping|map\s+proposal|schema\s+align|reconcile/.test(normalized)) {
+    return 'column_mapping';
+  }
+  if (/database|db\s+change|change\s*summary|comparison|diff|impact|readiness/.test(normalized)) {
+    return 'database_change_summary';
+  }
+  if (/workbook|profil|detect|sheet\s+role|parse/.test(normalized)) {
+    return 'workbook_profiling';
+  }
+  return 'generic_review';
+}
+
+function reviewTypeForActionId(actionId: string | undefined): PmoReviewType {
+  if (actionId === 'workbook_profiling') return 'profiling';
+  if (actionId === 'column_mapping') return 'mapping';
+  if (actionId === 'normalize_to_staging') return 'normalization';
+  if (actionId === 'database_change_summary' || actionId === 'publish_after_approval') {
+    return 'publish';
+  }
+  return 'generic';
+}
+
 export function buildExecutionCards(session: PmoPlanningSession | null): ExecutionCard[] {
   if (!session?.plan) {
     return [];
@@ -709,14 +969,20 @@ export function buildExecutionCards(session: PmoPlanningSession | null): Executi
       statusByStepNo.set(step.step_no, step.status);
     }
 
-    const cards = sortedWorkflow.map((step, index) => ({
-      step_no: step.step_no,
-      step_name: step.step_name,
-      status:
-        statusByStepNo.get(step.step_no) ??
-        (session.planning_state === 'approved_plan' && index === 0 ? 'in_progress' : 'pending'),
-      description: step.description,
-    }));
+    const cards = sortedWorkflow.map((step, index) => {
+      const actionId = step.action_id ?? inferActionIdFromStepName(step.step_name);
+      return {
+        step_no: step.step_no,
+        planner_step_id: step.planner_step_id ?? `pmo.planner.step.${step.step_no}.${actionId}`,
+        action_id: actionId,
+        review_type: step.review_type ?? reviewTypeForActionId(actionId),
+        step_name: step.step_name,
+        status:
+          statusByStepNo.get(step.step_no) ??
+          (session.planning_state === 'approved_plan' && index === 0 ? 'in_progress' : 'pending'),
+        description: step.description,
+      };
+    });
 
     // Keep unexpected runtime-only steps visible for observability if they exist.
     const plannerStepNos = new Set(cards.map((step) => step.step_no));
@@ -725,6 +991,9 @@ export function buildExecutionCards(session: PmoPlanningSession | null): Executi
       .sort((a, b) => a.step_no - b.step_no)
       .map((step) => ({
         step_no: step.step_no,
+        planner_step_id: step.planner_step_id,
+        action_id: step.action_id,
+        review_type: step.review_type,
         step_name: step.step_name,
         status: step.status,
         description: '',
@@ -739,6 +1008,9 @@ export function buildExecutionCards(session: PmoPlanningSession | null): Executi
       .sort((a, b) => a.step_no - b.step_no)
       .map((step) => ({
         step_no: step.step_no,
+        planner_step_id: step.planner_step_id,
+        action_id: step.action_id,
+        review_type: step.review_type,
         step_name: step.step_name,
         status: step.status,
         description: '',
@@ -749,23 +1021,32 @@ export function buildExecutionCards(session: PmoPlanningSession | null): Executi
     return [
       {
         step_no: 1,
+        planner_step_id: 'pmo.planner.step.1.workbook_profiling',
+        action_id: 'workbook_profiling',
+        review_type: 'profiling',
         step_name: 'Workbook Profiling',
         status: session.planning_state === 'approved_plan' ? 'in_progress' : 'pending',
       },
     ];
   }
 
-  return sortedWorkflow.map((step, index) => ({
-    step_no: step.step_no,
-    step_name: step.step_name,
-    status:
-      session.planning_state === 'approved_plan'
-        ? index === 0
-          ? 'in_progress'
-          : 'pending'
-        : 'pending',
-    description: step.description,
-  }));
+  return sortedWorkflow.map((step, index) => {
+    const actionId = step.action_id ?? inferActionIdFromStepName(step.step_name);
+    return {
+      step_no: step.step_no,
+      planner_step_id: step.planner_step_id ?? `pmo.planner.step.${step.step_no}.${actionId}`,
+      action_id: actionId,
+      review_type: step.review_type ?? reviewTypeForActionId(actionId),
+      step_name: step.step_name,
+      status:
+        session.planning_state === 'approved_plan'
+          ? index === 0
+            ? 'in_progress'
+            : 'pending'
+          : 'pending',
+      description: step.description,
+    };
+  });
 }
 
 export function buildPlanningTimeline(

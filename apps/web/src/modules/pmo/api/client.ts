@@ -51,6 +51,15 @@ export interface PmoPlan {
   };
   proposed_workflow: Array<{
     step_no: number;
+    planner_step_id?: string;
+    action_id?:
+      | 'workbook_profiling'
+      | 'column_mapping'
+      | 'normalize_to_staging'
+      | 'database_change_summary'
+      | 'publish_after_approval'
+      | 'generic_review';
+    review_type?: 'none' | 'profiling' | 'mapping' | 'normalization' | 'publish' | 'generic';
     step_name: string;
     description: string;
     agent_responsibility: string;
@@ -187,6 +196,9 @@ export interface PmoProfilingReviewState {
 
 export interface PmoWorkflowExecutionStep {
   step_no: number;
+  planner_step_id?: string;
+  action_id?: string;
+  review_type?: string;
   step_name: string;
   status: PmoWorkflowExecutionStepStatus;
 }

@@ -18,8 +18,13 @@ import {
   shouldBlockDuplicateInUpload,
 } from '../../ingestion/stage-changes.ts';
 import {
+  findPlannerStepForRuntime,
+  type PmoPlannerStepMetadata,
+} from '../../planning/step-metadata.ts';
+import {
   buildMappingItemReviewCard,
   buildMappingReviewRows,
+  buildNormalizationReviewCard,
   buildPublishReviewCard,
   collectMappingDisplayItems,
   collectMappingReviewItems,
@@ -38,6 +43,8 @@ import {
   IngestInputSchema,
   MappingCardSchema,
   MappingDecisionSchema,
+  NormalizationDecisionSchema,
+  NormalizationReviewCardSchema,
   PublishDecisionSchema,
   PublishOutputSchema,
   PublishReviewCardSchema,
@@ -55,6 +62,7 @@ type RuntimeSessionStatus =
   | 'awaiting_confirmation'
   | 'confirmed'
   | 'normalizing'
+  | 'awaiting_normalization_review'
   | 'staging_normalized'
   | 'awaiting_publish_review'
   | 'published'
@@ -331,6 +339,37 @@ async function syncRuntimeExecutionState(params: {
   }
 }
 
+async function readPlannerStepForRuntime(params: {
+  ingestionSessionId: string;
+  requestContext: { get: (key: string) => unknown };
+  runtimeStepId: RuntimeWorkflowStepId;
+}): Promise<PmoPlannerStepMetadata | null> {
+  const tenantId = params.requestContext.get('tenant_id');
+  if (typeof tenantId !== 'string' || tenantId.length === 0) return null;
+
+  try {
+    const db = getPmoDb();
+    const rows = await db
+      .select({
+        planning_plan: ingestionSessions.planning_plan,
+      })
+      .from(ingestionSessions)
+      .where(
+        drizzleAnd(
+          drizzleEq(ingestionSessions.id, params.ingestionSessionId),
+          drizzleEq(ingestionSessions.tenant_id, tenantId),
+        ),
+      )
+      .limit(1);
+
+    const row = rows[0];
+    if (!row) return null;
+    return findPlannerStepForRuntime(row.planning_plan, params.runtimeStepId);
+  } catch {
+    return null;
+  }
+}
+
 // ── Step 1: Detect schema ────────────────────────────────────────────────────
 
 const detectStep = createStep({
@@ -419,6 +458,11 @@ const confirmMappingStep = createStep({
     });
 
     const actorUserId = resolveCardIdentity(requestContext).userId;
+    const mappingPlannerStep = await readPlannerStepForRuntime({
+      ingestionSessionId: inputData.ingestionSessionId,
+      requestContext,
+      runtimeStepId: 'pmo.ingest.confirmMapping',
+    });
 
     try {
       if (!resumeData) {
@@ -477,6 +521,7 @@ const confirmMappingStep = createStep({
             currentItemId: firstItem.id,
             identity: resolveCardIdentity(requestContext),
             toolCallId: `workflow:${runId}:pmo_confirmMapping`,
+            plannerStep: mappingPlannerStep,
           }),
         );
       }
@@ -542,6 +587,7 @@ const confirmMappingStep = createStep({
             currentItemId: nextItem.id,
             identity: resolveCardIdentity(requestContext),
             toolCallId: `workflow:${runId}:pmo_confirmMapping`,
+            plannerStep: mappingPlannerStep,
           }),
         );
       }
@@ -574,6 +620,7 @@ const confirmMappingStep = createStep({
             awaitingNextStep: true,
             identity: resolveCardIdentity(requestContext),
             toolCallId: `workflow:${runId}:pmo_confirmMapping`,
+            plannerStep: mappingPlannerStep,
           }),
         );
       }
@@ -624,10 +671,18 @@ const confirmMappingStep = createStep({
 const normalizeToStagingStep = createStep({
   id: 'pmo.ingest.normalizeToStaging',
   description:
-    'Parses file again, normalizes rows, computes hashes, compares with active data, generates change summary.',
+    'Parses file again, validates normalized rows, checks references, compares with active data, and waits for PMO review before staging.',
   inputSchema: ConfirmOutputSchema,
   outputSchema: StagingOutputSchema,
-  execute: async ({ inputData, requestContext }) => {
+  suspendSchema: NormalizationReviewCardSchema,
+  resumeSchema: NormalizationDecisionSchema,
+  execute: async ({ inputData, resumeData, suspend, requestContext, runId }) => {
+    const normalizationPlannerStep = await readPlannerStepForRuntime({
+      ingestionSessionId: inputData.ingestionSessionId,
+      requestContext,
+      runtimeStepId: 'pmo.ingest.normalizeToStaging',
+    });
+
     await syncRuntimeExecutionState({
       ingestionSessionId: inputData.ingestionSessionId,
       requestContext,
@@ -663,6 +718,27 @@ const normalizeToStagingStep = createStep({
         })),
       }));
       const normResult = normalizeRows(parseResult.sheets, tableMappings);
+      for (const addition of resumeData?.memberMasterAdditions ?? []) {
+        normResult.tables.member_master = [
+          ...(normResult.tables.member_master ?? []),
+          {
+            tableId: 'member_master',
+            sourceRow: 0,
+            values: {
+              member_id: addition.member_id,
+              full_name: addition.full_name,
+              department: addition.department ?? null,
+              role_title: addition.role_title ?? null,
+              level: addition.level ?? null,
+              line_manager_id: addition.line_manager_id ?? null,
+              employment_status: addition.employment_status ?? null,
+              employment: addition.employment ?? null,
+              std_hours_week: addition.std_hours_week ?? null,
+            },
+            parseErrors: [],
+          },
+        ];
+      }
       const blockingIssueMap = new Map<string, BlockingIssue>();
       const addBlockingIssue = (issue: BlockingIssue): void => {
         const key = `${issue.tableId}|${issue.sourceRow}|${issue.field}|${issue.reason}`;
@@ -891,6 +967,73 @@ const normalizeToStagingStep = createStep({
         changeSummary.push({ tableId, counts: finalCounts, sampleChanges });
       }
 
+      const hasUpdates = changeSummary.some(
+        (t) =>
+          t.counts.updated_records > 0 ||
+          (t.counts.duplicates_in_upload > 0 && shouldBlockDuplicateInUpload(t.tableId)),
+      );
+      const blockingIssues = [...blockingIssueMap.values()];
+      const hasBlockingIssues = blockingIssues.length > 0;
+      const hasBlockingDuplicates = changeSummary.some(
+        (t) => t.counts.duplicates_in_upload > 0 && shouldBlockDuplicateInUpload(t.tableId),
+      );
+      const blockedByNormalizationGate = hasBlockingIssues || hasBlockingDuplicates;
+
+      if (!resumeData) {
+        await syncRuntimeExecutionState({
+          ingestionSessionId: inputData.ingestionSessionId,
+          requestContext,
+          runtimeStepId: 'pmo.ingest.normalizeToStaging',
+          transition: 'needs_review',
+          status: 'awaiting_normalization_review',
+        });
+
+        return suspend(
+          buildNormalizationReviewCard({
+            ingestionSessionId: sessionId,
+            changeSummary: changeSummary as z.infer<typeof StagingOutputSchema>['changeSummary'],
+            blockingIssues,
+            allowApprove: !blockedByNormalizationGate,
+            identity: resolveCardIdentity(requestContext),
+            toolCallId: `workflow:${runId}:pmo_reviewNormalization`,
+            plannerStep: normalizationPlannerStep,
+          }),
+        );
+      }
+
+      if (resumeData.decision === 'reject') {
+        await syncRuntimeExecutionState({
+          ingestionSessionId: inputData.ingestionSessionId,
+          requestContext,
+          runtimeStepId: 'pmo.ingest.normalizeToStaging',
+          transition: 'failed',
+          status: 'rejected',
+        });
+        throw new Error('normalization_rejected');
+      }
+
+      if (blockedByNormalizationGate) {
+        await syncRuntimeExecutionState({
+          ingestionSessionId: inputData.ingestionSessionId,
+          requestContext,
+          runtimeStepId: 'pmo.ingest.normalizeToStaging',
+          transition: 'needs_review',
+          status: 'awaiting_normalization_review',
+        });
+        return suspend(
+          buildNormalizationReviewCard({
+            ingestionSessionId: sessionId,
+            changeSummary: changeSummary as z.infer<typeof StagingOutputSchema>['changeSummary'],
+            blockingIssues,
+            allowApprove: false,
+            identity: resolveCardIdentity(requestContext),
+            toolCallId: `workflow:${runId}:pmo_reviewNormalization`,
+            plannerStep: normalizationPlannerStep,
+          }),
+        );
+      }
+
+      await db.delete(stagingChanges).where(eq(stagingChanges.ingestion_session_id, sessionId));
       if (allStaged.length > 0) {
         const stagingRows = allStaged.map((s) => ({
           ingestion_session_id: sessionId,
@@ -903,14 +1046,6 @@ const normalizeToStagingStep = createStep({
         }));
         await db.insert(stagingChanges).values(stagingRows);
       }
-
-      const hasUpdates = changeSummary.some(
-        (t) =>
-          t.counts.updated_records > 0 ||
-          (t.counts.duplicates_in_upload > 0 && shouldBlockDuplicateInUpload(t.tableId)),
-      );
-      const blockingIssues = [...blockingIssueMap.values()];
-      const hasBlockingIssues = blockingIssues.length > 0;
 
       await syncRuntimeExecutionState({
         ingestionSessionId: inputData.ingestionSessionId,
@@ -930,6 +1065,9 @@ const normalizeToStagingStep = createStep({
         requiresReview: hasUpdates || hasBlockingIssues,
       };
     } catch (error) {
+      if (error instanceof Error && error.message === 'normalization_rejected') {
+        throw error;
+      }
       await syncRuntimeExecutionState({
         ingestionSessionId: inputData.ingestionSessionId,
         requestContext,
@@ -946,42 +1084,28 @@ const normalizeToStagingStep = createStep({
 
 const reviewChangesStep = createStep({
   id: 'pmo.ingest.reviewChanges',
-  description: 'Auto-publishes if only new/exact_dup; suspends for PMO review if updates detected.',
+  description: 'Suspends for PMO review before any publish upsert is allowed.',
   inputSchema: StagingOutputSchema,
   outputSchema: PublishOutputSchema,
   suspendSchema: PublishReviewCardSchema,
   resumeSchema: PublishDecisionSchema,
   execute: async ({ inputData, resumeData, suspend, requestContext, runId }) => {
+    const publishPlannerStep = await readPlannerStepForRuntime({
+      ingestionSessionId: inputData.ingestionSessionId,
+      requestContext,
+      runtimeStepId: 'pmo.ingest.reviewChanges',
+    });
+
     await syncRuntimeExecutionState({
       ingestionSessionId: inputData.ingestionSessionId,
       requestContext,
       runtimeStepId: 'pmo.ingest.reviewChanges',
       transition: 'in_progress',
-      status: inputData.requiresReview ? 'awaiting_publish_review' : 'staging_normalized',
+      status: 'awaiting_publish_review',
     });
 
     try {
       if (!resumeData) {
-        if (!inputData.requiresReview) {
-          const { publishUpsert } = await import('../../ingestion/publish-upsert.ts');
-          const tenantId = (requestContext.get('tenant_id') as string) ?? '';
-          const result = await publishUpsert(inputData.ingestionSessionId, tenantId);
-
-          await syncRuntimeExecutionState({
-            ingestionSessionId: inputData.ingestionSessionId,
-            requestContext,
-            runtimeStepId: 'pmo.ingest.reviewChanges',
-            transition: 'completed',
-            status: 'published',
-          });
-
-          return {
-            ingestionSessionId: inputData.ingestionSessionId,
-            ...result,
-            status: 'published' as const,
-          };
-        }
-
         const blockedByReviewGate = shouldBlockPublishApprove({
           changeSummary: inputData.changeSummary,
           hasBlockingIssues: inputData.hasBlockingIssues,
@@ -1004,6 +1128,7 @@ const reviewChangesStep = createStep({
             allowApprove: !blockedByReviewGate,
             identity: resolveCardIdentity(requestContext),
             toolCallId: `workflow:${runId}:pmo_confirmPublish`,
+            plannerStep: publishPlannerStep,
           }),
         );
       }
@@ -1086,5 +1211,9 @@ export const ingestDataWorkflowSpec: WorkflowSpec = {
   inputSchema: IngestInputSchema,
   outputSchema: PublishOutputSchema,
   workflow: ingestDataWorkflow,
-  hitlSteps: ['pmo.ingest.confirmMapping', 'pmo.ingest.reviewChanges'],
+  hitlSteps: [
+    'pmo.ingest.confirmMapping',
+    'pmo.ingest.normalizeToStaging',
+    'pmo.ingest.reviewChanges',
+  ],
 };

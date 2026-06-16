@@ -93,7 +93,7 @@ export const NormalizeOutputSchema = z.object({
   status: z.enum(['success', 'partial', 'failed']),
 });
 
-// ── Staging & publish (HITL gate 2) ─────────────────────────────────────────
+// ── Staging & publish ───────────────────────────────────────────────────────
 
 const ChangeSummaryTableSchema = z.object({
   tableId: z.string(),
@@ -120,6 +120,18 @@ const BlockingIssueSchema = z.object({
   reason: z.string(),
 });
 
+const MemberMasterAdditionSchema = z.object({
+  member_id: z.string().min(1),
+  full_name: z.string().min(1),
+  department: z.string().optional(),
+  role_title: z.string().optional(),
+  level: z.string().optional(),
+  line_manager_id: z.string().optional(),
+  employment_status: z.string().optional(),
+  employment: z.string().optional(),
+  std_hours_week: z.number().optional(),
+});
+
 export const StagingOutputSchema = z.object({
   ingestionSessionId: z.string().uuid(),
   changeSummary: z.array(ChangeSummaryTableSchema),
@@ -128,6 +140,14 @@ export const StagingOutputSchema = z.object({
   hasBlockingIssues: z.boolean(),
   hasUpdates: z.boolean(),
   requiresReview: z.boolean(),
+});
+
+export const NormalizationReviewCardSchema = ApprovalCardSchema;
+
+export const NormalizationDecisionSchema = z.object({
+  decision: z.enum(['approve', 'reject']),
+  memberMasterAdditions: z.array(MemberMasterAdditionSchema).optional(),
+  note: z.string().optional(),
 });
 
 export const PublishReviewCardSchema = ApprovalCardSchema;

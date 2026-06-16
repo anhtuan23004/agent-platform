@@ -15,14 +15,18 @@ import {
   type MappingAlternateOption,
   type MappingProgressItem,
   type MappingViewModel,
+  type NormalizationReviewViewModel,
+  type PublishReviewViewModel,
   workflowStepTone,
 } from '../pages/pmo-page.logic';
 import { PmoExecutionPlanSnapshot } from './pmo-execution-plan-snapshot';
 import { PmoMappingReviewPanel } from './pmo-mapping-review-panel';
+import { PmoNormalizationReviewPanel } from './pmo-normalization-review-panel';
 import {
   PmoProfilingDetailsPanel,
   type ProfilingOverrideEntry,
 } from './pmo-profiling-details-panel';
+import { PmoPublishReviewPanel } from './pmo-publish-review-panel';
 
 export interface PmoExecutionStepRuntimeProps {
   executionCurrentStepNo: number | null;
@@ -50,6 +54,36 @@ export interface PmoExecutionStepMappingProps {
   proceedToNextWorkflowStep: () => void;
   selectMappingAlternate: (alternateIndex: number) => void;
   cancelMappingModify: () => void;
+}
+
+export interface PmoExecutionStepNormalizationProps {
+  selectedNormalizationApproval: WorkflowApprovalRow | null;
+  normalizationApprovalsCount: number;
+  selectedNormalizationView: NormalizationReviewViewModel | null;
+  memberAdditionDrafts: Array<{
+    member_id: string;
+    full_name: string;
+    department: string;
+    role_title: string;
+  }>;
+  canApproveNormalization: boolean;
+  isSubmittingNormalizationDecision: boolean;
+  updateMemberAdditionDraft: (
+    memberId: string,
+    field: 'full_name' | 'department' | 'role_title',
+    value: string,
+  ) => void;
+  approveNormalization: () => void;
+  rejectNormalization: () => void;
+}
+
+export interface PmoExecutionStepPublishProps {
+  selectedPublishApproval: WorkflowApprovalRow | null;
+  publishApprovalsCount: number;
+  selectedPublishView: PublishReviewViewModel | null;
+  isSubmittingPublishDecision: boolean;
+  approvePublish: () => void;
+  rejectPublish: () => void;
 }
 
 export interface PmoExecutionStepProfilingProps {
@@ -89,12 +123,23 @@ interface PmoExecutionStepCardProps {
   step: ExecutionCard;
   runtime: PmoExecutionStepRuntimeProps;
   mapping: PmoExecutionStepMappingProps;
+  normalization: PmoExecutionStepNormalizationProps;
+  publish: PmoExecutionStepPublishProps;
   profiling: PmoExecutionStepProfilingProps;
   plan: PmoExecutionStepPlanProps;
 }
 
 export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
-  const { selectedSession, step, runtime, mapping, profiling, plan: planContext } = props;
+  const {
+    selectedSession,
+    step,
+    runtime,
+    mapping,
+    normalization,
+    publish,
+    profiling,
+    plan: planContext,
+  } = props;
 
   const {
     executionCurrentStepNo,
@@ -123,6 +168,27 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
     selectMappingAlternate,
     cancelMappingModify,
   } = mapping;
+
+  const {
+    selectedNormalizationApproval,
+    normalizationApprovalsCount,
+    selectedNormalizationView,
+    memberAdditionDrafts,
+    canApproveNormalization,
+    isSubmittingNormalizationDecision,
+    updateMemberAdditionDraft,
+    approveNormalization,
+    rejectNormalization,
+  } = normalization;
+
+  const {
+    selectedPublishApproval,
+    publishApprovalsCount,
+    selectedPublishView,
+    isSubmittingPublishDecision,
+    approvePublish,
+    rejectPublish,
+  } = publish;
 
   const {
     profilingReviewState,
@@ -155,14 +221,33 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
       ? executionStepMatchesRuntimeStep(step, runtimeActiveStepId)
       : isCurrentByExecutionState);
 
-  const isWorkbookProfilingStep = /workbook\s*profil/i.test(step.step_name);
-  const isLikelyMappingStep = /column\s*mapping|mapping\s*proposal|confirm\s*mapping/i.test(
-    step.step_name,
-  );
+  const isWorkbookProfilingStep =
+    step.action_id === 'workbook_profiling' ||
+    step.review_type === 'profiling' ||
+    /workbook\s*profil/i.test(step.step_name);
+  const isLikelyMappingStep =
+    step.action_id === 'column_mapping' ||
+    step.review_type === 'mapping' ||
+    /column\s*mapping|mapping\s*proposal|confirm\s*mapping/i.test(step.step_name);
+  const isLikelyPublishStep =
+    step.action_id === 'publish_after_approval' ||
+    step.action_id === 'database_change_summary' ||
+    step.review_type === 'publish' ||
+    /publish|final\s*approval|database\s*comparison|change\s*summary|review\s*changes/i.test(
+      step.step_name,
+    );
+  const isLikelyNormalizationStep =
+    step.action_id === 'normalize_to_staging' ||
+    step.review_type === 'normalization' ||
+    /normaliz|staging|validate|validation|data\s*quality|duplicate|anomal/i.test(step.step_name);
   const isPlanApprovalStep = /plan\s*approval|approve\s*plan/i.test(step.step_name);
   const shouldRenderProfilingDetails = isWorkbookProfilingStep;
   const shouldRenderMappingDetails =
     isCurrent && (Boolean(selectedMappingApproval) || isLikelyMappingStep);
+  const shouldRenderNormalizationDetails =
+    isCurrent && Boolean(selectedNormalizationApproval) && isLikelyNormalizationStep;
+  const shouldRenderPublishDetails =
+    isCurrent && Boolean(selectedPublishApproval) && isLikelyPublishStep;
   const hasOpenProfilingReview =
     isWorkbookProfilingStep &&
     selectedSession.planning_state === 'approved_plan' &&
@@ -244,6 +329,49 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
             proceedToNextWorkflowStep={proceedToNextWorkflowStep}
             selectMappingAlternate={selectMappingAlternate}
             cancelMappingModify={cancelMappingModify}
+          />
+        </div>
+      ) : shouldRenderNormalizationDetails ? (
+        <div className="mt-2 space-y-2 rounded-md border border-hairline bg-canvas p-2.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="font-medium text-ink">Normalization validation</p>
+            <span
+              className={`rounded-full px-2 py-0.5 text-caption font-medium ${workflowStepTone(step.status).badge}`}
+            >
+              {workflowStepTone(step.status).label}
+            </span>
+          </div>
+
+          <PmoNormalizationReviewPanel
+            selectedNormalizationApproval={selectedNormalizationApproval}
+            normalizationApprovalsCount={normalizationApprovalsCount}
+            selectedNormalizationView={selectedNormalizationView}
+            memberAdditionDrafts={memberAdditionDrafts}
+            canApproveNormalization={canApproveNormalization}
+            isSubmittingNormalizationDecision={isSubmittingNormalizationDecision}
+            updateMemberAdditionDraft={updateMemberAdditionDraft}
+            approveNormalization={approveNormalization}
+            rejectNormalization={rejectNormalization}
+          />
+        </div>
+      ) : shouldRenderPublishDetails ? (
+        <div className="mt-2 space-y-2 rounded-md border border-hairline bg-canvas p-2.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="font-medium text-ink">Publish review</p>
+            <span
+              className={`rounded-full px-2 py-0.5 text-caption font-medium ${workflowStepTone(step.status).badge}`}
+            >
+              {workflowStepTone(step.status).label}
+            </span>
+          </div>
+
+          <PmoPublishReviewPanel
+            selectedPublishApproval={selectedPublishApproval}
+            publishApprovalsCount={publishApprovalsCount}
+            selectedPublishView={selectedPublishView}
+            isSubmittingPublishDecision={isSubmittingPublishDecision}
+            approvePublish={approvePublish}
+            rejectPublish={rejectPublish}
           />
         </div>
       ) : isPlanApprovalStep ? (

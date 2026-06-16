@@ -7,9 +7,15 @@ import {
   type ExecutionCard,
   executionStepMatchesRuntimeStep,
   isMappingApprovalRow,
+  isNormalizationApprovalRow,
+  isPublishApprovalRow,
   type MappingProgressItem,
   type MappingViewModel,
+  type NormalizationReviewViewModel,
+  type PublishReviewViewModel,
   parseMappingView,
+  parseNormalizationReviewView,
+  parsePublishReviewView,
   readActiveWorkflowStepId,
   readIngestionSessionIdFromApproval,
   readIngestionSessionIdFromRunInput,
@@ -42,6 +48,12 @@ export interface UsePmoWorkflowRuntimeResult {
   selectedMappingApproval: WorkflowApprovalRow | null;
   selectedMappingView: MappingViewModel | null;
   groupedMappingItems: GroupedMappingItemsBySheet[];
+  normalizationApprovals: WorkflowApprovalRow[];
+  selectedNormalizationApproval: WorkflowApprovalRow | null;
+  selectedNormalizationView: NormalizationReviewViewModel | null;
+  publishApprovals: WorkflowApprovalRow[];
+  selectedPublishApproval: WorkflowApprovalRow | null;
+  selectedPublishView: PublishReviewViewModel | null;
   runtimeActiveStepId: string | null;
   hasRuntimeCurrentStepMatch: boolean;
   timeline: Array<{ id: number; label: string; state: TimelineState }>;
@@ -99,6 +111,16 @@ export function usePmoWorkflowRuntime(
     [pendingApprovals.data],
   );
 
+  const publishApprovals = useMemo(
+    () => (pendingApprovals.data ?? []).filter((approval) => isPublishApprovalRow(approval)),
+    [pendingApprovals.data],
+  );
+
+  const normalizationApprovals = useMemo(
+    () => (pendingApprovals.data ?? []).filter((approval) => isNormalizationApprovalRow(approval)),
+    [pendingApprovals.data],
+  );
+
   const selectedMappingApproval = useMemo(() => {
     if (!selectedSession) return null;
 
@@ -116,20 +138,91 @@ export function usePmoWorkflowRuntime(
     if (exactMatch) return exactMatch;
 
     // Fallback for cards that do not carry a parseable session id.
-    if (mappingApprovals.length === 1) {
+    if (!selectedWorkflowRun?.runId && mappingApprovals.length === 1) {
       return mappingApprovals[0] ?? null;
     }
 
     return null;
   }, [mappingApprovals, selectedSession, selectedWorkflowRun]);
 
-  const selectedWorkflowRunId = selectedWorkflowRun?.runId ?? selectedMappingApproval?.runId ?? '';
+  const selectedNormalizationApproval = useMemo(() => {
+    if (!selectedSession) return null;
+
+    if (selectedWorkflowRun?.runId) {
+      const matchedByRun = normalizationApprovals.find(
+        (approval) => approval.runId === selectedWorkflowRun.runId,
+      );
+      if (matchedByRun) return matchedByRun;
+    }
+
+    const exactMatch = normalizationApprovals.find((approval) => {
+      const ingestionSessionId = readIngestionSessionIdFromApproval(approval);
+      return sessionIdsMatch(ingestionSessionId, selectedSession.ingestion_session_id);
+    });
+    if (exactMatch) return exactMatch;
+
+    if (!selectedWorkflowRun?.runId && normalizationApprovals.length === 1) {
+      return normalizationApprovals[0] ?? null;
+    }
+
+    return null;
+  }, [normalizationApprovals, selectedSession, selectedWorkflowRun]);
+
+  const selectedPublishApproval = useMemo(() => {
+    if (!selectedSession) return null;
+
+    if (selectedWorkflowRun?.runId) {
+      const matchedByRun = publishApprovals.find(
+        (approval) => approval.runId === selectedWorkflowRun.runId,
+      );
+      if (matchedByRun) return matchedByRun;
+    }
+
+    const exactMatch = publishApprovals.find((approval) => {
+      const ingestionSessionId = readIngestionSessionIdFromApproval(approval);
+      return sessionIdsMatch(ingestionSessionId, selectedSession.ingestion_session_id);
+    });
+    if (exactMatch) return exactMatch;
+
+    // Fallback for cards that do not carry a parseable session id.
+    if (!selectedWorkflowRun?.runId && publishApprovals.length === 1) {
+      return publishApprovals[0] ?? null;
+    }
+
+    return null;
+  }, [publishApprovals, selectedSession, selectedWorkflowRun]);
+
+  const selectedWorkflowRunId =
+    selectedWorkflowRun?.runId ??
+    selectedMappingApproval?.runId ??
+    selectedNormalizationApproval?.runId ??
+    selectedPublishApproval?.runId ??
+    '';
   const selectedWorkflowRunSnapshot = useWorkflowRuntimeRunSnapshot(selectedWorkflowRunId);
 
   const selectedMappingView = useMemo(
     () => parseMappingView(selectedMappingApproval),
     [selectedMappingApproval],
   );
+
+  const selectedPublishView = useMemo(
+    () => parsePublishReviewView(selectedPublishApproval),
+    [selectedPublishApproval],
+  );
+
+  const selectedNormalizationView = useMemo(
+    () => parseNormalizationReviewView(selectedNormalizationApproval),
+    [selectedNormalizationApproval],
+  );
+
+  const selectedMappingApprovalForDisplay = useMemo(() => {
+    if (!selectedMappingApproval) return null;
+    const mappingRunId = selectedMappingApproval.runId;
+    const hasLaterApprovalForRun =
+      normalizationApprovals.some((approval) => approval.runId === mappingRunId) ||
+      publishApprovals.some((approval) => approval.runId === mappingRunId);
+    return hasLaterApprovalForRun ? null : selectedMappingApproval;
+  }, [normalizationApprovals, publishApprovals, selectedMappingApproval]);
 
   const groupedMappingItems = useMemo(() => {
     if (!selectedMappingView?.items.length) {
@@ -159,9 +252,16 @@ export function usePmoWorkflowRuntime(
   }, [selectedMappingView]);
 
   const runtimeActiveStepId = useMemo(() => {
-    if (selectedMappingApproval?.stepId) return selectedMappingApproval.stepId;
+    if (selectedPublishApproval?.stepId) return selectedPublishApproval.stepId;
+    if (selectedNormalizationApproval?.stepId) return selectedNormalizationApproval.stepId;
+    if (selectedMappingApprovalForDisplay?.stepId) return selectedMappingApprovalForDisplay.stepId;
     return readActiveWorkflowStepId(selectedWorkflowRunSnapshot.data);
-  }, [selectedMappingApproval, selectedWorkflowRunSnapshot.data]);
+  }, [
+    selectedMappingApprovalForDisplay,
+    selectedNormalizationApproval,
+    selectedPublishApproval,
+    selectedWorkflowRunSnapshot.data,
+  ]);
 
   const hasRuntimeCurrentStepMatch = useMemo(() => {
     if (!runtimeActiveStepId) return false;
@@ -208,9 +308,15 @@ export function usePmoWorkflowRuntime(
     workflowRuns,
     runtimeRunBySessionId,
     mappingApprovals,
-    selectedMappingApproval,
+    selectedMappingApproval: selectedMappingApprovalForDisplay,
     selectedMappingView,
     groupedMappingItems,
+    normalizationApprovals,
+    selectedNormalizationApproval,
+    selectedNormalizationView,
+    publishApprovals,
+    selectedPublishApproval,
+    selectedPublishView,
     runtimeActiveStepId,
     hasRuntimeCurrentStepMatch,
     timeline,

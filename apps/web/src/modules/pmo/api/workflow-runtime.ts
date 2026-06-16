@@ -66,6 +66,7 @@ export interface DecideApprovalBody {
   overrideUserIds?: string[];
   alternateIndex?: number;
   alternateIndices?: number[];
+  payloadPatch?: Record<string, unknown>;
   note?: string;
 }
 

@@ -8,6 +8,7 @@ import { pmoDb } from '../db/client.ts';
 import { ingestionSessions } from '../db/schema.ts';
 import { createS3FileStore } from '../ingestion/s3-file-store.ts';
 import { generatePmoWorkflowPlan } from '../planning/generate-plan.ts';
+import { readPlannerWorkflowSteps } from '../planning/step-metadata.ts';
 import {
   applyProfilingReviewOverrides,
   applyWaivedMissingAreas,
@@ -27,6 +28,9 @@ type ProfilingStepStatus = 'in_progress' | 'needs_review' | 'completed' | 'faile
 
 interface ProposedWorkflowStep {
   step_no: number;
+  planner_step_id?: string;
+  action_id?: string;
+  review_type?: string;
   step_name: string;
 }
 
@@ -144,33 +148,13 @@ function mapHistoryStatus(state: PlanningState): {
 }
 
 function readProposedWorkflow(plan: unknown): ProposedWorkflowStep[] {
-  if (!plan || typeof plan !== 'object') {
-    return [];
-  }
-
-  const maybePlan = plan as { proposed_workflow?: unknown };
-  if (!Array.isArray(maybePlan.proposed_workflow)) {
-    return [];
-  }
-
-  return maybePlan.proposed_workflow
-    .map((step): ProposedWorkflowStep | null => {
-      if (!step || typeof step !== 'object') {
-        return null;
-      }
-
-      const maybeStep = step as { step_no?: unknown; step_name?: unknown };
-      if (typeof maybeStep.step_no !== 'number' || typeof maybeStep.step_name !== 'string') {
-        return null;
-      }
-
-      return {
-        step_no: maybeStep.step_no,
-        step_name: maybeStep.step_name,
-      };
-    })
-    .filter((step): step is ProposedWorkflowStep => Boolean(step))
-    .sort((a, b) => a.step_no - b.step_no);
+  return readPlannerWorkflowSteps(plan).map((step) => ({
+    step_no: step.step_no,
+    planner_step_id: step.planner_step_id,
+    action_id: step.action_id,
+    review_type: step.review_type,
+    step_name: step.step_name,
+  }));
 }
 
 function normalizeKnownProfilingArea(area: unknown): KnownProfilingArea | null {
@@ -303,6 +287,9 @@ function ensureExecutionSteps(plan: unknown): WorkflowExecutionStep[] {
     return [
       {
         step_no: 1,
+        planner_step_id: 'pmo.planner.step.1.workbook_profiling',
+        action_id: 'workbook_profiling',
+        review_type: 'profiling',
         step_name: 'Workbook Profiling',
         status: 'in_progress',
       },
@@ -311,6 +298,9 @@ function ensureExecutionSteps(plan: unknown): WorkflowExecutionStep[] {
 
   return proposed.map((step, index) => ({
     step_no: step.step_no,
+    planner_step_id: step.planner_step_id,
+    action_id: step.action_id,
+    review_type: step.review_type,
     step_name: step.step_name,
     status: index === 0 ? 'in_progress' : 'pending',
   }));
@@ -354,6 +344,9 @@ function setProfilingStepStatus(
   return [
     {
       step_no: profilingStepNo,
+      planner_step_id: 'pmo.planner.step.1.workbook_profiling',
+      action_id: 'workbook_profiling',
+      review_type: 'profiling',
       step_name: 'Workbook Profiling',
       status,
     },
@@ -408,11 +401,12 @@ function markLaterCompletedStepsNeedsReview(
 
 function createInitialExecutionState(plan: unknown, nowIso: string): WorkflowExecutionState {
   const steps = ensureExecutionSteps(plan);
+  const firstStepNo = steps.slice().sort((a, b) => a.step_no - b.step_no)[0]?.step_no ?? 1;
   return {
     state_version: 1,
     started_at: nowIso,
     updated_at: nowIso,
-    current_step_no: 1,
+    current_step_no: firstStepNo,
     current_step_status: 'in_progress',
     steps,
     documents: [],

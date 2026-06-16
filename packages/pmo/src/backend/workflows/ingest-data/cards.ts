@@ -1,5 +1,6 @@
 import type { ApprovalCard } from '@seta/agent-sdk';
 import type { z } from 'zod';
+import type { PmoPlannerStepMetadata } from '../../planning/step-metadata.ts';
 import type { DetectOutputSchema, StagingOutputSchema } from './schemas.ts';
 
 type TableMapping = z.infer<typeof DetectOutputSchema>['tableMappings'][number];
@@ -19,6 +20,7 @@ interface MappingCardInput {
   allowApprove: boolean;
   identity: CardIdentity;
   toolCallId: string;
+  plannerStep?: PmoPlannerStepMetadata | null;
 }
 
 export interface MappingCandidateOption {
@@ -71,6 +73,7 @@ interface MappingItemCardInput {
   awaitingNextStep?: boolean;
   identity: CardIdentity;
   toolCallId: string;
+  plannerStep?: PmoPlannerStepMetadata | null;
 }
 
 interface PublishCardInput {
@@ -81,6 +84,17 @@ interface PublishCardInput {
   allowApprove: boolean;
   identity: CardIdentity;
   toolCallId: string;
+  plannerStep?: PmoPlannerStepMetadata | null;
+}
+
+interface NormalizationCardInput {
+  ingestionSessionId: string;
+  changeSummary: ChangeSummaryTable[];
+  blockingIssues: BlockingIssue[];
+  allowApprove: boolean;
+  identity: CardIdentity;
+  toolCallId: string;
+  plannerStep?: PmoPlannerStepMetadata | null;
 }
 
 interface KvRow {
@@ -578,6 +592,7 @@ export function buildMappingItemReviewCard(input: MappingItemCardInput): Approva
       userId: input.identity.userId,
       agentPath: ['supervisor', 'work', 'pmo'],
       toolId: 'pmo_confirmMapping',
+      ...plannerStepMeta(input.plannerStep),
       ts: new Date().toISOString(),
     },
   };
@@ -633,6 +648,19 @@ function capRows(rows: KvRow[], maxRows: number): KvRow[] {
     ...rows.slice(0, maxRows),
     { k: 'more', v: `${rows.length - maxRows} additional item(s) not shown` },
   ];
+}
+
+function plannerStepMeta(step: PmoPlannerStepMetadata | null | undefined): {
+  plannerStepId?: string;
+  actionId?: string;
+  reviewType?: string;
+} {
+  if (!step) return {};
+  return {
+    plannerStepId: step.planner_step_id,
+    actionId: step.action_id,
+    reviewType: step.review_type,
+  };
 }
 
 export function buildMappingReviewCard(input: MappingCardInput): ApprovalCard {
@@ -706,6 +734,7 @@ export function buildMappingReviewCard(input: MappingCardInput): ApprovalCard {
       userId: input.identity.userId,
       agentPath: ['supervisor', 'work', 'pmo'],
       toolId: 'pmo_confirmMapping',
+      ...plannerStepMeta(input.plannerStep),
       ts: new Date().toISOString(),
     },
   };
@@ -825,6 +854,117 @@ export function buildPublishReviewCard(input: PublishCardInput): ApprovalCard {
       userId: input.identity.userId,
       agentPath: ['supervisor', 'work', 'pmo'],
       toolId: 'pmo_confirmPublish',
+      ...plannerStepMeta(input.plannerStep),
+      ts: new Date().toISOString(),
+    },
+  };
+}
+
+export function buildNormalizationReviewCard(input: NormalizationCardInput): ApprovalCard {
+  const totals = input.changeSummary.reduce(
+    (acc, t) => {
+      acc.newRecords += t.counts.new_records;
+      acc.updatedRecords += t.counts.updated_records;
+      acc.exactDuplicates += t.counts.exact_duplicates;
+      acc.duplicatesInUpload += t.counts.duplicates_in_upload;
+      return acc;
+    },
+    {
+      newRecords: 0,
+      updatedRecords: 0,
+      exactDuplicates: 0,
+      duplicatesInUpload: 0,
+    },
+  );
+
+  const unresolvedReferenceCount = input.blockingIssues.filter((issue) =>
+    issue.reason.includes('unresolved reference'),
+  ).length;
+  const missingRequiredCount = input.blockingIssues.filter((issue) =>
+    issue.reason.includes('required value missing'),
+  ).length;
+  const parseErrorCount =
+    input.blockingIssues.length - unresolvedReferenceCount - missingRequiredCount;
+
+  const summary = input.allowApprove
+    ? `Normalized data is ready for staging review. Found ${totals.duplicatesInUpload} duplicate-in-upload row(s) and ${input.blockingIssues.length} blocking issue(s).`
+    : [
+        input.blockingIssues.length > 0
+          ? `Found ${input.blockingIssues.length} blocking normalization issue(s).`
+          : null,
+        totals.duplicatesInUpload > 0
+          ? `Found ${totals.duplicatesInUpload} duplicate-in-upload row(s).`
+          : null,
+        'Resolve these before staging can continue.',
+      ]
+        .filter(Boolean)
+        .join(' ');
+
+  const checklist = input.allowApprove
+    ? [
+        'Normalized values are parseable and required fields are present.',
+        'Member/project references exist in the workbook master sheets or current database.',
+        'Proceed to stage normalized data for downstream review.',
+      ]
+    : [
+        'Add missing member master rows or correct workbook references.',
+        'Resolve duplicate-in-upload rows for tables where duplicates are blocked.',
+        'Reject this run if the source workbook needs to be corrected offline.',
+      ];
+
+  return {
+    toolCallId: input.toolCallId,
+    intent: 'Review normalized data quality before staging',
+    riskBadge: 'write',
+    summary,
+    details: [
+      {
+        kind: 'kvTable',
+        rows: [
+          { k: 'Ingestion session', v: input.ingestionSessionId },
+          { k: 'Rows to stage', v: String(totals.newRecords + totals.updatedRecords) },
+          { k: 'Rows unchanged', v: String(totals.exactDuplicates) },
+          { k: 'Duplicates in upload', v: String(totals.duplicatesInUpload) },
+          { k: 'Blocking issues', v: String(input.blockingIssues.length) },
+          { k: 'Unresolved references', v: String(unresolvedReferenceCount) },
+          { k: 'Missing required values', v: String(missingRequiredCount) },
+          { k: 'Parse errors', v: String(Math.max(parseErrorCount, 0)) },
+        ],
+      },
+      {
+        kind: 'kvTable',
+        rows: publishRows(input.changeSummary),
+      },
+      ...(input.blockingIssues.length > 0
+        ? [
+            {
+              kind: 'kvTable' as const,
+              rows: blockingIssueRows(input.blockingIssues),
+            },
+          ]
+        : []),
+      {
+        kind: 'text',
+        body: checklistMarkdown(checklist),
+      },
+    ],
+    primary: input.allowApprove
+      ? {
+          label: 'Approve normalization',
+          argsPatch: { decision: 'approve' },
+        }
+      : {
+          label: 'Reject blocked normalization',
+          argsPatch: { decision: 'reject' },
+        },
+    alternates: [],
+    decline: { label: 'Reject normalization', argsPatch: { decision: 'reject' } },
+    meta: {
+      tenantId: input.identity.tenantId,
+      userId: input.identity.userId,
+      agentPath: ['supervisor', 'work', 'pmo'],
+      toolId: 'pmo_reviewNormalization',
+      ...plannerStepMeta(input.plannerStep),
       ts: new Date().toISOString(),
     },
   };

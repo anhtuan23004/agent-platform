@@ -110,6 +110,7 @@ export function mountWorkflowRoutes(app: Hono<AgentRouteEnv>, deps: AgentRouteDe
       overrideUserIds?: string[];
       alternateIndex?: number;
       alternateIndices?: number[];
+      payloadPatch?: Record<string, unknown>;
       note?: string;
     };
     try {
@@ -150,6 +151,14 @@ export function mountWorkflowRoutes(app: Hono<AgentRouteEnv>, deps: AgentRouteDe
         );
       }
     }
+    if (
+      body.payloadPatch !== undefined &&
+      (!body.payloadPatch ||
+        typeof body.payloadPatch !== 'object' ||
+        Array.isArray(body.payloadPatch))
+    ) {
+      return c.json({ error: 'invalid_body', message: 'payloadPatch must be an object' }, 400);
+    }
     try {
       const result = await decideApproval({
         session,
@@ -158,6 +167,7 @@ export function mountWorkflowRoutes(app: Hono<AgentRouteEnv>, deps: AgentRouteDe
         overrideUserIds: body.overrideUserIds,
         alternateIndex: body.alternateIndex,
         alternateIndices: body.alternateIndices,
+        payloadPatch: body.payloadPatch,
         note: body.note,
         mastra: deps.mastra as Mastra,
         log: deps.log,

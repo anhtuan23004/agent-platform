@@ -105,6 +105,54 @@ describe('upsertRuntimeExecutionState', () => {
     expect(readCurrentStepName(nextState)).toBe('Normalization and DB diff');
   });
 
+  it('holds publish step for PMO review after normalization completes', () => {
+    const normalizedState = {
+      state_version: 1 as const,
+      started_at: '2026-06-16T10:00:00.000Z',
+      updated_at: '2026-06-16T10:20:00.000Z',
+      current_step_no: 3,
+      current_step_status: 'completed' as const,
+      steps: [
+        {
+          step_no: 1,
+          step_name: 'Workbook Profiling',
+          status: 'completed' as const,
+        },
+        {
+          step_no: 2,
+          step_name: 'Mapping proposal and validation',
+          status: 'completed' as const,
+        },
+        {
+          step_no: 3,
+          step_name: 'Normalization and DB diff',
+          status: 'completed' as const,
+        },
+        {
+          step_no: 4,
+          step_name: 'Publish after approval',
+          status: 'pending' as const,
+        },
+      ],
+      documents: [],
+      profiling_summary: null,
+      profiling_review: null,
+    };
+
+    const nextState = upsertRuntimeExecutionState({
+      existingState: normalizedState,
+      planningPlan: plannerPlan,
+      runtimeStepId: 'pmo.ingest.reviewChanges',
+      transition: 'needs_review',
+      nowIso: '2026-06-16T10:21:00.000Z',
+    });
+
+    expect(nextState.current_step_no).toBe(4);
+    expect(nextState.current_step_status).toBe('needs_review');
+    expect(nextState.steps.find((step) => step.step_no === 4)?.status).toBe('needs_review');
+    expect(readCurrentStepName(nextState)).toBe('Publish after approval');
+  });
+
   it('does not move backward when execution has already advanced beyond matched runtime step', () => {
     const advancedState = {
       state_version: 1 as const,

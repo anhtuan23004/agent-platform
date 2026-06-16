@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PMO_PLAN_ACTION_IDS, PMO_REVIEW_TYPES } from './step-metadata.ts';
 
 export const PlanDataAreaSchema = z.enum([
   'resource_allocation',
@@ -22,6 +23,9 @@ export const ImpactSchema = z.enum(['low', 'medium', 'high']);
 
 export const WorkflowStepSchema = z.object({
   step_no: z.number().int().positive(),
+  planner_step_id: z.string().min(1).optional(),
+  action_id: z.enum(PMO_PLAN_ACTION_IDS).optional(),
+  review_type: z.enum(PMO_REVIEW_TYPES).optional(),
   step_name: z.string().min(1),
   description: z.string().min(1),
   agent_responsibility: z.string().min(1),

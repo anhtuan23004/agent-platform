@@ -2,9 +2,17 @@ import type { WorkflowSnapshotDecoratorSpec } from '@seta/agent-sdk';
 import { and, eq } from 'drizzle-orm';
 import { pmoDb } from '../db/client.ts';
 import { ingestionSessions } from '../db/schema.ts';
+import {
+  type PmoPlanActionId,
+  RUNTIME_STEP_ACTION_PREFERENCES,
+  readPlannerWorkflowSteps,
+} from '../planning/step-metadata.ts';
 
 interface PlannerStep {
   step_no: number;
+  planner_step_id: string;
+  action_id: PmoPlanActionId;
+  review_type: string;
   step_name: string;
   description: string;
 }
@@ -28,30 +36,14 @@ function readIngestionSessionId(inputSummary: unknown): string | null {
 }
 
 function readPlannerSteps(planningPlan: unknown): PlannerStep[] {
-  if (!isObject(planningPlan)) return [];
-
-  const rawWorkflow = planningPlan.proposed_workflow;
-  if (!Array.isArray(rawWorkflow)) return [];
-
-  return rawWorkflow
-    .map((raw): PlannerStep | null => {
-      if (!isObject(raw)) return null;
-
-      const stepNo = raw.step_no;
-      const stepName = raw.step_name;
-      if (typeof stepNo !== 'number' || !Number.isFinite(stepNo) || stepNo <= 0) return null;
-      if (typeof stepName !== 'string' || stepName.trim().length === 0) return null;
-
-      const description = typeof raw.description === 'string' ? raw.description.trim() : '';
-
-      return {
-        step_no: Math.trunc(stepNo),
-        step_name: stepName.trim(),
-        description,
-      };
-    })
-    .filter((step): step is PlannerStep => Boolean(step))
-    .sort((a, b) => a.step_no - b.step_no);
+  return readPlannerWorkflowSteps(planningPlan).map((step) => ({
+    step_no: step.step_no,
+    planner_step_id: step.planner_step_id,
+    action_id: step.action_id,
+    review_type: step.review_type,
+    step_name: step.step_name,
+    description: typeof step.description === 'string' ? step.description.trim() : '',
+  }));
 }
 
 function readExecutionState(executionState: unknown): {
@@ -130,22 +122,30 @@ function plannerStepMatchesRuntimeStep(plannerStep: PlannerStep, runtimeStepId: 
   const stepName = plannerStep.step_name.toLowerCase();
 
   if (runtime.includes('confirmmapping')) {
-    if (plannerStep.step_no === 2) return true;
+    if (plannerStep.action_id === 'column_mapping') return true;
     return /mapping|confirm/.test(stepName);
   }
 
   if (runtime.includes('normalize')) {
-    if (plannerStep.step_no === 3) return true;
-    return /normalize|staging|diff/.test(stepName);
+    if (plannerStep.action_id === 'normalize_to_staging') return true;
+    return /normalize|staging|diff|validate|validation|data\s*quality|duplicate|anomal/.test(
+      stepName,
+    );
   }
 
   if (runtime.includes('reviewchanges')) {
-    if (plannerStep.step_no === 4) return true;
+    if (
+      RUNTIME_STEP_ACTION_PREFERENCES['pmo.ingest.reviewChanges'].some(
+        (actionId) => actionId === plannerStep.action_id,
+      )
+    ) {
+      return true;
+    }
     return /review|readiness|impact|database|publish/.test(stepName);
   }
 
   if (runtime.includes('detect')) {
-    if (plannerStep.step_no === 1) return true;
+    if (plannerStep.action_id === 'workbook_profiling') return true;
     return /profil|schema|detect/.test(stepName);
   }
 

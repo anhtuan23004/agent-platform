@@ -147,6 +147,9 @@ export function PmoPlanSection(props: PmoPlanSectionProps) {
                   executionStepMatchesRuntimeStep(
                     {
                       step_no: step.step_no,
+                      planner_step_id: step.planner_step_id,
+                      action_id: step.action_id,
+                      review_type: step.review_type,
                       step_name: step.step_name,
                       status: 'pending',
                     },
