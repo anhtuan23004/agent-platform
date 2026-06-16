@@ -1,7 +1,8 @@
 import type { CanonicalField, CanonicalSchema } from './canonical-schema.ts';
-import { PMO_CANONICAL_SCHEMA } from './canonical-schema.ts';
 import type { SheetRoleCandidate } from './detect-sheet-role.ts';
+import type { IngestionDomainConfig } from './domain-config.ts';
 import { type LlmMappingHintMap, llmMappingHintKey } from './llm-mapping-hints.ts';
+import { PMO_DOMAIN_CANONICAL_SCHEMA, PMO_DOMAIN_CONFIG } from './pmo-domain-config.ts';
 import type { SheetProfile } from './profile-columns.ts';
 import { scoreCrossSheet } from './scoring/cross-sheet.ts';
 import { scoreDataType } from './scoring/data-type.ts';
@@ -61,6 +62,7 @@ const LOW_LLM_DISAGREEMENT_THRESHOLD = 0.2;
 export interface MapColumnsOptions {
   llmHints?: LlmMappingHintMap | null;
   llmBonusWeight?: number;
+  domainConfig?: IngestionDomainConfig;
 }
 
 function clamp01(value: number): number {
@@ -70,20 +72,40 @@ function clamp01(value: number): number {
 }
 
 // ── Helper: get master values for cross-sheet scoring ────────────────────────
+// Derives master table lookups from domainConfig.referenceRules instead of hardcoding table IDs.
+
+function buildMasterTableLookup(domainConfig: IngestionDomainConfig): Map<string, string> {
+  // Maps sourceField -> targetTable for reference rule lookups
+  // e.g. member_id -> member_master, project_id -> project_master
+  const lookup = new Map<string, string>();
+  for (const rule of domainConfig.referenceRules) {
+    lookup.set(rule.sourceField, rule.targetTable);
+  }
+  // Also include self-referencing ID fields (e.g. pm_id, line_manager_id -> member_master)
+  // by finding fields with _id suffix that share a targetField with an existing rule
+  for (const table of domainConfig.tables) {
+    for (const field of table.fields) {
+      if (field.name.endsWith('_id') && !lookup.has(field.name)) {
+        // Check if any reference rule's targetField matches this field name pattern
+        for (const rule of domainConfig.referenceRules) {
+          if (rule.targetField === field.name) {
+            lookup.set(field.name, rule.targetTable);
+          }
+        }
+      }
+    }
+  }
+  return lookup;
+}
 
 function getMasterValues(
   fieldName: string,
   allSheetProfiles: SheetProfile[],
   schema: CanonicalSchema,
+  domainConfig: IngestionDomainConfig,
 ): string[] | null {
-  // For member_id → look for member_master sheet values
-  // For project_id → look for project_master sheet values
-  let masterTableId: string | null = null;
-  if (fieldName === 'member_id' || fieldName === 'pm_id' || fieldName === 'line_manager_id') {
-    masterTableId = 'member_master';
-  } else if (fieldName === 'project_id') {
-    masterTableId = 'project_master';
-  }
+  const masterLookup = buildMasterTableLookup(domainConfig);
+  const masterTableId = masterLookup.get(fieldName) ?? null;
 
   if (!masterTableId) return null;
 
@@ -107,10 +129,8 @@ function getMasterValues(
       for (const col of profile.columns) {
         const headerResult = scoreHeaderSimilarity(col.columnName, masterIdField);
         if (headerResult.score >= 0.9) {
-          // Collect all values from this column across all rows
           const values =
             profile.columns.find((c) => c.columnName === col.columnName)?.sampleValues ?? [];
-          // For cross-sheet we ideally want all values, but sample is acceptable for scoring
           return values.length > 0 ? values : null;
         }
       }
@@ -126,7 +146,7 @@ export function mapColumns(
   sheetProfile: SheetProfile,
   sheetRole: SheetRoleCandidate,
   allSheetProfiles: SheetProfile[],
-  schema: CanonicalSchema = PMO_CANONICAL_SCHEMA,
+  schema: CanonicalSchema = PMO_DOMAIN_CANONICAL_SCHEMA,
   options: MapColumnsOptions = {},
 ): TableMapping {
   const table = schema.tables.find((t) => t.id === sheetRole.candidateRole);
@@ -155,8 +175,10 @@ export function mapColumns(
   const allCandidates: ScoredCandidate[] = [];
   const llmBonusWeight = clamp01(options.llmBonusWeight ?? DEFAULT_LLM_BONUS_WEIGHT);
 
+  const domainConfig = options.domainConfig ?? PMO_DOMAIN_CONFIG;
+
   for (const field of table.fields) {
-    const masterValues = getMasterValues(field.name, allSheetProfiles, schema);
+    const masterValues = getMasterValues(field.name, allSheetProfiles, schema, domainConfig);
 
     for (const col of sheetProfile.columns) {
       // Get all values for this column from sheet rows
@@ -193,8 +215,8 @@ export function mapColumns(
         field,
         allValues,
       );
-      const contextScore = scoreSheetContext(sheetRole, field);
-      const crossSheetResult = scoreCrossSheet(allValues, field, masterValues);
+      const contextScore = scoreSheetContext(sheetRole, field, domainConfig);
+      const crossSheetResult = scoreCrossSheet(allValues, field, masterValues, domainConfig);
       const llmSemantic =
         options.llmHints?.get(llmMappingHintKey(field.name, col.columnName)) ?? 0.5;
 

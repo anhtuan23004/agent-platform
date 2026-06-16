@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs';
 import { describe, expect, it } from 'vitest';
 import { detectSchema } from '../../src/backend/ingestion/detect-schema.ts';
+import type { IngestionDomainConfig } from '../../src/backend/ingestion/domain-config.ts';
 
 // ── Fixture helper ───────────────────────────────────────────────────────────
 
@@ -20,6 +21,72 @@ async function createFixture(
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe('detectSchema', () => {
+  it('uses provided domain config for table and column mapping', async () => {
+    const hrDomain: IngestionDomainConfig = {
+      domainId: 'hr',
+      version: 'test',
+      label: 'HR',
+      tables: [
+        {
+          id: 'employee_master',
+          label: 'Employee Master',
+          description: 'Canonical employee profile table for HR records.',
+          synonyms: ['employee', 'employees', 'staff master'],
+          naturalKey: ['employee_id'],
+          duplicatePolicy: 'block',
+          fields: [
+            {
+              name: 'employee_id',
+              label: 'Employee ID',
+              description: 'Unique employee identifier.',
+              dataType: 'string',
+              required: true,
+              synonyms: ['employee_id', 'emp id', 'staff id'],
+            },
+            {
+              name: 'full_name',
+              label: 'Full Name',
+              description: 'Employee full name.',
+              dataType: 'string',
+              required: true,
+              synonyms: ['full name', 'employee name', 'name'],
+            },
+          ],
+        },
+      ],
+      referenceRules: [],
+      validationRules: [],
+      publishPolicy: {
+        requireApproval: true,
+        allowDirectPublish: false,
+        mode: 'staged',
+      },
+    };
+    const buffer = await createFixture([
+      {
+        name: 'Employees',
+        rows: [
+          ['Emp ID', 'Employee Name'],
+          ['E001', 'An Nguyen'],
+          ['E002', 'Binh Tran'],
+          ['E003', 'Chi Le'],
+        ],
+      },
+    ]);
+
+    const result = await detectSchema(buffer, { domainConfig: hrDomain });
+
+    expect(result.tables).toHaveLength(1);
+    expect(result.tables[0]?.tableId).toBe('employee_master');
+    expect(result.tables[0]?.unmappedRequired).toEqual([]);
+    expect(result.tables[0]?.mappings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ canonicalField: 'employee_id', sourceColumn: 'Emp ID' }),
+        expect.objectContaining({ canonicalField: 'full_name', sourceColumn: 'Employee Name' }),
+      ]),
+    );
+  });
+
   it('happy path: multi-sheet XLSX with standard headers → all confirmed', async () => {
     const buffer = await createFixture([
       {

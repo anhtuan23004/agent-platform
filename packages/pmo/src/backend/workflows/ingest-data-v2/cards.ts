@@ -903,11 +903,11 @@ export function buildNormalizationReviewCard(input: NormalizationCardInput): App
   const checklist = input.allowApprove
     ? [
         'Normalized values are parseable and required fields are present.',
-        'Member/project references exist in the workbook master sheets or current database.',
+        'Master data references exist in the workbook master sheets or current database.',
         'Proceed to stage normalized data for downstream review.',
       ]
     : [
-        'Add missing member master rows or correct workbook references.',
+        'Add missing master data rows or correct workbook references.',
         'Resolve duplicate-in-upload rows for tables where duplicates are blocked.',
         'Reject this run if the source workbook needs to be corrected offline.',
       ];

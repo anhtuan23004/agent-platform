@@ -1,5 +1,7 @@
 import type { z } from 'zod';
 import type { SchemaDetectionResult } from '../../../ingestion/detect-schema.ts';
+import type { IngestionDomainAdapter } from '../../../ingestion/domain-adapter.ts';
+import type { IngestionDomainConfig } from '../../../ingestion/domain-config.ts';
 import type { WorkbookParseResult } from '../../../ingestion/parse-workbook.ts';
 import type { PmoPlannerStepMetadata } from '../../../planning/step-metadata.ts';
 import type { MappingOverride } from '../cards.ts';
@@ -12,6 +14,8 @@ export type BlockingIssue = z.infer<typeof StagingOutputSchema>['blockingIssues'
 export type StagingChangeSummary = z.infer<typeof StagingOutputSchema>['changeSummary'];
 
 export interface DynamicHandlerDeps {
+  domainConfig: IngestionDomainConfig;
+  domainAdapter: IngestionDomainAdapter;
   resolveCardIdentity(requestContext: { get: (key: string) => unknown }): {
     tenantId: string;
     userId: string;

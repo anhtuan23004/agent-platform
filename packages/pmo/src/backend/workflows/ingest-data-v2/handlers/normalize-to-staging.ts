@@ -1,6 +1,7 @@
 import { eq as drizzleEq } from 'drizzle-orm';
 import { pmoDb as getPmoDb } from '../../../db/client.ts';
 import { stagingChanges } from '../../../db/schema.ts';
+import type { IngestionReferenceRule } from '../../../ingestion/domain-config.ts';
 import { normalizeRows } from '../../../ingestion/normalize-rows.ts';
 import {
   classifyRows,
@@ -21,9 +22,61 @@ function isMissingRequiredValue(value: unknown): boolean {
   return typeof value === 'string' && value.trim() === '';
 }
 
+function normalizeReferenceId(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  const normalized = String(value).trim();
+  return normalized.length > 0 ? normalized.toLowerCase() : null;
+}
+
+function displayReferenceId(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  return String(value).trim();
+}
+
+function collectUploadedReferenceIds(
+  rows: Array<{ values: Record<string, unknown> }> | undefined,
+  field: string,
+): Set<string> {
+  const ids = new Set<string>();
+  for (const row of rows ?? []) {
+    const id = normalizeReferenceId(row.values[field]);
+    if (id) ids.add(id);
+  }
+  return ids;
+}
+
+interface ReferenceLookup {
+  rule: IngestionReferenceRule;
+  uploadedTargetIds: Set<string>;
+  dbTargetIds: Set<string>;
+}
+
+async function buildReferenceLookups(params: {
+  tenantId: string;
+  tables: Record<string, Array<{ values: Record<string, unknown> }>>;
+  deps: Pick<DynamicHandlerDeps, 'domainConfig' | 'domainAdapter'>;
+}): Promise<ReferenceLookup[]> {
+  return Promise.all(
+    params.deps.domainConfig.referenceRules.map(async (rule) => ({
+      rule,
+      uploadedTargetIds: collectUploadedReferenceIds(
+        params.tables[rule.targetTable],
+        rule.targetField,
+      ),
+      dbTargetIds: await params.deps.domainAdapter.findReferenceValues({
+        tenantId: params.tenantId,
+        tableId: rule.targetTable,
+        fieldName: rule.targetField,
+      }),
+    })),
+  );
+}
+
 export function createNormalizeToStagingHandler(
   deps: Pick<
     DynamicHandlerDeps,
+    | 'domainConfig'
+    | 'domainAdapter'
     | 'resolveCardIdentity'
     | 'readPlannerStepMeta'
     | 'requiredFieldsByTable'
@@ -62,7 +115,16 @@ export function createNormalizeToStagingHandler(
         })),
       }));
 
-      const normResult = normalizeRows(parseResult.sheets, tableMappings as never);
+      const normResult = normalizeRows(
+        parseResult.sheets,
+        tableMappings as never,
+        deps.domainConfig,
+      );
+      const referenceLookups = await buildReferenceLookups({
+        tenantId: input.tenantId,
+        tables: normResult.tables,
+        deps,
+      });
 
       const blockingIssueMap = new Map<string, BlockingIssue>();
       const addBlockingIssue = (issue: BlockingIssue): void => {
@@ -108,9 +170,39 @@ export function createNormalizeToStagingHandler(
               reason: 'required value missing after normalization',
             });
           }
+
+          for (const lookup of referenceLookups) {
+            const { rule } = lookup;
+            if (rule.sourceTable !== tableId) continue;
+            if (!rule.blocking) continue;
+            if (isMissingRequiredValue(row.values[rule.sourceField])) continue;
+
+            const id = normalizeReferenceId(row.values[rule.sourceField]);
+            if (!id) continue;
+            if (lookup.uploadedTargetIds.has(id) || lookup.dbTargetIds.has(id)) continue;
+            addBlockingIssue({
+              tableId,
+              sourceRow: row.sourceRow,
+              field: rule.sourceField,
+              reason:
+                `unresolved reference: ${rule.sourceField} "${displayReferenceId(row.values[rule.sourceField])}" ` +
+                `not found in uploaded ${rule.targetTable}.${rule.targetField} ` +
+                `or database ${rule.targetTable}.${rule.targetField}`,
+            });
+          }
         }
 
-        const staged = classifyRows(tableId, input.tenantId, rows, []);
+        const activeRecords = await deps.domainAdapter.findActiveRecords({
+          tenantId: input.tenantId,
+          tableId,
+        });
+        const staged = classifyRows(
+          tableId,
+          input.tenantId,
+          rows,
+          activeRecords,
+          deps.domainConfig,
+        );
         allStaged.push(...staged);
 
         const counts = {
@@ -146,7 +238,8 @@ export function createNormalizeToStagingHandler(
       );
       const hasBlockingDuplicates = changeSummary.some(
         (table) =>
-          table.counts.duplicates_in_upload > 0 && shouldBlockDuplicateInUpload(table.tableId),
+          table.counts.duplicates_in_upload > 0 &&
+          shouldBlockDuplicateInUpload(table.tableId, deps.domainConfig),
       );
       const blocked = hasBlockingIssues || hasBlockingDuplicates;
 

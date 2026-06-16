@@ -1,8 +1,9 @@
 import type { ApprovalCard } from '@seta/agent-sdk';
 import type { z } from 'zod';
-import { PMO_CANONICAL_SCHEMA } from '../../ingestion/canonical-schema.ts';
 import { detectSchema, type SchemaDetectionResult } from '../../ingestion/detect-schema.ts';
 import { parseWorkbook, type WorkbookParseResult } from '../../ingestion/parse-workbook.ts';
+import { PMO_DOMAIN_CONFIG } from '../../ingestion/pmo-domain-config.ts';
+import { PMO_INGESTION_ADAPTER } from '../../ingestion/pmo-ingestion-adapter.ts';
 import {
   enrichPlannerWorkflowSteps,
   type PlannerStepLike,
@@ -56,12 +57,18 @@ type DynamicOrchestratorResult =
       output: IngestDataV2Output;
     };
 
-const REQUIRED_FIELDS_BY_TABLE = new Map<string, string[]>(
-  PMO_CANONICAL_SCHEMA.tables.map((table) => [
-    table.id,
-    table.fields.filter((field) => field.required).map((field) => field.name),
-  ]),
-);
+function buildRequiredFieldsByTable(
+  config: typeof PMO_DOMAIN_CONFIG,
+): ReadonlyMap<string, string[]> {
+  return new Map(
+    config.tables.map((table) => [
+      table.id,
+      table.fields.filter((field) => field.required).map((field) => field.name),
+    ]),
+  );
+}
+
+const REQUIRED_FIELDS_BY_TABLE = buildRequiredFieldsByTable(PMO_DOMAIN_CONFIG);
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -691,6 +698,8 @@ function buildStepRegistry(deps: DynamicHandlerDeps) {
       applyMappingOverrides: deps.applyMappingOverrides,
     }),
     createNormalizeToStagingHandler({
+      domainConfig: deps.domainConfig,
+      domainAdapter: deps.domainAdapter,
       resolveCardIdentity: deps.resolveCardIdentity,
       readPlannerStepMeta: deps.readPlannerStepMeta,
       requiredFieldsByTable: deps.requiredFieldsByTable,
@@ -701,6 +710,7 @@ function buildStepRegistry(deps: DynamicHandlerDeps) {
       readPlannerStepMeta: deps.readPlannerStepMeta,
     }),
     createPublishAfterApprovalHandler({
+      domainAdapter: deps.domainAdapter,
       resolveCardIdentity: deps.resolveCardIdentity,
       readPlannerStepMeta: deps.readPlannerStepMeta,
     }),
@@ -723,6 +733,11 @@ export async function runDynamicIngestOrchestrator(
     confirmedMapping: row.confirmed_mapping,
     changeSummary: row.change_summary,
   });
+
+  // Attach domain identification for reproducibility and future multi-domain support
+  runtimeContext.domainId = runtimeContext.domainId ?? PMO_DOMAIN_CONFIG.domainId;
+  runtimeContext.domainConfigVersion =
+    runtimeContext.domainConfigVersion ?? PMO_DOMAIN_CONFIG.version;
 
   const artifactsCache = createIngestArtifactsCache();
 
@@ -766,6 +781,8 @@ export async function runDynamicIngestOrchestrator(
   };
 
   const stepRegistry = buildStepRegistry({
+    domainConfig: PMO_DOMAIN_CONFIG,
+    domainAdapter: PMO_INGESTION_ADAPTER,
     resolveCardIdentity,
     readPlannerStepMeta,
     applyMappingOverrides,

@@ -1,11 +1,10 @@
-import { publishUpsert } from '../../../ingestion/publish-upsert.ts';
 import { buildPublishReviewCard } from '../cards.ts';
 import { shouldBlockPublishApprove } from '../review-gates.ts';
 import type { PmoDynamicStepHandler } from '../types.ts';
 import type { BlockingIssue, DynamicHandlerDeps, StagingChangeSummary } from './common.ts';
 
 export function createPublishAfterApprovalHandler(
-  deps: Pick<DynamicHandlerDeps, 'resolveCardIdentity' | 'readPlannerStepMeta'>,
+  deps: Pick<DynamicHandlerDeps, 'domainAdapter' | 'resolveCardIdentity' | 'readPlannerStepMeta'>,
 ): PmoDynamicStepHandler {
   return {
     actionId: 'publish_after_approval',
@@ -85,7 +84,10 @@ export function createPublishAfterApprovalHandler(
         };
       }
 
-      const result = await publishUpsert(input.ingestionSessionId, input.tenantId);
+      const result = await deps.domainAdapter.publish({
+        ingestionSessionId: input.ingestionSessionId,
+        tenantId: input.tenantId,
+      });
 
       return {
         kind: 'completed',

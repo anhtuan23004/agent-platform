@@ -52,6 +52,10 @@ export interface PlannerExecutionStateV2 {
 }
 
 export interface DynamicIngestRuntimeContext {
+  /** Domain identifier for this ingestion session (e.g. 'pmo', 'hr'). Defaults to 'pmo'. */
+  domainId?: string;
+  /** Domain config version used for this session, for reproducibility. */
+  domainConfigVersion?: string;
   detected_schema?: {
     tableMappings: unknown[];
     validationStatus: 'confirmed' | 'needs_review' | 'blocked';

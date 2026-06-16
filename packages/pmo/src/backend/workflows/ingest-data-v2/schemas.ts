@@ -7,6 +7,8 @@ export const IngestInputSchema = z.object({
   ingestionSessionId: z.string().uuid(),
   fileKey: z.string(),
   tenantId: z.string().uuid().optional(),
+  /** Domain identifier (e.g. 'pmo'). Defaults to 'pmo' when omitted. */
+  domainId: z.string().optional(),
   reportingPeriodKey: z.string().optional(),
   reportingPeriodStart: z.string().optional(),
   reportingPeriodEnd: z.string().optional(),

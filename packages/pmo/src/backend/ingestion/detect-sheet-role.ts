@@ -1,5 +1,5 @@
 import type { CanonicalSchema, CanonicalTable } from './canonical-schema.ts';
-import { PMO_CANONICAL_SCHEMA } from './canonical-schema.ts';
+import { PMO_DOMAIN_CANONICAL_SCHEMA } from './pmo-domain-config.ts';
 import type { SheetProfile } from './profile-columns.ts';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -74,98 +74,94 @@ function scoreColumnSet(profile: SheetProfile, table: CanonicalTable): number {
 }
 
 // ── Row pattern scoring ──────────────────────────────────────────────────────
+// Generic heuristics driven by the table's field data types rather than table IDs.
+
+function hasColumnMatchingPattern(profile: SheetProfile, pattern: RegExp): boolean {
+  return profile.columns.some((c) => c.sampleValues.some((v) => pattern.test(v)));
+}
+
+function hasHighUniqueColumn(profile: SheetProfile): boolean {
+  return profile.columns.some((c) => {
+    const nonEmpty = c.sampleValues.length;
+    const unique = new Set(c.sampleValues.map((v) => v.toLowerCase())).size;
+    return unique === nonEmpty && nonEmpty >= 3;
+  });
+}
+
+function hasLowCardinalityColumn(profile: SheetProfile): boolean {
+  return profile.columns.some((c) => {
+    const nonEmpty = c.sampleValues.length;
+    const unique = new Set(c.sampleValues.map((v) => v.toLowerCase())).size;
+    return nonEmpty >= 3 && unique <= 10 && unique < nonEmpty;
+  });
+}
 
 function scoreRowPattern(profile: SheetProfile, table: CanonicalTable): number {
-  // Structural signals based on table type
-  switch (table.id) {
-    case 'resource_allocation': {
-      // RA typically has moderate row count, date columns present, percentage column
-      const hasDateCol = profile.columns.some((c) =>
-        c.sampleValues.some((v) => /^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(v)),
-      );
-      const hasPercentCol = profile.columns.some((c) =>
-        c.sampleValues.some((v) => /^\d+(\.\d+)?%$/.test(v)),
-      );
-      let score = 0;
-      if (hasDateCol) score += 0.5;
-      if (hasPercentCol) score += 0.5;
-      return score;
-    }
+  // Derive structural expectations from the table's field definitions
+  const fields = table.fields;
+  const requiredFields = fields.filter((f) => f.required);
 
-    case 'timesheet': {
-      // Timesheet has many rows per member (high row count relative to unique members)
-      const hasNumericCol = profile.columns.some((c) =>
-        c.sampleValues.some((v) => /^\d+(\.\d+)?$/.test(v.trim())),
-      );
-      const hasDateCol = profile.columns.some((c) =>
-        c.sampleValues.some((v) => /^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(v)),
-      );
-      const highRowCount = profile.rowCount > 20;
-      let score = 0;
-      if (hasNumericCol) score += 0.35;
-      if (hasDateCol) score += 0.35;
-      if (highRowCount) score += 0.3;
-      return score;
-    }
+  const hasDateFields = fields.some((f) => f.dataType === 'date' && f.required);
+  const hasPercentFields = fields.some((f) => f.dataType === 'percentage');
+  const hasNumericFields = fields.some((f) => f.dataType === 'number' && f.required);
+  const hasEnumFields = fields.some((f) => f.dataType === 'enum' || f.dataType === 'boolean');
+  const isMasterLike = requiredFields.length <= 2 && fields.length >= 5;
 
-    case 'leave': {
-      // Leave has date ranges and category-like columns
-      const hasDateCol = profile.columns.some((c) =>
-        c.sampleValues.some((v) => /^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(v)),
-      );
-      const hasLowCardinalityCol = profile.columns.some((c) => {
-        const nonEmpty = c.sampleValues.length;
-        const unique = new Set(c.sampleValues.map((v) => v.toLowerCase())).size;
-        return nonEmpty >= 3 && unique <= 10 && unique < nonEmpty;
-      });
-      let score = 0;
-      if (hasDateCol) score += 0.5;
-      if (hasLowCardinalityCol) score += 0.5;
-      return score;
-    }
+  const datePattern = /^\d{4}[-/]\d{1,2}[-/]\d{1,2}/;
+  const percentPattern = /^\d+(\.\d+)?%$/;
+  const numericPattern = /^\d+(\.\d+)?$/;
 
-    case 'member_master': {
-      // Master tables have high uniqueness, relatively few rows, text-heavy
-      const hasHighUniqueCol = profile.columns.some((c) => {
-        const nonEmpty = c.sampleValues.length;
-        const unique = new Set(c.sampleValues.map((v) => v.toLowerCase())).size;
-        return unique === nonEmpty && nonEmpty >= 3;
-      });
-      const hasEmailLike = profile.columns.some((c) =>
-        c.sampleValues.some((v) => /.+@.+\..+/.test(v)),
-      );
-      let score = 0;
-      if (hasHighUniqueCol) score += 0.5;
-      if (hasEmailLike) score += 0.5;
-      return Math.min(score, 1.0);
-    }
-
-    case 'project_master': {
-      // Project master: ID + name, few rows, text-heavy
-      const hasHighUniqueCol = profile.columns.some((c) => {
-        const nonEmpty = c.sampleValues.length;
-        const unique = new Set(c.sampleValues.map((v) => v.toLowerCase())).size;
-        return unique === nonEmpty && nonEmpty >= 3;
-      });
-      const hasDateCol = profile.columns.some((c) =>
-        c.sampleValues.some((v) => /^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(v)),
-      );
-      let score = 0;
-      if (hasHighUniqueCol) score += 0.6;
-      if (hasDateCol) score += 0.4;
-      return Math.min(score, 1.0);
-    }
-
-    default:
-      return 0.5; // neutral
+  // Master-like tables: high uniqueness, few required fields, many optional fields
+  if (isMasterLike) {
+    let score = 0;
+    if (hasHighUniqueColumn(profile)) score += 0.6;
+    if (hasColumnMatchingPattern(profile, datePattern)) score += 0.2;
+    if (hasLowCardinalityColumn(profile)) score += 0.2;
+    return Math.min(score, 1.0);
   }
+
+  // Transaction-like tables with dates + percentages (e.g. allocation)
+  if (hasDateFields && hasPercentFields) {
+    let score = 0;
+    if (hasColumnMatchingPattern(profile, datePattern)) score += 0.5;
+    if (hasColumnMatchingPattern(profile, percentPattern)) score += 0.5;
+    return score;
+  }
+
+  // Transaction-like tables with dates + numbers (e.g. timesheet, log)
+  if (hasDateFields && hasNumericFields) {
+    let score = 0;
+    if (hasColumnMatchingPattern(profile, numericPattern)) score += 0.35;
+    if (hasColumnMatchingPattern(profile, datePattern)) score += 0.35;
+    if (profile.rowCount > 20) score += 0.3;
+    return score;
+  }
+
+  // Tables with dates + enums (e.g. leave, absence)
+  if (hasDateFields && hasEnumFields) {
+    let score = 0;
+    if (hasColumnMatchingPattern(profile, datePattern)) score += 0.5;
+    if (hasLowCardinalityColumn(profile)) score += 0.5;
+    return score;
+  }
+
+  // Config/reference tables: mostly numeric thresholds
+  if (hasNumericFields && !hasDateFields) {
+    let score = 0;
+    if (hasColumnMatchingPattern(profile, numericPattern)) score += 0.5;
+    if (hasHighUniqueColumn(profile)) score += 0.3;
+    if (hasLowCardinalityColumn(profile)) score += 0.2;
+    return Math.min(score, 1.0);
+  }
+
+  return 0.5; // neutral fallback
 }
 
 // ── Main function ────────────────────────────────────────────────────────────
 
 export function detectSheetRoles(
   sheets: SheetProfile[],
-  schema: CanonicalSchema = PMO_CANONICAL_SCHEMA,
+  schema: CanonicalSchema = PMO_DOMAIN_CANONICAL_SCHEMA,
 ): SheetRoleDetection[] {
   return sheets.map((profile) => {
     const candidates: SheetRoleCandidate[] = [];
