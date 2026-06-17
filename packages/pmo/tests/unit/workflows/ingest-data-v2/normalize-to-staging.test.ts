@@ -1,5 +1,5 @@
+import type { IngestionDomainAdapter } from '@seta/ingestion';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { IngestionDomainAdapter } from '../../../../src/backend/ingestion/domain-adapter.ts';
 import type { ParsedSheet } from '../../../../src/backend/ingestion/parse-workbook.ts';
 import { PMO_DOMAIN_CONFIG } from '../../../../src/backend/ingestion/pmo-domain-config.ts';
 import { createNormalizeToStagingHandler } from '../../../../src/backend/workflows/ingest-data-v2/handlers/normalize-to-staging.ts';
@@ -7,16 +7,26 @@ import type { PmoDynamicHandlerInput } from '../../../../src/backend/workflows/i
 
 const dbMock = vi.hoisted(() => {
   let selectResults: Array<Array<{ id: string }>> = [];
+  const deleteWhere = vi.fn(async () => undefined);
+  const insertValues = vi.fn(async () => undefined);
 
   return {
     setSelectResults(results: Array<Array<{ id: string }>>) {
       selectResults = [...results];
     },
+    deleteWhere,
+    insertValues,
     pmoDb: vi.fn(() => ({
       select: vi.fn(() => ({
         from: vi.fn(() => ({
           where: vi.fn(async () => selectResults.shift() ?? []),
         })),
+      })),
+      delete: vi.fn(() => ({
+        where: deleteWhere,
+      })),
+      insert: vi.fn(() => ({
+        values: insertValues,
       })),
     })),
   };
@@ -144,6 +154,8 @@ function makeInput(overrides: Partial<PmoDynamicHandlerInput> = {}): PmoDynamicH
 describe('createNormalizeToStagingHandler', () => {
   beforeEach(() => {
     dbMock.pmoDb.mockClear();
+    dbMock.deleteWhere.mockClear();
+    dbMock.insertValues.mockClear();
     vi.mocked(deps.domainAdapter.findReferenceValues).mockClear();
     vi.mocked(deps.domainAdapter.findActiveRecords).mockClear();
   });
@@ -163,6 +175,9 @@ describe('createNormalizeToStagingHandler', () => {
         reason: expect.stringContaining('unresolved reference'),
       }),
     ]);
+    expect(
+      result.runtimeContextPatch?.staging_result?.review_proposals?.normalize_to_staging,
+    ).toHaveLength(1);
   });
 
   it('does not normalize when mapping has a proposal but no approved checkpoint', async () => {
@@ -248,5 +263,236 @@ describe('createNormalizeToStagingHandler', () => {
     expect(result.card.primary.label).toBe('Approve normalization');
     expect(result.outputSummary).toMatchObject({ status: 'needs_review', blocking_issues: 0 });
     expect(result.runtimeContextPatch?.staging_result?.blockingIssues).toEqual([]);
+    expect(
+      result.runtimeContextPatch?.staging_result?.review_proposals?.normalize_to_staging,
+    ).toHaveLength(1);
+  });
+
+  it('approves clean normalization into an immutable checkpoint and writes staging rows', async () => {
+    const cleanDeps = {
+      ...deps,
+      getWorkbookParseResult: async () => ({
+        sheets: [
+          sheet('RA', [
+            {
+              Member_ID: 'M-001',
+              Project_ID: 'P-001',
+              Allocation: '50%',
+              Start: '2026-06-01',
+              End: '2026-06-30',
+            },
+          ]),
+          sheet('Members', [{ Member_ID: 'M-001', Full_Name: 'An Nguyen' }]),
+        ],
+        excludedSheets: [],
+        parseErrors: [],
+      }),
+    } satisfies Parameters<typeof createNormalizeToStagingHandler>[0];
+    const input = makeInput({
+      runtimeContext: {
+        confirmed_mapping: {
+          mappingReviewRows: [],
+          confirmedMappings: [
+            ...(makeInput().runtimeContext.confirmed_mapping?.confirmedMappings ?? []),
+            {
+              tableId: 'member_master',
+              sourceSheet: 'Members',
+              headerRow: 1,
+              tableConfidence: 1,
+              mappings: [
+                { sourceColumn: 'Member_ID', canonicalField: 'member_id', confidence: 1 },
+                { sourceColumn: 'Full_Name', canonicalField: 'full_name', confidence: 1 },
+              ],
+              unmappedRequired: [],
+              ambiguous: [],
+            },
+          ],
+        },
+      },
+    });
+
+    const proposalResult = await createNormalizeToStagingHandler(cleanDeps).execute(input);
+    expect(proposalResult.kind).toBe('suspend');
+    if (proposalResult.kind !== 'suspend') throw new Error('expected suspend');
+
+    const approvedResult = await createNormalizeToStagingHandler(cleanDeps).execute(
+      makeInput({
+        ...input,
+        resumeData: { decision: 'approve' },
+        runtimeContext: {
+          ...input.runtimeContext,
+          staging_result: proposalResult.runtimeContextPatch?.staging_result,
+        },
+      }),
+    );
+
+    expect(approvedResult.kind).toBe('completed');
+    if (approvedResult.kind !== 'completed') throw new Error('expected completed');
+    expect(
+      approvedResult.runtimeContextPatch?.staging_result?.approved_checkpoints
+        ?.normalize_to_staging,
+    ).toHaveLength(1);
+    expect(approvedResult.runtimeContextPatch?.staging_result?.requiresReview).toBe(false);
+    expect(dbMock.deleteWhere).toHaveBeenCalledTimes(1);
+    expect(dbMock.insertValues).toHaveBeenCalledTimes(1);
+  });
+
+  it('captures duplicate natural keys in the normalization proposal before staging approval', async () => {
+    const result = await createNormalizeToStagingHandler({
+      ...deps,
+      getWorkbookParseResult: async () => ({
+        sheets: [
+          sheet('RA', [
+            {
+              Member_ID: 'M-001',
+              Project_ID: 'P-001',
+              Allocation: '60%',
+              Start: '2026-06-29',
+              End: '2026-08-07',
+            },
+            {
+              Member_ID: 'M-001',
+              Project_ID: 'P-001',
+              Allocation: '40%',
+              Start: '2026-06-29',
+              End: '2026-08-07',
+            },
+          ]),
+          sheet('Members', [{ Member_ID: 'M-001', Full_Name: 'An Nguyen' }]),
+        ],
+        excludedSheets: [],
+        parseErrors: [],
+      }),
+    }).execute(
+      makeInput({
+        runtimeContext: {
+          confirmed_mapping: {
+            mappingReviewRows: [],
+            confirmedMappings: [
+              ...(makeInput().runtimeContext.confirmed_mapping?.confirmedMappings ?? []),
+              {
+                tableId: 'member_master',
+                sourceSheet: 'Members',
+                headerRow: 1,
+                tableConfidence: 1,
+                mappings: [
+                  { sourceColumn: 'Member_ID', canonicalField: 'member_id', confidence: 1 },
+                  { sourceColumn: 'Full_Name', canonicalField: 'full_name', confidence: 1 },
+                ],
+                unmappedRequired: [],
+                ambiguous: [],
+              },
+            ],
+          },
+        },
+      }),
+    );
+
+    expect(result.kind).toBe('suspend');
+    if (result.kind !== 'suspend') throw new Error('expected suspend');
+    expect(
+      result.runtimeContextPatch?.staging_result?.review_proposals?.normalize_to_staging?.[0]
+        ?.proposal,
+    ).toMatchObject({
+      duplicateInUploadRows: [
+        expect.objectContaining({
+          tableId: 'resource_allocation',
+          sourceRow: 3,
+          policy: 'block',
+        }),
+      ],
+    });
+    expect(result.outputSummary).toMatchObject({ status: 'needs_review' });
+    expect(result.card.primary.label).toBe('Reject blocked normalization');
+  });
+
+  it('captures duplicate natural keys across sheets mapped to the same table', async () => {
+    const raMapping = (sourceSheet: string) => ({
+      tableId: 'resource_allocation',
+      sourceSheet,
+      headerRow: 1,
+      tableConfidence: 1,
+      mappings: [
+        { sourceColumn: 'Member_ID', canonicalField: 'member_id', confidence: 1 },
+        { sourceColumn: 'Project_ID', canonicalField: 'project_id', confidence: 1 },
+        { sourceColumn: 'Allocation', canonicalField: 'allocation_pct', confidence: 1 },
+        { sourceColumn: 'Start', canonicalField: 'start_date', confidence: 1 },
+        { sourceColumn: 'End', canonicalField: 'end_date', confidence: 1 },
+      ],
+      unmappedRequired: [],
+      ambiguous: [],
+    });
+    const result = await createNormalizeToStagingHandler({
+      ...deps,
+      getWorkbookParseResult: async () => ({
+        sheets: [
+          sheet('RA Current', [
+            {
+              Member_ID: 'M-001',
+              Project_ID: 'P-001',
+              Allocation: '60%',
+              Start: '2026-06-29',
+              End: '2026-08-07',
+            },
+          ]),
+          sheet('RA Extra', [
+            {
+              Member_ID: 'M-001',
+              Project_ID: 'P-001',
+              Allocation: '40%',
+              Start: '2026-06-29',
+              End: '2026-08-07',
+            },
+          ]),
+          sheet('Members', [{ Member_ID: 'M-001', Full_Name: 'An Nguyen' }]),
+        ],
+        excludedSheets: [],
+        parseErrors: [],
+      }),
+    }).execute(
+      makeInput({
+        runtimeContext: {
+          confirmed_mapping: {
+            mappingReviewRows: [],
+            confirmedMappings: [
+              raMapping('RA Current'),
+              raMapping('RA Extra'),
+              {
+                tableId: 'member_master',
+                sourceSheet: 'Members',
+                headerRow: 1,
+                tableConfidence: 1,
+                mappings: [
+                  { sourceColumn: 'Member_ID', canonicalField: 'member_id', confidence: 1 },
+                  { sourceColumn: 'Full_Name', canonicalField: 'full_name', confidence: 1 },
+                ],
+                unmappedRequired: [],
+                ambiguous: [],
+              },
+            ],
+          },
+        },
+      }),
+    );
+
+    expect(result.kind).toBe('suspend');
+    if (result.kind !== 'suspend') throw new Error('expected suspend');
+    const proposal = result.runtimeContextPatch?.staging_result?.review_proposals
+      ?.normalize_to_staging?.[0]?.proposal as {
+      duplicateInUploadRows?: unknown[];
+      reviewRows?: unknown[];
+    };
+    expect(proposal.duplicateInUploadRows).toEqual([
+      expect.objectContaining({
+        tableId: 'resource_allocation',
+        policy: 'block',
+      }),
+    ]);
+    expect(proposal.reviewRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ sourceSheet: 'RA Current', status: 'duplicate' }),
+        expect.objectContaining({ sourceSheet: 'RA Extra', status: 'duplicate' }),
+      ]),
+    );
   });
 });

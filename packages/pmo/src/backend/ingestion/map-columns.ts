@@ -1,6 +1,6 @@
+import type { IngestionDomainConfig } from '@seta/ingestion';
 import type { CanonicalField, CanonicalSchema } from './canonical-schema.ts';
 import type { SheetRoleCandidate } from './detect-sheet-role.ts';
-import type { IngestionDomainConfig } from './domain-config.ts';
 import { type LlmMappingHintMap, llmMappingHintKey } from './llm-mapping-hints.ts';
 import { PMO_DOMAIN_CANONICAL_SCHEMA, PMO_DOMAIN_CONFIG } from './pmo-domain-config.ts';
 import type { SheetProfile } from './profile-columns.ts';

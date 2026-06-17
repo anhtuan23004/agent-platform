@@ -89,8 +89,56 @@ export interface MissingMemberReference {
   reason: string;
 }
 
+export interface NormalizationReviewColumn {
+  key: string;
+  label: string;
+}
+
+export interface NormalizationReviewRow {
+  id: string;
+  groupId: string;
+  groupLabel: string;
+  tableId: string;
+  sourceSheet: string | null;
+  sourceRow: number;
+  status: 'blocked' | 'duplicate' | 'warning' | 'skipped';
+  issueType: string;
+  issueLabel: string;
+  issueDetail: string;
+  values: Record<string, unknown>;
+  columns: NormalizationReviewColumn[];
+  problemFields: string[];
+  duplicateGroupKey: string | null;
+  duplicateOfRowId: string | null;
+  decision: 'keep_row' | 'skip_row' | 'skipped';
+}
+
+export interface NormalizationReviewIssueGroup {
+  groupId: string;
+  groupLabel: string;
+  rows: NormalizationReviewRow[];
+}
+
+export interface NormalizationReviewTableGroup {
+  tableId: string;
+  sourceSheet: string | null;
+  columns: NormalizationReviewColumn[];
+  rows: NormalizationReviewRow[];
+  issueGroups: NormalizationReviewIssueGroup[];
+  totals: {
+    issues: number;
+    blocked: number;
+    duplicates: number;
+    missingFields: number;
+    missingRefs: number;
+    skipped: number;
+  };
+}
+
 export interface NormalizationReviewViewModel extends PublishReviewViewModel {
   missingMembers: MissingMemberReference[];
+  reviewRows: NormalizationReviewRow[];
+  tableGroups: NormalizationReviewTableGroup[];
 }
 
 export function groupExecutionCardsByAction(cards: ExecutionCard[]): ExecutionActionGroup[] {
@@ -660,6 +708,137 @@ function textDetailsFromPayload(payload: unknown): string[] {
   return out;
 }
 
+function asString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function asNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function parseDataQualityReviewRows(payload: unknown): NormalizationReviewRow[] {
+  if (!isRenderableApprovalPayload(payload)) return [];
+
+  const rows: NormalizationReviewRow[] = [];
+  for (const detail of payload.details) {
+    if (!detail || typeof detail !== 'object') continue;
+    if ((detail as { kind?: unknown }).kind !== 'dataQualityReview') continue;
+    const rawRows = (detail as { rows?: unknown }).rows;
+    if (!Array.isArray(rawRows)) continue;
+
+    for (const rawRow of rawRows) {
+      if (!rawRow || typeof rawRow !== 'object') continue;
+      const row = rawRow as Record<string, unknown>;
+      const id = asString(row.id);
+      const groupId = asString(row.groupId);
+      const groupLabel = asString(row.groupLabel);
+      const tableId = asString(row.tableId);
+      const sourceRow = asNumber(row.sourceRow);
+      const status = asString(row.status);
+      const issueType = asString(row.issueType);
+      const issueLabel = asString(row.issueLabel);
+      const issueDetail = asString(row.issueDetail) ?? '';
+      const decision = asString(row.decision);
+      if (
+        !id ||
+        !groupId ||
+        !groupLabel ||
+        !tableId ||
+        !sourceRow ||
+        !status ||
+        !issueType ||
+        !issueLabel
+      ) {
+        continue;
+      }
+      if (!['blocked', 'duplicate', 'warning', 'skipped'].includes(status)) continue;
+      if (!['keep_row', 'skip_row', 'skipped'].includes(decision ?? '')) continue;
+
+      const columns = Array.isArray(row.columns)
+        ? row.columns
+            .map((column) => {
+              if (!column || typeof column !== 'object') return null;
+              const key = asString((column as { key?: unknown }).key);
+              const label = asString((column as { label?: unknown }).label);
+              return key && label ? { key, label } : null;
+            })
+            .filter((column): column is NormalizationReviewColumn => Boolean(column))
+        : [];
+
+      const values =
+        row.values && typeof row.values === 'object' ? (row.values as Record<string, unknown>) : {};
+      const problemFields = Array.isArray(row.problemFields)
+        ? row.problemFields.filter((field): field is string => typeof field === 'string')
+        : [];
+
+      rows.push({
+        id,
+        groupId,
+        groupLabel,
+        tableId,
+        sourceSheet: asString(row.sourceSheet),
+        sourceRow,
+        status: status as NormalizationReviewRow['status'],
+        issueType,
+        issueLabel,
+        issueDetail,
+        values,
+        columns,
+        problemFields,
+        duplicateGroupKey: asString(row.duplicateGroupKey),
+        duplicateOfRowId: asString(row.duplicateOfRowId),
+        decision: decision as NormalizationReviewRow['decision'],
+      });
+    }
+  }
+
+  return rows.sort((a, b) => {
+    const tableCompare = a.tableId.localeCompare(b.tableId);
+    if (tableCompare !== 0) return tableCompare;
+    const groupCompare = a.groupLabel.localeCompare(b.groupLabel);
+    if (groupCompare !== 0) return groupCompare;
+    const duplicateCompare = (a.duplicateGroupKey ?? '').localeCompare(b.duplicateGroupKey ?? '');
+    if (duplicateCompare !== 0) return duplicateCompare;
+    return a.sourceRow - b.sourceRow;
+  });
+}
+
+function groupNormalizationRows(rows: NormalizationReviewRow[]): NormalizationReviewTableGroup[] {
+  const tableBuckets = new Map<string, NormalizationReviewRow[]>();
+  for (const row of rows) {
+    tableBuckets.set(row.tableId, [...(tableBuckets.get(row.tableId) ?? []), row]);
+  }
+
+  return [...tableBuckets.entries()].map(([tableId, tableRows]) => {
+    const columns = tableRows.find((row) => row.columns.length > 0)?.columns ?? [];
+    const issueBuckets = new Map<string, NormalizationReviewRow[]>();
+    for (const row of tableRows) {
+      issueBuckets.set(row.groupId, [...(issueBuckets.get(row.groupId) ?? []), row]);
+    }
+    const issueGroups = [...issueBuckets.entries()].map(([groupId, groupRows]) => ({
+      groupId,
+      groupLabel: groupRows[0]?.groupLabel ?? groupId,
+      rows: groupRows,
+    }));
+
+    return {
+      tableId,
+      sourceSheet: tableRows[0]?.sourceSheet ?? null,
+      columns,
+      rows: tableRows,
+      issueGroups,
+      totals: {
+        issues: tableRows.length,
+        blocked: tableRows.filter((row) => row.status === 'blocked').length,
+        duplicates: tableRows.filter((row) => row.status === 'duplicate').length,
+        missingFields: tableRows.filter((row) => row.issueType === 'missing_required').length,
+        missingRefs: tableRows.filter((row) => row.issueType === 'missing_reference').length,
+        skipped: tableRows.filter((row) => row.status === 'skipped').length,
+      },
+    };
+  });
+}
+
 function publishPrimaryApproves(payload: unknown): boolean {
   if (!payload || typeof payload !== 'object') return false;
   const primary = (payload as { primary?: unknown }).primary;
@@ -748,6 +927,8 @@ export function parseNormalizationReviewView(
   return {
     ...base,
     missingMembers: missingMembersFromIssueRows(base.issueRows),
+    reviewRows: parseDataQualityReviewRows(approval?.proposedPayload),
+    tableGroups: groupNormalizationRows(parseDataQualityReviewRows(approval?.proposedPayload)),
   };
 }
 

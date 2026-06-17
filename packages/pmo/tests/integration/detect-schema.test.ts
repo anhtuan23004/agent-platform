@@ -1,7 +1,7 @@
+import type { IngestionDomainConfig } from '@seta/ingestion';
 import ExcelJS from 'exceljs';
 import { describe, expect, it } from 'vitest';
 import { detectSchema } from '../../src/backend/ingestion/detect-schema.ts';
-import type { IngestionDomainConfig } from '../../src/backend/ingestion/domain-config.ts';
 
 // ── Fixture helper ───────────────────────────────────────────────────────────
 

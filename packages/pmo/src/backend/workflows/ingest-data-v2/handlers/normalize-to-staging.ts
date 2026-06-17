@@ -1,24 +1,36 @@
+import {
+  appendCheckpoint,
+  appendProposal,
+  approveProposal,
+  createProposal,
+  getLatestApprovedCheckpoint,
+  type IngestionReferenceRule,
+  type ReviewAction,
+  type ReviewCheckpointState,
+} from '@seta/ingestion';
 import { eq as drizzleEq } from 'drizzle-orm';
 import { pmoDb as getPmoDb } from '../../../db/client.ts';
 import { stagingChanges } from '../../../db/schema.ts';
-import type { IngestionReferenceRule } from '../../../ingestion/domain-config.ts';
 import { normalizeRows } from '../../../ingestion/normalize-rows.ts';
-import type { ReviewCheckpointState } from '../../../ingestion/review-contracts.ts';
 import {
   classifyRows,
   type StagedRow,
   shouldBlockDuplicateInUpload,
 } from '../../../ingestion/stage-changes.ts';
 import { buildNormalizationReviewCard } from '../cards.ts';
-import { getLatestApprovedCheckpoint } from '../checkpoints.ts';
-import type { PmoDynamicStepHandler } from '../types.ts';
+import type { DynamicIngestRuntimeContext, PmoDynamicStepHandler } from '../types.ts';
 import type {
   BlockingIssue,
   DetectTableMapping,
   DynamicHandlerDeps,
   MappingResult,
+  NormalizationResult,
+  NormalizationReviewColumn,
+  NormalizationReviewRow,
   StagingChangeSummary,
 } from './common.ts';
+
+type StagingResultState = NonNullable<DynamicIngestRuntimeContext['staging_result']>;
 
 function isMissingRequiredValue(value: unknown): boolean {
   if (value === null || value === undefined) return true;
@@ -52,6 +64,36 @@ interface ReferenceLookup {
   rule: IngestionReferenceRule;
   uploadedTargetIds: Set<string>;
   dbTargetIds: Set<string>;
+}
+
+interface TableReviewContext {
+  tableId: string;
+  sourceSheet: string;
+  headerRow: number;
+  columns: NormalizationReviewColumn[];
+  sourceColumnByField: Map<string, string>;
+  rawRowBySourceRow: Map<number, Record<string, unknown>>;
+}
+
+function buildStagingPayload(params: {
+  normalization: NormalizationResult;
+  checkpointState: ReviewCheckpointState;
+  requiresReview: boolean;
+}): StagingResultState {
+  return {
+    changeSummary: params.normalization.changeSummary,
+    blockingIssues: params.normalization.blockingIssues,
+    mappingReviewRows: params.normalization.mappingReviewRows,
+    hasBlockingIssues: params.normalization.hasBlockingIssues,
+    hasUpdates: params.normalization.hasUpdates,
+    requiresReview: params.requiresReview,
+    ...(params.checkpointState.review_proposals
+      ? { review_proposals: params.checkpointState.review_proposals }
+      : {}),
+    ...(params.checkpointState.approved_checkpoints
+      ? { approved_checkpoints: params.checkpointState.approved_checkpoints }
+      : {}),
+  };
 }
 
 function resolveApprovedMappingResult(
@@ -106,6 +148,109 @@ async function buildReferenceLookups(params: {
   );
 }
 
+function buildTableReviewContexts(params: {
+  tableMappings: DetectTableMapping[];
+  sheets: Awaited<ReturnType<DynamicHandlerDeps['getWorkbookParseResult']>>['sheets'];
+}): Map<string, TableReviewContext> {
+  const sheetByName = new Map(params.sheets.map((sheet) => [sheet.name, sheet]));
+  const contexts = new Map<string, TableReviewContext>();
+
+  for (const mapping of params.tableMappings) {
+    const sourceColumnByField = new Map<string, string>();
+    const columns: NormalizationReviewColumn[] = [];
+    for (const columnMapping of mapping.mappings) {
+      sourceColumnByField.set(columnMapping.canonicalField, columnMapping.sourceColumn);
+      columns.push({
+        key: columnMapping.sourceColumn,
+        label: columnMapping.sourceColumn,
+      });
+    }
+
+    const rawRowBySourceRow = new Map<number, Record<string, unknown>>();
+    const sheet = sheetByName.get(mapping.sourceSheet);
+    for (const [rowIndex, row] of (sheet?.rows ?? []).entries()) {
+      rawRowBySourceRow.set(mapping.headerRow + rowIndex + 1, row);
+    }
+
+    contexts.set(tableReviewContextKey(mapping.tableId, mapping.sourceSheet), {
+      tableId: mapping.tableId,
+      sourceSheet: mapping.sourceSheet,
+      headerRow: mapping.headerRow,
+      columns,
+      sourceColumnByField,
+      rawRowBySourceRow,
+    });
+  }
+
+  return contexts;
+}
+
+function tableReviewContextKey(tableId: string, sourceSheet: string | undefined): string {
+  return `${tableId}:${sourceSheet ?? ''}`;
+}
+
+function getReviewContext(
+  contexts: Map<string, TableReviewContext>,
+  tableId: string,
+  sourceSheet: string | undefined,
+): TableReviewContext | undefined {
+  return (
+    contexts.get(tableReviewContextKey(tableId, sourceSheet)) ??
+    [...contexts.values()].find((context) => context.tableId === tableId)
+  );
+}
+
+function valueRecordForReviewRow(
+  context: TableReviewContext | undefined,
+  sourceRow: number,
+  normalizedValues: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!context) return normalizedValues;
+  const raw = context.rawRowBySourceRow.get(sourceRow);
+  if (raw) return raw;
+
+  const values: Record<string, unknown> = {};
+  for (const [field, sourceColumn] of context.sourceColumnByField.entries()) {
+    values[sourceColumn] = normalizedValues[field];
+  }
+  return values;
+}
+
+function problemColumns(context: TableReviewContext | undefined, fields: string[]): string[] {
+  if (!context) return fields;
+  return fields.map((field) => context.sourceColumnByField.get(field) ?? field);
+}
+
+function reviewRowId(tableId: string, sourceRow: number, sourceSheet?: string): string {
+  return `${tableId}:${sourceSheet ?? 'sheet'}:${sourceRow}`;
+}
+
+function reviewRowLabel(sourceRow: number, sourceSheet?: string): string {
+  return sourceSheet ? `${sourceSheet} row ${sourceRow}` : `row ${sourceRow}`;
+}
+
+function issueTypeForBlockingReason(reason: string): NormalizationReviewRow['issueType'] {
+  if (reason.includes('unresolved reference')) return 'missing_reference';
+  if (reason.includes('required value missing')) return 'missing_required';
+  return 'parse_error';
+}
+
+function issueLabelForType(type: NormalizationReviewRow['issueType']): string {
+  if (type === 'duplicate_in_upload') return 'Duplicate';
+  if (type === 'missing_reference') return 'Missing reference';
+  if (type === 'missing_required') return 'Missing field';
+  if (type === 'exact_duplicate') return 'Skipped';
+  return 'Blocked';
+}
+
+function groupLabelForType(type: NormalizationReviewRow['issueType']): string {
+  if (type === 'duplicate_in_upload') return 'Duplicates';
+  if (type === 'missing_reference') return 'Missing references';
+  if (type === 'missing_required') return 'Missing fields';
+  if (type === 'exact_duplicate') return 'Rows to skip';
+  return 'Parse errors';
+}
+
 export function createNormalizeToStagingHandler(
   deps: Pick<
     DynamicHandlerDeps,
@@ -148,6 +293,10 @@ export function createNormalizeToStagingHandler(
           },
         })),
       }));
+      const reviewContexts = buildTableReviewContexts({
+        tableMappings: tableMappings as DetectTableMapping[],
+        sheets: parseResult.sheets,
+      });
 
       const normResult = normalizeRows(
         parseResult.sheets,
@@ -162,13 +311,17 @@ export function createNormalizeToStagingHandler(
 
       const blockingIssueMap = new Map<string, BlockingIssue>();
       const addBlockingIssue = (issue: BlockingIssue): void => {
-        const key = `${issue.tableId}|${issue.sourceRow}|${issue.field}|${issue.reason}`;
+        const key = `${issue.tableId}|${issue.sourceSheet ?? ''}|${issue.sourceRow}|${issue.field}|${issue.reason}`;
         if (blockingIssueMap.has(key)) return;
         if (blockingIssueMap.size >= 200) return;
         blockingIssueMap.set(key, issue);
       };
 
       const allStaged: StagedRow[] = [];
+      const rowCountsByTable: Record<string, number> = {};
+      const duplicateInUploadRows: NormalizationResult['duplicateInUploadRows'] = [];
+      const reviewRows: NormalizationReviewRow[] = [];
+      const reviewRowKeys = new Set<string>();
       const changeSummary: Array<{
         tableId: string;
         counts: {
@@ -185,11 +338,13 @@ export function createNormalizeToStagingHandler(
       }> = [];
 
       for (const [tableId, rows] of Object.entries(normResult.tables)) {
+        rowCountsByTable[tableId] = rows.length;
         const requiredFields = deps.requiredFieldsByTable.get(tableId) ?? [];
         for (const row of rows) {
           for (const parseError of row.parseErrors) {
             addBlockingIssue({
               tableId,
+              sourceSheet: row.sourceSheet,
               sourceRow: row.sourceRow,
               field: parseError.field,
               reason: parseError.error,
@@ -199,6 +354,7 @@ export function createNormalizeToStagingHandler(
             if (!isMissingRequiredValue(row.values[field])) continue;
             addBlockingIssue({
               tableId,
+              sourceSheet: row.sourceSheet,
               sourceRow: row.sourceRow,
               field,
               reason: 'required value missing after normalization',
@@ -216,6 +372,7 @@ export function createNormalizeToStagingHandler(
             if (lookup.uploadedTargetIds.has(id) || lookup.dbTargetIds.has(id)) continue;
             addBlockingIssue({
               tableId,
+              sourceSheet: row.sourceSheet,
               sourceRow: row.sourceRow,
               field: rule.sourceField,
               reason:
@@ -238,6 +395,67 @@ export function createNormalizeToStagingHandler(
           deps.domainConfig,
         );
         allStaged.push(...staged);
+        const firstRowByNaturalKey = new Map<string, StagedRow>();
+        for (const stagedRow of staged) {
+          if (!firstRowByNaturalKey.has(stagedRow.naturalKeyHash)) {
+            firstRowByNaturalKey.set(stagedRow.naturalKeyHash, stagedRow);
+          }
+        }
+        for (const stagedRow of staged) {
+          if (stagedRow.changeType !== 'duplicate_in_upload') continue;
+          const firstRow = firstRowByNaturalKey.get(stagedRow.naturalKeyHash);
+          const duplicateGroupKey = `${tableId}:${stagedRow.naturalKeyHash}`;
+          const firstRowId = firstRow
+            ? reviewRowId(tableId, firstRow.sourceRow, firstRow.sourceSheet)
+            : undefined;
+          duplicateInUploadRows.push({
+            tableId,
+            ...(stagedRow.sourceSheet ? { sourceSheet: stagedRow.sourceSheet } : {}),
+            naturalKey: stagedRow.naturalKeyDisplay,
+            sourceRow: stagedRow.sourceRow,
+            policy: shouldBlockDuplicateInUpload(tableId, deps.domainConfig) ? 'block' : 'skip',
+          });
+          for (const rowForReview of [firstRow, stagedRow]) {
+            if (!rowForReview) continue;
+            const context = getReviewContext(reviewContexts, tableId, rowForReview.sourceSheet);
+            const isFirstDuplicateRow = rowForReview === firstRow;
+            const key = `${reviewRowId(
+              tableId,
+              rowForReview.sourceRow,
+              rowForReview.sourceSheet,
+            )}:duplicate_in_upload`;
+            if (reviewRowKeys.has(key)) continue;
+            reviewRowKeys.add(key);
+            reviewRows.push({
+              id: reviewRowId(tableId, rowForReview.sourceRow, rowForReview.sourceSheet),
+              groupId: duplicateGroupKey,
+              groupLabel: 'Duplicates',
+              tableId,
+              ...(rowForReview.sourceSheet ? { sourceSheet: rowForReview.sourceSheet } : {}),
+              sourceRow: rowForReview.sourceRow,
+              status: 'duplicate',
+              issueType: 'duplicate_in_upload',
+              issueLabel: 'Duplicate',
+              issueDetail: isFirstDuplicateRow
+                ? 'Duplicate group source row'
+                : `Duplicate of ${firstRow ? reviewRowLabel(firstRow.sourceRow, firstRow.sourceSheet) : 'another uploaded row'}`,
+              values: valueRecordForReviewRow(context, rowForReview.sourceRow, rowForReview.values),
+              columns: context?.columns ?? [],
+              problemFields: problemColumns(context, Object.keys(rowForReview.naturalKeyDisplay)),
+              duplicateGroupKey,
+              ...(firstRowId && !isFirstDuplicateRow
+                ? {
+                    duplicateOfRowId: firstRow
+                      ? reviewRowLabel(firstRow.sourceRow, firstRow.sourceSheet)
+                      : firstRowId,
+                  }
+                : {}),
+              decision: shouldBlockDuplicateInUpload(tableId, deps.domainConfig)
+                ? 'keep_row'
+                : 'skip_row',
+            });
+          }
+        }
 
         const counts = {
           new_records: 0,
@@ -246,7 +464,38 @@ export function createNormalizeToStagingHandler(
           duplicates_in_upload: 0,
         };
         for (const stagedRow of staged) {
-          counts[`${stagedRow.changeType}s` as keyof typeof counts]++;
+          if (stagedRow.changeType === 'new_record') counts.new_records++;
+          if (stagedRow.changeType === 'updated_record') counts.updated_records++;
+          if (stagedRow.changeType === 'exact_duplicate') counts.exact_duplicates++;
+          if (stagedRow.changeType === 'duplicate_in_upload') counts.duplicates_in_upload++;
+        }
+
+        for (const stagedRow of staged) {
+          if (stagedRow.changeType !== 'exact_duplicate') continue;
+          const context = getReviewContext(reviewContexts, tableId, stagedRow.sourceSheet);
+          const key = `${reviewRowId(
+            tableId,
+            stagedRow.sourceRow,
+            stagedRow.sourceSheet,
+          )}:exact_duplicate`;
+          if (reviewRowKeys.has(key)) continue;
+          reviewRowKeys.add(key);
+          reviewRows.push({
+            id: reviewRowId(tableId, stagedRow.sourceRow, stagedRow.sourceSheet),
+            groupId: `${tableId}:exact_duplicate`,
+            groupLabel: 'Rows to skip',
+            tableId,
+            ...(stagedRow.sourceSheet ? { sourceSheet: stagedRow.sourceSheet } : {}),
+            sourceRow: stagedRow.sourceRow,
+            status: 'skipped',
+            issueType: 'exact_duplicate',
+            issueLabel: 'Skipped',
+            issueDetail: 'Exact duplicate already exists in PMO data',
+            values: valueRecordForReviewRow(context, stagedRow.sourceRow, stagedRow.values),
+            columns: context?.columns ?? [],
+            problemFields: [],
+            decision: 'skipped',
+          });
         }
 
         const sampleChanges = staged
@@ -266,16 +515,101 @@ export function createNormalizeToStagingHandler(
       }
 
       const blockingIssues = [...blockingIssueMap.values()];
+      const blockingIssuesByRow = new Map<string, BlockingIssue[]>();
+      for (const issue of blockingIssues) {
+        const key = `${issue.tableId}:${issue.sourceSheet ?? ''}:${issue.sourceRow}`;
+        blockingIssuesByRow.set(key, [...(blockingIssuesByRow.get(key) ?? []), issue]);
+      }
+      for (const [key, issues] of blockingIssuesByRow.entries()) {
+        const [tableId = '', sourceSheet = '', sourceRowRaw = '0'] = key.split(':');
+        const sourceRow = Number(sourceRowRaw);
+        const context = getReviewContext(reviewContexts, tableId, sourceSheet || undefined);
+        const normalizedRow = normResult.tables[tableId]?.find(
+          (row) =>
+            row.sourceRow === sourceRow && (sourceSheet ? row.sourceSheet === sourceSheet : true),
+        );
+        const issueTypes = new Set(issues.map((issue) => issueTypeForBlockingReason(issue.reason)));
+        const issueType =
+          issueTypes.size > 1 ? 'parse_error' : (issueTypes.values().next().value ?? 'parse_error');
+        const problemFieldNames = issues.map((issue) => issue.field);
+        const problemFieldLabels = problemColumns(context, problemFieldNames);
+        const detail = issues.map((issue) => issue.reason).join('; ');
+        const reviewKey = `${reviewRowId(tableId, sourceRow, sourceSheet || undefined)}:blocking`;
+        if (reviewRowKeys.has(reviewKey)) continue;
+        reviewRowKeys.add(reviewKey);
+        reviewRows.push({
+          id: reviewRowId(tableId, sourceRow, sourceSheet || undefined),
+          groupId: `${tableId}:${issueType}`,
+          groupLabel: issueTypes.size > 1 ? 'Multiple issues' : groupLabelForType(issueType),
+          tableId,
+          ...(sourceSheet ? { sourceSheet } : {}),
+          sourceRow,
+          status: 'blocked',
+          issueType,
+          issueLabel: issueTypes.size > 1 ? 'Multiple issues' : issueLabelForType(issueType),
+          issueDetail: detail,
+          values: valueRecordForReviewRow(context, sourceRow, normalizedRow?.values ?? {}),
+          columns: context?.columns ?? [],
+          problemFields: problemFieldLabels,
+          decision: 'keep_row',
+        });
+      }
+      reviewRows.sort((a, b) => {
+        const tableCompare = a.tableId.localeCompare(b.tableId);
+        if (tableCompare !== 0) return tableCompare;
+        const groupCompare = a.groupLabel.localeCompare(b.groupLabel);
+        if (groupCompare !== 0) return groupCompare;
+        const duplicateCompare = (a.duplicateGroupKey ?? '').localeCompare(
+          b.duplicateGroupKey ?? '',
+        );
+        if (duplicateCompare !== 0) return duplicateCompare;
+        return a.sourceRow - b.sourceRow;
+      });
       const hasBlockingIssues = blockingIssues.length > 0;
       const hasUpdates = changeSummary.some(
         (table) => table.counts.new_records + table.counts.updated_records > 0,
       );
-      const hasBlockingDuplicates = changeSummary.some(
-        (table) =>
-          table.counts.duplicates_in_upload > 0 &&
-          shouldBlockDuplicateInUpload(table.tableId, deps.domainConfig),
-      );
+      const hasBlockingDuplicates = duplicateInUploadRows.some((row) => row.policy === 'block');
       const blocked = hasBlockingIssues || hasBlockingDuplicates;
+      const normalizationResult: NormalizationResult = {
+        changeSummary: changeSummary as StagingChangeSummary,
+        blockingIssues,
+        mappingReviewRows: confirmed.mappingReviewRows,
+        hasBlockingIssues,
+        hasUpdates,
+        requiresReview: true,
+        rowCountsByTable,
+        duplicateInUploadRows,
+        reviewRows,
+      };
+      const nextAllowedActions: ReviewAction[] = blocked
+        ? ['reject', 'rerun']
+        : ['approve', 'reject', 'rerun'];
+      const proposal =
+        input.runtimeContext.staging_result?.review_proposals?.normalize_to_staging?.at(-1) ??
+        createProposal({
+          state: input.runtimeContext.staging_result ?? {},
+          stepId: 'normalize_to_staging',
+          proposal: normalizationResult,
+          status: 'needs_review',
+          reviewRequired: true,
+          nextAllowedActions,
+          createdBy: 'agent',
+          metadata: {
+            blocked,
+            blocking_issue_count: blockingIssues.length,
+            duplicate_in_upload_count: duplicateInUploadRows.length,
+          },
+        });
+      const proposedState = input.runtimeContext.staging_result?.review_proposals
+        ?.normalize_to_staging?.length
+        ? (input.runtimeContext.staging_result as ReviewCheckpointState)
+        : appendProposal(input.runtimeContext.staging_result ?? {}, proposal);
+      const proposedStagingPayload = buildStagingPayload({
+        normalization: normalizationResult,
+        checkpointState: proposedState,
+        requiresReview: true,
+      });
 
       if (!input.resumeData) {
         return {
@@ -288,17 +622,11 @@ export function createNormalizeToStagingHandler(
             identity: deps.resolveCardIdentity(input.requestContext),
             toolCallId: `workflow:${input.runId}:pmo_reviewNormalization`,
             plannerStep,
+            reviewRows,
           }),
           sessionStatus: 'awaiting_normalization_review',
           runtimeContextPatch: {
-            staging_result: {
-              changeSummary,
-              blockingIssues,
-              mappingReviewRows: confirmed.mappingReviewRows,
-              hasBlockingIssues,
-              hasUpdates,
-              requiresReview: true,
-            },
+            staging_result: proposedStagingPayload,
           },
           outputSummary: {
             status: 'needs_review',
@@ -336,17 +664,11 @@ export function createNormalizeToStagingHandler(
             identity: deps.resolveCardIdentity(input.requestContext),
             toolCallId: `workflow:${input.runId}:pmo_reviewNormalization`,
             plannerStep,
+            reviewRows,
           }),
           sessionStatus: 'awaiting_normalization_review',
           runtimeContextPatch: {
-            staging_result: {
-              changeSummary,
-              blockingIssues,
-              mappingReviewRows: confirmed.mappingReviewRows,
-              hasBlockingIssues,
-              hasUpdates,
-              requiresReview: true,
-            },
+            staging_result: proposedStagingPayload,
           },
           outputSummary: {
             status: 'needs_review',
@@ -354,6 +676,18 @@ export function createNormalizeToStagingHandler(
           },
         };
       }
+
+      const checkpoint = approveProposal({
+        proposal,
+        approvedOutput: normalizationResult,
+        approvedBy: input.userId || 'system',
+      });
+      const approvedState = appendCheckpoint(proposedState, checkpoint);
+      const approvedStagingPayload = buildStagingPayload({
+        normalization: normalizationResult,
+        checkpointState: approvedState,
+        requiresReview: false,
+      });
 
       const db = getPmoDb();
       await db
@@ -378,28 +712,15 @@ export function createNormalizeToStagingHandler(
         kind: 'completed',
         sessionStatus: 'staging_normalized',
         runtimeContextPatch: {
-          staging_result: {
-            changeSummary,
-            blockingIssues,
-            mappingReviewRows: confirmed.mappingReviewRows,
-            hasBlockingIssues,
-            hasUpdates,
-            requiresReview: false,
-          },
+          staging_result: approvedStagingPayload,
         },
         sessionPatch: {
-          change_summary: {
-            changeSummary,
-            blockingIssues,
-            mappingReviewRows: confirmed.mappingReviewRows,
-            hasBlockingIssues,
-            hasUpdates,
-            requiresReview: false,
-          },
+          change_summary: approvedStagingPayload,
         },
         outputSummary: {
           status: 'staging_normalized',
           change_tables: changeSummary.length,
+          checkpoint_version: checkpoint.version,
         },
       };
     },

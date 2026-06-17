@@ -117,6 +117,7 @@ const ChangeSummaryTableSchema = z.object({
 
 const BlockingIssueSchema = z.object({
   tableId: z.string(),
+  sourceSheet: z.string().optional(),
   sourceRow: z.number().int().positive(),
   field: z.string(),
   reason: z.string(),

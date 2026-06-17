@@ -38,6 +38,40 @@ export const ApprovalDetailBlockSchema = z.discriminatedUnion('kind', [
     kind: z.literal('citations'),
     items: z.array(z.object({ kind: z.string(), id: z.string(), label: z.string().optional() })),
   }),
+  z.object({
+    kind: z.literal('dataQualityReview'),
+    columns: z.array(
+      z.object({
+        key: z.string(),
+        label: z.string(),
+      }),
+    ),
+    rows: z.array(
+      z.object({
+        id: z.string(),
+        groupId: z.string(),
+        groupLabel: z.string(),
+        tableId: z.string(),
+        sourceSheet: z.string().optional(),
+        sourceRow: z.number(),
+        status: z.enum(['blocked', 'duplicate', 'warning', 'skipped']),
+        issueType: z.string(),
+        issueLabel: z.string(),
+        issueDetail: z.string(),
+        values: z.record(z.string(), z.unknown()),
+        columns: z.array(
+          z.object({
+            key: z.string(),
+            label: z.string(),
+          }),
+        ),
+        problemFields: z.array(z.string()).default([]),
+        duplicateGroupKey: z.string().optional(),
+        duplicateOfRowId: z.string().optional(),
+        decision: z.enum(['keep_row', 'skip_row', 'skipped']).default('keep_row'),
+      }),
+    ),
+  }),
 ]);
 
 export const ApprovalCardSchema = z.object({

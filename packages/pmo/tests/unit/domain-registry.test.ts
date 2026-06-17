@@ -1,12 +1,12 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { IngestionDomainConfig } from '../../src/backend/ingestion/domain-config.ts';
+import type { IngestionDomainConfig } from '@seta/ingestion';
 import {
   DomainConfigValidationError,
   FileDomainRegistry,
   parseDomainConfig,
-} from '../../src/backend/ingestion/domain-registry.ts';
+} from '@seta/ingestion';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PMO_DOMAIN_CONFIG } from '../../src/backend/ingestion/pmo-domain-config.ts';
 
 // ── Test helpers ─────────────────────────────────────────────────────────────

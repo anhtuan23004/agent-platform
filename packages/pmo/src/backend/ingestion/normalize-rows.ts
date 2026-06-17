@@ -1,4 +1,4 @@
-import type { IngestionDomainConfig } from './domain-config.ts';
+import type { IngestionDomainConfig } from '@seta/ingestion';
 import type { TableMapping } from './map-columns.ts';
 import type { ParsedSheet } from './parse-workbook.ts';
 import { PMO_DOMAIN_CONFIG } from './pmo-domain-config.ts';
@@ -7,6 +7,7 @@ import { PMO_DOMAIN_CONFIG } from './pmo-domain-config.ts';
 
 export interface NormalizedRow {
   tableId: string;
+  sourceSheet?: string;
   sourceRow: number;
   values: Record<string, unknown>; // canonical field name → parsed value
   parseErrors: Array<{ field: string; raw: string; error: string }>;
@@ -166,13 +167,14 @@ export function normalizeRows(
 
       rows.push({
         tableId: mapping.tableId,
+        sourceSheet: mapping.sourceSheet,
         sourceRow: mapping.headerRow + rowIdx + 1, // 1-indexed original row
         values,
         parseErrors,
       });
     }
 
-    tables[mapping.tableId] = rows;
+    tables[mapping.tableId] = [...(tables[mapping.tableId] ?? []), ...rows];
   }
 
   const rowCounts: Record<string, number> = {};

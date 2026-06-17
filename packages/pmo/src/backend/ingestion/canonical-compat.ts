@@ -1,5 +1,5 @@
+import type { IngestionDomainConfig } from '@seta/ingestion';
 import type { CanonicalSchema } from './canonical-types.ts';
-import type { IngestionDomainConfig } from './domain-config.ts';
 
 export function domainConfigToCanonicalSchema(config: IngestionDomainConfig): CanonicalSchema {
   return {

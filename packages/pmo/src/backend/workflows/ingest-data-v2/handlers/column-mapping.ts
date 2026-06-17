@@ -1,4 +1,11 @@
-import type { ReviewCheckpointState } from '../../../ingestion/review-contracts.ts';
+import {
+  appendCheckpoint,
+  appendProposal,
+  approveProposal,
+  createProposal,
+  getLatestProposal,
+  type ReviewCheckpointState,
+} from '@seta/ingestion';
 import {
   buildMappingItemReviewCard,
   buildMappingReviewRows,
@@ -6,13 +13,6 @@ import {
   collectMappingReviewItems,
   type MappingOverride,
 } from '../cards.ts';
-import {
-  appendCheckpoint,
-  appendProposal,
-  approveProposal,
-  createProposal,
-  getLatestProposal,
-} from '../checkpoints.ts';
 import type { PmoDynamicStepHandler } from '../types.ts';
 import type {
   DetectTableMapping,

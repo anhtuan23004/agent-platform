@@ -7,7 +7,7 @@ import {
   getLatestApprovedCheckpoint,
   getLatestProposal,
   requireApprovedCheckpoint,
-} from '../../../../src/backend/workflows/ingest-data-v2/checkpoints.ts';
+} from '../../src/index.ts';
 
 describe('review checkpoint helpers', () => {
   it('appends proposal versions without mutating previous checkpoint history', () => {

@@ -1,3 +1,4 @@
+import type { ActiveRecord, IngestionDomainAdapter, IngestionPublishResult } from '@seta/ingestion';
 import { and, eq } from 'drizzle-orm';
 import { pmoDb } from '../db/client.ts';
 import {
@@ -10,9 +11,7 @@ import {
   resourceAllocations,
   timesheets,
 } from '../db/schema.ts';
-import type { IngestionDomainAdapter, IngestionPublishResult } from './domain-adapter.ts';
 import { publishUpsert } from './publish-upsert.ts';
-import type { ActiveRecord } from './stage-changes.ts';
 
 function normalizeReferenceValue(value: unknown): string | null {
   if (value === null || value === undefined) return null;

@@ -91,10 +91,35 @@ interface NormalizationCardInput {
   ingestionSessionId: string;
   changeSummary: ChangeSummaryTable[];
   blockingIssues: BlockingIssue[];
+  reviewRows?: NormalizationReviewCardRow[];
   allowApprove: boolean;
   identity: CardIdentity;
   toolCallId: string;
   plannerStep?: PmoPlannerStepMetadata | null;
+}
+
+interface NormalizationReviewCardColumn {
+  key: string;
+  label: string;
+}
+
+interface NormalizationReviewCardRow {
+  id: string;
+  groupId: string;
+  groupLabel: string;
+  tableId: string;
+  sourceSheet?: string;
+  sourceRow: number;
+  status: 'blocked' | 'duplicate' | 'warning' | 'skipped';
+  issueType: string;
+  issueLabel: string;
+  issueDetail: string;
+  values: Record<string, unknown>;
+  columns: NormalizationReviewCardColumn[];
+  problemFields: string[];
+  duplicateGroupKey?: string;
+  duplicateOfRowId?: string;
+  decision: 'keep_row' | 'skip_row' | 'skipped';
 }
 
 interface KvRow {
@@ -638,6 +663,18 @@ function blockingIssueRows(blockingIssues: BlockingIssue[]): KvRow[] {
   );
 }
 
+function reviewColumnsForBlock(
+  rows: NormalizationReviewCardRow[],
+): NormalizationReviewCardColumn[] {
+  const byKey = new Map<string, NormalizationReviewCardColumn>();
+  for (const row of rows) {
+    for (const column of row.columns) {
+      if (!byKey.has(column.key)) byKey.set(column.key, column);
+    }
+  }
+  return [...byKey.values()].slice(0, 16);
+}
+
 function checklistMarkdown(items: string[]): string {
   return items.map((item) => `- ${item}`).join('\n');
 }
@@ -940,6 +977,15 @@ export function buildNormalizationReviewCard(input: NormalizationCardInput): App
             {
               kind: 'kvTable' as const,
               rows: blockingIssueRows(input.blockingIssues),
+            },
+          ]
+        : []),
+      ...(input.reviewRows?.length
+        ? [
+            {
+              kind: 'dataQualityReview' as const,
+              columns: reviewColumnsForBlock(input.reviewRows),
+              rows: input.reviewRows,
             },
           ]
         : []),

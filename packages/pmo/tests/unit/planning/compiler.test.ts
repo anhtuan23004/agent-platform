@@ -145,6 +145,20 @@ describe('PMO planner workflow compiler', () => {
     expect(result.diagnostics).toContain('dropped_step_outside_intent:publish_after_approval');
   });
 
+  it('compiles ingestion readiness intent through DB change preview without publish', () => {
+    const result = compilePmoWorkflowSteps({
+      intentMode: 'stage_preview',
+      candidateSteps: [],
+    });
+
+    expect(result.compiled_workflow.map((step) => step.action_id)).toEqual([
+      'workbook_profiling',
+      'column_mapping',
+      'normalize_to_staging',
+      'database_change_summary',
+    ]);
+  });
+
   it('compiles publish intent to the full configured chain', () => {
     const result = compilePmoWorkflowSteps({
       intentMode: 'publish_intent',
@@ -166,10 +180,13 @@ describe('PMO planner workflow compiler', () => {
     expect(catalog.low_confidence_requires_confirmation).toBe(true);
     expect(catalog.steps.map((step) => step.action_id)).toContain('workbook_profiling');
     expect(catalog.examples.map((example) => example.intent_mode)).toContain('review_only');
+    expect(catalog.classification_rules.map((entry) => entry.rule).join('\n')).toContain(
+      "The phrase 'check if ready to import' means stage_preview",
+    );
     expect(
       catalog.examples.find((example) => example.goal.toLowerCase().includes('ready for ingestion'))
         ?.intent_mode,
-    ).toBe('mapping_readiness');
+    ).toBe('stage_preview');
   });
 
   it('loads the planner catalog from PMO_PLANNER_CATALOG_DIR when cwd is not the repo root', () => {

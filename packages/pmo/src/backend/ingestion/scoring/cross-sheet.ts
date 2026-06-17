@@ -1,5 +1,5 @@
+import type { IngestionDomainConfig } from '@seta/ingestion';
 import type { CanonicalField } from '../canonical-types.ts';
-import type { IngestionDomainConfig } from '../domain-config.ts';
 import { PMO_DOMAIN_CONFIG } from '../pmo-domain-config.ts';
 
 // ── Types ────────────────────────────────────────────────────────────────────

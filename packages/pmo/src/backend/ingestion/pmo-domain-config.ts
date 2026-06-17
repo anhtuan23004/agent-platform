@@ -4,14 +4,14 @@
 // This TypeScript constant is kept for synchronous access by existing callers;
 // the file-based registry loads the JSON version at runtime.
 
-import { domainConfigToCanonicalSchema } from './canonical-compat.ts';
 import type {
   DuplicatePolicy,
   IngestionDomainConfig,
   IngestionFieldConfig,
   IngestionReferenceRule,
   IngestionTableConfig,
-} from './domain-config.ts';
+} from '@seta/ingestion';
+import { domainConfigToCanonicalSchema } from './canonical-compat.ts';
 
 // ── Reference resolution actions (shared across all PMO rules) ───────────────
 

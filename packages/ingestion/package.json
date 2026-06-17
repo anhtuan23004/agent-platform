@@ -1,0 +1,24 @@
+{
+  "name": "@seta/ingestion",
+  "version": "0.0.1",
+  "private": true,
+  "setaTier": "infra",
+  "description": "Generic ingestion contracts, domain registry, adapters, and review checkpoint helpers.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@seta/shared-config": "workspace:^",
+    "@types/node": "^25.9.3",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  }
+}

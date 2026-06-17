@@ -416,6 +416,12 @@ function normalizeRuntimeContextFromSessionRow(params: {
         typeof params.detectedSchema.workbookConfidence === 'number'
           ? params.detectedSchema.workbookConfidence
           : 0,
+      ...(isObject(params.detectedSchema.review_proposals)
+        ? { review_proposals: params.detectedSchema.review_proposals as never }
+        : {}),
+      ...(isObject(params.detectedSchema.approved_checkpoints)
+        ? { approved_checkpoints: params.detectedSchema.approved_checkpoints as never }
+        : {}),
     };
   }
 
@@ -450,6 +456,12 @@ function normalizeRuntimeContextFromSessionRow(params: {
       hasBlockingIssues: params.changeSummary.hasBlockingIssues === true,
       hasUpdates: params.changeSummary.hasUpdates === true,
       requiresReview: params.changeSummary.requiresReview === true,
+      ...(isObject(params.changeSummary.review_proposals)
+        ? { review_proposals: params.changeSummary.review_proposals as never }
+        : {}),
+      ...(isObject(params.changeSummary.approved_checkpoints)
+        ? { approved_checkpoints: params.changeSummary.approved_checkpoints as never }
+        : {}),
     };
   }
 
