@@ -120,6 +120,7 @@ interface NormalizationReviewCardRow {
   duplicateGroupKey?: string;
   duplicateOfRowId?: string;
   decision: 'keep_row' | 'skip_row' | 'skipped';
+  editable?: boolean;
 }
 
 interface KvRow {
@@ -1000,8 +1001,8 @@ export function buildNormalizationReviewCard(input: NormalizationCardInput): App
           argsPatch: { decision: 'approve' },
         }
       : {
-          label: 'Reject blocked normalization',
-          argsPatch: { decision: 'reject' },
+          label: 'Submit normalization review',
+          argsPatch: { decision: 'approve' },
         },
     alternates: [],
     decline: { label: 'Reject normalization', argsPatch: { decision: 'reject' } },

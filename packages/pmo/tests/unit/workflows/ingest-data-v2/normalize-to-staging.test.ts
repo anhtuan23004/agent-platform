@@ -165,7 +165,7 @@ describe('createNormalizeToStagingHandler', () => {
 
     expect(result.kind).toBe('suspend');
     if (result.kind !== 'suspend') throw new Error('expected suspend');
-    expect(result.card.primary.label).toBe('Reject blocked normalization');
+    expect(result.card.primary.label).toBe('Submit normalization review');
     expect(result.outputSummary).toMatchObject({ status: 'needs_review', blocking_issues: 1 });
     expect(result.runtimeContextPatch?.staging_result?.blockingIssues).toEqual([
       expect.objectContaining({
@@ -403,7 +403,95 @@ describe('createNormalizeToStagingHandler', () => {
       ],
     });
     expect(result.outputSummary).toMatchObject({ status: 'needs_review' });
-    expect(result.card.primary.label).toBe('Reject blocked normalization');
+    expect(result.card.primary.label).toBe('Submit normalization review');
+  });
+
+  it('approves duplicate normalization when the user skips duplicate rows', async () => {
+    const duplicateDeps = {
+      ...deps,
+      getWorkbookParseResult: async () => ({
+        sheets: [
+          sheet('RA', [
+            {
+              Member_ID: 'M-001',
+              Project_ID: 'P-001',
+              Allocation: '60%',
+              Start: '2026-06-29',
+              End: '2026-08-07',
+            },
+            {
+              Member_ID: 'M-001',
+              Project_ID: 'P-001',
+              Allocation: '40%',
+              Start: '2026-06-29',
+              End: '2026-08-07',
+            },
+          ]),
+          sheet('Members', [{ Member_ID: 'M-001', Full_Name: 'An Nguyen' }]),
+        ],
+        excludedSheets: [],
+        parseErrors: [],
+      }),
+    } satisfies Parameters<typeof createNormalizeToStagingHandler>[0];
+    const input = makeInput({
+      runtimeContext: {
+        confirmed_mapping: {
+          mappingReviewRows: [],
+          confirmedMappings: [
+            ...(makeInput().runtimeContext.confirmed_mapping?.confirmedMappings ?? []),
+            {
+              tableId: 'member_master',
+              sourceSheet: 'Members',
+              headerRow: 1,
+              tableConfidence: 1,
+              mappings: [
+                { sourceColumn: 'Member_ID', canonicalField: 'member_id', confidence: 1 },
+                { sourceColumn: 'Full_Name', canonicalField: 'full_name', confidence: 1 },
+              ],
+              unmappedRequired: [],
+              ambiguous: [],
+            },
+          ],
+        },
+      },
+    });
+
+    const proposalResult = await createNormalizeToStagingHandler(duplicateDeps).execute(input);
+    expect(proposalResult.kind).toBe('suspend');
+    if (proposalResult.kind !== 'suspend') throw new Error('expected suspend');
+
+    const approvedResult = await createNormalizeToStagingHandler(duplicateDeps).execute(
+      makeInput({
+        ...input,
+        resumeData: {
+          decision: 'approve',
+          rowDecisions: [
+            { rowId: 'resource_allocation:RA:2', decision: 'keep_row' },
+            { rowId: 'resource_allocation:RA:3', decision: 'skip_row' },
+          ],
+        },
+        runtimeContext: {
+          ...input.runtimeContext,
+          staging_result: proposalResult.runtimeContextPatch?.staging_result,
+        },
+      }),
+    );
+
+    expect(approvedResult.kind).toBe('completed');
+    if (approvedResult.kind !== 'completed') throw new Error('expected completed');
+    expect(dbMock.insertValues).toHaveBeenCalledTimes(1);
+    const insertCalls = dbMock.insertValues.mock.calls as unknown as Array<
+      [Array<Record<string, unknown>>]
+    >;
+    const insertedRows = insertCalls[0]?.[0];
+    expect(insertedRows).toEqual(
+      expect.not.arrayContaining([
+        expect.objectContaining({
+          table_id: 'resource_allocation',
+          new_values: expect.objectContaining({ allocation_pct: 0.4 }),
+        }),
+      ]),
+    );
   });
 
   it('captures duplicate natural keys across sheets mapped to the same table', async () => {

@@ -150,6 +150,22 @@ export const NormalizationReviewCardSchema = ApprovalCardSchema;
 export const NormalizationDecisionSchema = z.object({
   decision: z.enum(['approve', 'reject']),
   memberMasterAdditions: z.array(MemberMasterAdditionSchema).optional(),
+  rowDecisions: z
+    .array(
+      z.object({
+        rowId: z.string(),
+        decision: z.enum(['keep_row', 'skip_row']),
+      }),
+    )
+    .optional(),
+  rowOverrides: z
+    .array(
+      z.object({
+        rowId: z.string(),
+        values: z.record(z.string(), z.unknown()),
+      }),
+    )
+    .optional(),
   note: z.string().optional(),
 });
 

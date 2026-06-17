@@ -73,6 +73,9 @@ export interface PmoExecutionStepNormalizationProps {
     field: 'full_name' | 'department' | 'role_title',
     value: string,
   ) => void;
+  updateNormalizationRowDecision: (rowId: string, decision: 'keep_row' | 'skip_row') => void;
+  updateNormalizationRowValue: (rowId: string, columnKey: string, value: string) => void;
+  resetNormalizationRowOverrides: (rowId: string) => void;
   approveNormalization: () => void;
   rejectNormalization: () => void;
 }
@@ -177,6 +180,9 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
     canApproveNormalization,
     isSubmittingNormalizationDecision,
     updateMemberAdditionDraft,
+    updateNormalizationRowDecision,
+    updateNormalizationRowValue,
+    resetNormalizationRowOverrides,
     approveNormalization,
     rejectNormalization,
   } = normalization;
@@ -350,6 +356,9 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
             canApproveNormalization={canApproveNormalization}
             isSubmittingNormalizationDecision={isSubmittingNormalizationDecision}
             updateMemberAdditionDraft={updateMemberAdditionDraft}
+            updateNormalizationRowDecision={updateNormalizationRowDecision}
+            updateNormalizationRowValue={updateNormalizationRowValue}
+            resetNormalizationRowOverrides={resetNormalizationRowOverrides}
             approveNormalization={approveNormalization}
             rejectNormalization={rejectNormalization}
           />

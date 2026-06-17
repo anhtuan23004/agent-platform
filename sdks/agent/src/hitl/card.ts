@@ -69,6 +69,7 @@ export const ApprovalDetailBlockSchema = z.discriminatedUnion('kind', [
         duplicateGroupKey: z.string().optional(),
         duplicateOfRowId: z.string().optional(),
         decision: z.enum(['keep_row', 'skip_row', 'skipped']).default('keep_row'),
+        editable: z.boolean().optional(),
       }),
     ),
   }),

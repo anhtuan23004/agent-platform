@@ -8,6 +8,8 @@ import {
   Copy,
   Database,
   Link2Off,
+  Pencil,
+  RotateCcw,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { WorkflowApprovalRow } from '../api/workflow-runtime';
@@ -30,6 +32,12 @@ interface PmoNormalizationReviewPanelProps {
     field: keyof Omit<MemberMasterAdditionDraft, 'member_id'>,
     value: string,
   ) => void;
+  updateNormalizationRowDecision: (
+    rowId: string,
+    decision: Extract<NormalizationReviewRow['decision'], 'keep_row' | 'skip_row'>,
+  ) => void;
+  updateNormalizationRowValue: (rowId: string, columnKey: string, value: string) => void;
+  resetNormalizationRowOverrides: (rowId: string) => void;
   approveNormalization: () => void;
   rejectNormalization: () => void;
 }
@@ -111,10 +119,23 @@ function issueGroupTone(groupLabel: string): string {
   return 'text-ink-subtle';
 }
 
-function NormalizationIssueTable(props: { group: NormalizationReviewTableGroup }) {
-  const { group } = props;
+function NormalizationIssueTable(props: {
+  group: NormalizationReviewTableGroup;
+  isSubmittingNormalizationDecision: boolean;
+  updateNormalizationRowDecision: PmoNormalizationReviewPanelProps['updateNormalizationRowDecision'];
+  updateNormalizationRowValue: PmoNormalizationReviewPanelProps['updateNormalizationRowValue'];
+  resetNormalizationRowOverrides: PmoNormalizationReviewPanelProps['resetNormalizationRowOverrides'];
+}) {
+  const {
+    group,
+    isSubmittingNormalizationDecision,
+    updateNormalizationRowDecision,
+    updateNormalizationRowValue,
+    resetNormalizationRowOverrides,
+  } = props;
   const columns = group.columns.length > 0 ? group.columns : [];
-  const columnCount = 4 + Math.max(columns.length, 1);
+  const columnCount = 5 + Math.max(columns.length, 1);
+  const [editingRowId, setEditingRowId] = useState<string | null>(null);
 
   return (
     <div className="overflow-x-auto">
@@ -135,6 +156,9 @@ function NormalizationIssueTable(props: { group: NormalizationReviewTableGroup }
             </th>
             <th rowSpan={2} className="w-36 px-3 py-2 font-medium">
               Decision
+            </th>
+            <th rowSpan={2} className="w-36 px-3 py-2 font-medium">
+              Actions
             </th>
           </tr>
           <tr className="border-b border-hairline">
@@ -176,15 +200,33 @@ function NormalizationIssueTable(props: { group: NormalizationReviewTableGroup }
                       const isProblem = row.problemFields.includes(column.key);
                       return (
                         <td key={`${row.id}-${column.key}`} className="px-3 py-2">
-                          <span
-                            className={
-                              isProblem
-                                ? 'inline-flex min-h-7 min-w-20 items-center rounded-md border border-danger-border bg-danger-tint px-2 text-danger-ink'
-                                : 'text-ink'
-                            }
-                          >
-                            {displayValue(row.values[column.key])}
-                          </span>
+                          {editingRowId === row.id ? (
+                            <Input
+                              value={
+                                row.values[column.key] === null ||
+                                row.values[column.key] === undefined
+                                  ? ''
+                                  : String(row.values[column.key])
+                              }
+                              onChange={(event) =>
+                                updateNormalizationRowValue(row.id, column.key, event.target.value)
+                              }
+                              disabled={isSubmittingNormalizationDecision}
+                              className={`h-7 min-w-24 ${
+                                isProblem ? 'border-danger-border bg-danger-tint' : ''
+                              }`}
+                            />
+                          ) : (
+                            <span
+                              className={
+                                isProblem
+                                  ? 'inline-flex min-h-7 min-w-20 items-center rounded-md border border-danger-border bg-danger-tint px-2 text-danger-ink'
+                                  : 'text-ink'
+                              }
+                            >
+                              {displayValue(row.values[column.key])}
+                            </span>
+                          )}
                         </td>
                       );
                     })
@@ -199,14 +241,77 @@ function NormalizationIssueTable(props: { group: NormalizationReviewTableGroup }
                     )}
                   </td>
                   <td className="px-3 py-2">
-                    <span className="inline-flex items-center gap-1.5 rounded-md border border-hairline bg-surface-1 px-2 py-1 font-medium text-ink">
-                      {row.decision === 'keep_row' ? (
-                        <CheckCircle2 className="size-3.5 text-success" aria-hidden />
+                    {row.editable && row.decision !== 'skipped' ? (
+                      <select
+                        className="h-8 rounded-md border border-hairline bg-surface-1 px-2 text-caption font-medium text-ink"
+                        value={row.decision}
+                        disabled={isSubmittingNormalizationDecision}
+                        onChange={(event) =>
+                          updateNormalizationRowDecision(
+                            row.id,
+                            event.target.value as Extract<
+                              NormalizationReviewRow['decision'],
+                              'keep_row' | 'skip_row'
+                            >,
+                          )
+                        }
+                      >
+                        <option value="keep_row">Keep row</option>
+                        <option value="skip_row">Skip row</option>
+                      </select>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 rounded-md border border-hairline bg-surface-1 px-2 py-1 font-medium text-ink">
+                        {row.decision === 'keep_row' ? (
+                          <CheckCircle2 className="size-3.5 text-success" aria-hidden />
+                        ) : (
+                          <CircleSlash className="size-3.5 text-danger" aria-hidden />
+                        )}
+                        {DECISION_LABEL[row.decision]}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2">
+                    {row.editable ? (
+                      editingRowId === row.id ? (
+                        <div className="flex items-center gap-1">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="primary"
+                            disabled={isSubmittingNormalizationDecision}
+                            onClick={() => setEditingRowId(null)}
+                          >
+                            Save
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            disabled={isSubmittingNormalizationDecision}
+                            onClick={() => {
+                              resetNormalizationRowOverrides(row.id);
+                              setEditingRowId(null);
+                            }}
+                          >
+                            <RotateCcw className="size-3.5" aria-hidden />
+                            Cancel
+                          </Button>
+                        </div>
                       ) : (
-                        <CircleSlash className="size-3.5 text-danger" aria-hidden />
-                      )}
-                      {DECISION_LABEL[row.decision]}
-                    </span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          disabled={isSubmittingNormalizationDecision}
+                          onClick={() => setEditingRowId(row.id)}
+                        >
+                          <Pencil className="size-3.5" aria-hidden />
+                          Modify
+                        </Button>
+                      )
+                    ) : (
+                      <span className="text-ink-subtle">—</span>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -222,7 +327,13 @@ function FragmentLike(props: { children: React.ReactNode }) {
   return <>{props.children}</>;
 }
 
-function ReviewBySheet(props: { groups: NormalizationReviewTableGroup[] }) {
+function ReviewBySheet(props: {
+  groups: NormalizationReviewTableGroup[];
+  isSubmittingNormalizationDecision: boolean;
+  updateNormalizationRowDecision: PmoNormalizationReviewPanelProps['updateNormalizationRowDecision'];
+  updateNormalizationRowValue: PmoNormalizationReviewPanelProps['updateNormalizationRowValue'];
+  resetNormalizationRowOverrides: PmoNormalizationReviewPanelProps['resetNormalizationRowOverrides'];
+}) {
   const [openGroups, setOpenGroups] = useState<Set<string>>(
     () => new Set(props.groups[0]?.tableId ? [props.groups[0].tableId] : []),
   );
@@ -272,7 +383,15 @@ function ReviewBySheet(props: { groups: NormalizationReviewTableGroup[] }) {
                   <span>Skip: {group.totals.skipped}</span>
                 </span>
               </button>
-              {isOpen ? <NormalizationIssueTable group={group} /> : null}
+              {isOpen ? (
+                <NormalizationIssueTable
+                  group={group}
+                  isSubmittingNormalizationDecision={props.isSubmittingNormalizationDecision}
+                  updateNormalizationRowDecision={props.updateNormalizationRowDecision}
+                  updateNormalizationRowValue={props.updateNormalizationRowValue}
+                  resetNormalizationRowOverrides={props.resetNormalizationRowOverrides}
+                />
+              ) : null}
             </div>
           );
         })}
@@ -370,6 +489,9 @@ export function PmoNormalizationReviewPanel(props: PmoNormalizationReviewPanelPr
     canApproveNormalization,
     isSubmittingNormalizationDecision,
     updateMemberAdditionDraft,
+    updateNormalizationRowDecision,
+    updateNormalizationRowValue,
+    resetNormalizationRowOverrides,
     approveNormalization,
     rejectNormalization,
   } = props;
@@ -498,7 +620,13 @@ export function PmoNormalizationReviewPanel(props: PmoNormalizationReviewPanelPr
         </div>
 
         {hasStructuredReview ? (
-          <ReviewBySheet groups={selectedNormalizationView.tableGroups} />
+          <ReviewBySheet
+            groups={selectedNormalizationView.tableGroups}
+            isSubmittingNormalizationDecision={isSubmittingNormalizationDecision}
+            updateNormalizationRowDecision={updateNormalizationRowDecision}
+            updateNormalizationRowValue={updateNormalizationRowValue}
+            resetNormalizationRowOverrides={resetNormalizationRowOverrides}
+          />
         ) : (
           <div className="mt-4">
             <LegacyKvGrid

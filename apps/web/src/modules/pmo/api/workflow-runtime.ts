@@ -75,6 +75,7 @@ export interface ResumeChatBody {
   decision: 'approve' | 'reject' | 'modify';
   overrideUserIds?: string[];
   alternateIndices?: number[];
+  payloadPatch?: Record<string, unknown>;
   note?: string;
 }
 

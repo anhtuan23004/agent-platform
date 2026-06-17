@@ -260,10 +260,14 @@ export function PmoPage() {
   );
 
   const {
+    normalizationReviewView,
     memberAdditionDrafts,
     canApproveNormalization,
     isSubmittingNormalizationDecision,
     updateMemberAdditionDraft,
+    updateNormalizationRowDecision,
+    updateNormalizationRowValue,
+    resetNormalizationRowOverrides,
     approveNormalization,
     rejectNormalization,
   } = usePmoNormalizationReviewActions({
@@ -367,11 +371,14 @@ export function PmoPage() {
   const executionNormalization = {
     selectedNormalizationApproval,
     normalizationApprovalsCount: normalizationApprovals.length,
-    selectedNormalizationView,
+    selectedNormalizationView: normalizationReviewView,
     memberAdditionDrafts,
     canApproveNormalization,
     isSubmittingNormalizationDecision,
     updateMemberAdditionDraft,
+    updateNormalizationRowDecision,
+    updateNormalizationRowValue,
+    resetNormalizationRowOverrides,
     approveNormalization,
     rejectNormalization,
   };

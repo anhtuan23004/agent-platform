@@ -111,6 +111,7 @@ export interface NormalizationReviewRow {
   duplicateGroupKey: string | null;
   duplicateOfRowId: string | null;
   decision: 'keep_row' | 'skip_row' | 'skipped';
+  editable: boolean;
 }
 
 export interface NormalizationReviewIssueGroup {
@@ -788,6 +789,7 @@ function parseDataQualityReviewRows(payload: unknown): NormalizationReviewRow[] 
         duplicateGroupKey: asString(row.duplicateGroupKey),
         duplicateOfRowId: asString(row.duplicateOfRowId),
         decision: decision as NormalizationReviewRow['decision'],
+        editable: row.editable === true,
       });
     }
   }
@@ -803,7 +805,9 @@ function parseDataQualityReviewRows(payload: unknown): NormalizationReviewRow[] 
   });
 }
 
-function groupNormalizationRows(rows: NormalizationReviewRow[]): NormalizationReviewTableGroup[] {
+export function groupNormalizationRows(
+  rows: NormalizationReviewRow[],
+): NormalizationReviewTableGroup[] {
   const tableBuckets = new Map<string, NormalizationReviewRow[]>();
   for (const row of rows) {
     tableBuckets.set(row.tableId, [...(tableBuckets.get(row.tableId) ?? []), row]);
@@ -923,12 +927,14 @@ export function parseNormalizationReviewView(
 ): NormalizationReviewViewModel | null {
   const base = parsePublishReviewView(approval);
   if (!base) return null;
+  const reviewRows = parseDataQualityReviewRows(approval?.proposedPayload);
 
   return {
     ...base,
+    canApprove: base.primaryLabel === 'Approve normalization' && base.canApprove,
     missingMembers: missingMembersFromIssueRows(base.issueRows),
-    reviewRows: parseDataQualityReviewRows(approval?.proposedPayload),
-    tableGroups: groupNormalizationRows(parseDataQualityReviewRows(approval?.proposedPayload)),
+    reviewRows,
+    tableGroups: groupNormalizationRows(reviewRows),
   };
 }
 

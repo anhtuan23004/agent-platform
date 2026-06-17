@@ -1,7 +1,11 @@
 import { toast } from '@seta/shared-ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { WorkflowApprovalRow } from '../api/workflow-runtime';
-import type { NormalizationReviewViewModel } from '../pages/pmo-page.logic';
+import {
+  groupNormalizationRows,
+  type NormalizationReviewRow,
+  type NormalizationReviewViewModel,
+} from '../pages/pmo-page.logic';
 import { useSubmitWorkflowRuntimeDecision } from './use-workflow-runtime';
 
 export interface MemberMasterAdditionDraft {
@@ -19,6 +23,7 @@ interface UsePmoNormalizationReviewActionsOptions {
 }
 
 interface UsePmoNormalizationReviewActionsResult {
+  normalizationReviewView: NormalizationReviewViewModel | null;
   memberAdditionDrafts: MemberMasterAdditionDraft[];
   canApproveNormalization: boolean;
   isSubmittingNormalizationDecision: boolean;
@@ -27,8 +32,40 @@ interface UsePmoNormalizationReviewActionsResult {
     field: keyof Omit<MemberMasterAdditionDraft, 'member_id'>,
     value: string,
   ) => void;
+  updateNormalizationRowDecision: (
+    rowId: string,
+    decision: Extract<NormalizationReviewRow['decision'], 'keep_row' | 'skip_row'>,
+  ) => void;
+  updateNormalizationRowValue: (rowId: string, columnKey: string, value: string) => void;
+  resetNormalizationRowOverrides: (rowId: string) => void;
   approveNormalization: () => void;
   rejectNormalization: () => void;
+}
+
+function unresolvedDuplicateGroupCount(rows: NormalizationReviewRow[]): number {
+  const duplicateRows = rows.filter(
+    (row) => row.issueType === 'duplicate_in_upload' && row.duplicateGroupKey,
+  );
+  const rowsByGroup = new Map<string, NormalizationReviewRow[]>();
+  for (const row of duplicateRows) {
+    rowsByGroup.set(row.duplicateGroupKey ?? row.groupId, [
+      ...(rowsByGroup.get(row.duplicateGroupKey ?? row.groupId) ?? []),
+      row,
+    ]);
+  }
+
+  let unresolved = 0;
+  for (const groupRows of rowsByGroup.values()) {
+    const sourceRows = groupRows.filter((row) => !row.duplicateOfRowId);
+    const duplicateGroupRows = groupRows.filter((row) => row.duplicateOfRowId);
+    const sourceKept = sourceRows.length === 1 && sourceRows[0]?.decision === 'keep_row';
+    const duplicatesSkipped =
+      duplicateGroupRows.length > 0 &&
+      duplicateGroupRows.every((row) => row.decision === 'skip_row');
+    if (!sourceKept || !duplicatesSkipped) unresolved++;
+  }
+
+  return unresolved;
 }
 
 export function usePmoNormalizationReviewActions(
@@ -42,9 +79,13 @@ export function usePmoNormalizationReviewActions(
   } = options;
   const submitDecision = useSubmitWorkflowRuntimeDecision();
   const [memberAdditionDrafts, setMemberAdditionDrafts] = useState<MemberMasterAdditionDraft[]>([]);
+  const [rowDecisions, setRowDecisions] = useState<Record<string, 'keep_row' | 'skip_row'>>({});
+  const [rowOverrides, setRowOverrides] = useState<Record<string, Record<string, unknown>>>({});
 
   const draftScope = `${selectedNormalizationApproval?.approvalId ?? ''}:${selectedNormalizationView?.missingMembers.map((item) => item.memberId).join('|') ?? ''}`;
   const previousDraftScope = useRef('');
+  const reviewScope = selectedNormalizationApproval?.approvalId ?? '';
+  const previousReviewScope = useRef('');
 
   useEffect(() => {
     if (previousDraftScope.current === draftScope) return;
@@ -59,24 +100,83 @@ export function usePmoNormalizationReviewActions(
     );
   }, [draftScope, selectedNormalizationView]);
 
+  useEffect(() => {
+    if (previousReviewScope.current === reviewScope) return;
+    previousReviewScope.current = reviewScope;
+    setRowDecisions({});
+    setRowOverrides({});
+  }, [reviewScope]);
+
   const refreshAfterDecision = useCallback(async () => {
     await Promise.all([refreshWorkflowRuntime(), loadSessions(true)]);
   }, [loadSessions, refreshWorkflowRuntime]);
 
   const hasMissingMembers = (selectedNormalizationView?.missingMembers.length ?? 0) > 0;
+  const normalizationReviewView = useMemo(() => {
+    if (!selectedNormalizationView) return null;
+
+    const reviewRows = selectedNormalizationView.reviewRows.map((row) => {
+      const nextDecision = rowDecisions[row.id];
+      const nextValues = rowOverrides[row.id];
+      return {
+        ...row,
+        ...(nextDecision ? { decision: nextDecision } : {}),
+        values: nextValues ? { ...row.values, ...nextValues } : row.values,
+      };
+    });
+
+    return {
+      ...selectedNormalizationView,
+      reviewRows,
+      tableGroups: groupNormalizationRows(reviewRows),
+    };
+  }, [rowDecisions, rowOverrides, selectedNormalizationView]);
+
+  const rowDecisionPayload = useMemo(
+    () =>
+      Object.entries(rowDecisions).map(([rowId, decision]) => ({
+        rowId,
+        decision,
+      })),
+    [rowDecisions],
+  );
+  const rowOverridePayload = useMemo(
+    () =>
+      Object.entries(rowOverrides)
+        .filter(([, values]) => Object.keys(values).length > 0)
+        .map(([rowId, values]) => ({
+          rowId,
+          values,
+        })),
+    [rowOverrides],
+  );
+  const hasRowReviewChanges = rowDecisionPayload.length > 0 || rowOverridePayload.length > 0;
+  const unresolvedDuplicates = normalizationReviewView
+    ? unresolvedDuplicateGroupCount(normalizationReviewView.reviewRows)
+    : 0;
+  const rowReviewCanSubmit =
+    hasRowReviewChanges && (unresolvedDuplicates === 0 || rowOverridePayload.length > 0);
+
   const canApproveNormalization = useMemo(() => {
     if (!selectedNormalizationApproval || submitDecision.isPending) return false;
-    if (!selectedNormalizationView?.canApprove && !hasMissingMembers) return false;
-    if (!hasMissingMembers) return selectedNormalizationView?.canApprove === true;
-    return memberAdditionDrafts.every(
+    if (!selectedNormalizationView?.canApprove && !hasMissingMembers && !rowReviewCanSubmit) {
+      return false;
+    }
+    if (!hasMissingMembers)
+      return selectedNormalizationView?.canApprove === true || rowReviewCanSubmit;
+    const memberDraftsComplete = memberAdditionDrafts.every(
       (draft) => draft.member_id.trim().length > 0 && draft.full_name.trim().length > 0,
     );
+    return memberDraftsComplete && (unresolvedDuplicates === 0 || rowOverridePayload.length > 0);
   }, [
     hasMissingMembers,
     memberAdditionDrafts,
+    rowReviewCanSubmit,
+    rowOverridePayload.length,
     selectedNormalizationApproval,
     selectedNormalizationView,
     submitDecision.isPending,
+    unresolvedDuplicates,
   ]);
 
   const updateMemberAdditionDraft = useCallback(
@@ -94,27 +194,61 @@ export function usePmoNormalizationReviewActions(
     [],
   );
 
+  const updateNormalizationRowDecision = useCallback(
+    (rowId: string, decision: 'keep_row' | 'skip_row') => {
+      setRowDecisions((current) => ({
+        ...current,
+        [rowId]: decision,
+      }));
+    },
+    [],
+  );
+
+  const updateNormalizationRowValue = useCallback(
+    (rowId: string, columnKey: string, value: string) => {
+      setRowOverrides((current) => ({
+        ...current,
+        [rowId]: {
+          ...(current[rowId] ?? {}),
+          [columnKey]: value,
+        },
+      }));
+    },
+    [],
+  );
+
+  const resetNormalizationRowOverrides = useCallback((rowId: string) => {
+    setRowOverrides((current) => {
+      const next = { ...current };
+      delete next[rowId];
+      return next;
+    });
+  }, []);
+
   const approveNormalization = useCallback(() => {
     if (!selectedNormalizationApproval) return;
+
+    const payloadPatch: Record<string, unknown> = {
+      decision: 'approve',
+    };
+    if (hasMissingMembers) {
+      payloadPatch.memberMasterAdditions = memberAdditionDrafts.map((draft) => ({
+        member_id: draft.member_id.trim(),
+        full_name: draft.full_name.trim(),
+        ...(draft.department.trim() ? { department: draft.department.trim() } : {}),
+        ...(draft.role_title.trim() ? { role_title: draft.role_title.trim() } : {}),
+      }));
+    }
+    if (rowDecisionPayload.length > 0) payloadPatch.rowDecisions = rowDecisionPayload;
+    if (rowOverridePayload.length > 0) payloadPatch.rowOverrides = rowOverridePayload;
+    const shouldModify = hasMissingMembers || hasRowReviewChanges;
 
     submitDecision.mutate(
       {
         approvalId: selectedNormalizationApproval.approvalId,
         agentic: selectedNormalizationApproval.agentic,
-        decision: hasMissingMembers ? 'modify' : 'approve',
-        ...(hasMissingMembers
-          ? {
-              payloadPatch: {
-                decision: 'approve',
-                memberMasterAdditions: memberAdditionDrafts.map((draft) => ({
-                  member_id: draft.member_id.trim(),
-                  full_name: draft.full_name.trim(),
-                  ...(draft.department.trim() ? { department: draft.department.trim() } : {}),
-                  ...(draft.role_title.trim() ? { role_title: draft.role_title.trim() } : {}),
-                })),
-              },
-            }
-          : {}),
+        decision: shouldModify ? 'modify' : 'approve',
+        ...(shouldModify ? { payloadPatch } : {}),
       },
       {
         onSuccess: async () => {
@@ -134,8 +268,11 @@ export function usePmoNormalizationReviewActions(
     );
   }, [
     hasMissingMembers,
+    hasRowReviewChanges,
     memberAdditionDrafts,
     refreshAfterDecision,
+    rowDecisionPayload,
+    rowOverridePayload,
     selectedNormalizationApproval,
     submitDecision,
   ]);
@@ -166,10 +303,14 @@ export function usePmoNormalizationReviewActions(
   }, [refreshAfterDecision, selectedNormalizationApproval, submitDecision]);
 
   return {
+    normalizationReviewView,
     memberAdditionDrafts,
     canApproveNormalization,
     isSubmittingNormalizationDecision: submitDecision.isPending,
     updateMemberAdditionDraft,
+    updateNormalizationRowDecision,
+    updateNormalizationRowValue,
+    resetNormalizationRowOverrides,
     approveNormalization,
     rejectNormalization,
   };
