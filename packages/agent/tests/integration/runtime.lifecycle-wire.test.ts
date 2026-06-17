@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { RequestContext } from '@mastra/core/request-context';
 import { describe, expect, it } from 'vitest';
-import { buildMastra } from '../../src/backend/runtime.ts';
+import { buildMastraFull } from '../../src/backend/runtime.ts';
 import { withAgentTestDb } from '../helpers.ts';
 
 // Build a requestContext.toJSON()-shaped payload from the codebase convention:
@@ -17,7 +17,7 @@ function rcPayload(args: { tenantId: string; startedBy: string }): Record<string
 describe('lifecycle hook wiring', () => {
   it('publishing workflow.start on the global pubsub writes a workflow_runs row', async () => {
     await withAgentTestDb(async ({ pool, databaseUrl }) => {
-      const mastra = buildMastra({ pool, databaseUrl });
+      const { mastra, drainer } = buildMastraFull({ pool, databaseUrl });
       await mastra.getStorage()!.init();
 
       const runId = randomUUID();
@@ -35,7 +35,7 @@ describe('lifecycle hook wiring', () => {
         },
       });
 
-      await new Promise((r) => setTimeout(r, 100));
+      await drainer.drain();
 
       const r = await pool.query(
         `SELECT workflow_id, tenant_id, started_by, started_via, status FROM agent.workflow_runs WHERE run_id = $1`,
@@ -52,7 +52,7 @@ describe('lifecycle hook wiring', () => {
 
   it('publishing workflow.end on workflows-finish marks the run completed', async () => {
     await withAgentTestDb(async ({ pool, databaseUrl }) => {
-      const mastra = buildMastra({ pool, databaseUrl });
+      const { mastra, drainer } = buildMastraFull({ pool, databaseUrl });
       await mastra.getStorage()!.init();
 
       const runId = randomUUID();
@@ -69,7 +69,7 @@ describe('lifecycle hook wiring', () => {
           prevResult: { status: 'success', output: {} },
         },
       });
-      await new Promise((r) => setTimeout(r, 50));
+      await drainer.drain();
 
       await mastra.pubsub.publish('workflows-finish', {
         type: 'workflow.end',
@@ -81,7 +81,7 @@ describe('lifecycle hook wiring', () => {
           state: { result: { output: { ok: true } } },
         },
       });
-      await new Promise((r) => setTimeout(r, 100));
+      await drainer.drain();
 
       const r = await pool.query(
         `SELECT status, duration_ms FROM agent.workflow_runs WHERE run_id = $1`,
@@ -97,7 +97,7 @@ describe('lifecycle hook wiring', () => {
     // event data (see workflow-event-processor:1607), unlike workflow.start which
     // calls .toJSON(). The adapter must read both shapes.
     await withAgentTestDb(async ({ pool, databaseUrl }) => {
-      const mastra = buildMastra({ pool, databaseUrl });
+      const { mastra, drainer } = buildMastraFull({ pool, databaseUrl });
       await mastra.getStorage()!.init();
 
       const runId = randomUUID();
@@ -114,7 +114,7 @@ describe('lifecycle hook wiring', () => {
           prevResult: { status: 'success', output: {} },
         },
       });
-      await new Promise((r) => setTimeout(r, 50));
+      await drainer.drain();
 
       // Now publish workflow.suspend with the live RequestContext object — the
       // exact shape Mastra produces internally for evented suspend.
@@ -134,7 +134,7 @@ describe('lifecycle hook wiring', () => {
           expiresAt: new Date(Date.now() + 86400000).toISOString(),
         },
       });
-      await new Promise((r) => setTimeout(r, 100));
+      await drainer.drain();
 
       const run = await pool.query(
         `SELECT status, suspend_reason FROM agent.workflow_runs WHERE run_id = $1`,
@@ -155,7 +155,7 @@ describe('lifecycle hook wiring', () => {
 
   it('ignores workflow.step.* events on the workflows topic', async () => {
     await withAgentTestDb(async ({ pool, databaseUrl }) => {
-      const mastra = buildMastra({ pool, databaseUrl });
+      const { mastra, drainer } = buildMastraFull({ pool, databaseUrl });
       await mastra.getStorage()!.init();
       const runId = randomUUID();
       await mastra.pubsub.publish('workflows', {
@@ -163,7 +163,7 @@ describe('lifecycle hook wiring', () => {
         runId,
         data: { workflowId: 'agent.x' },
       });
-      await new Promise((r) => setTimeout(r, 50));
+      await drainer.drain();
       const r = await pool.query(
         `SELECT count(*)::int AS n FROM agent.workflow_runs WHERE run_id = $1`,
         [runId],
