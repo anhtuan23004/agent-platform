@@ -60,6 +60,7 @@ function makeTask(id: string, title: string, due_at: string | null) {
     start_at: null,
     assignees: [],
     labels: [],
+    skill_tags: [],
     checklist_summary: { total: 0, checked: 0 },
     checklist_preview: [],
     reference_preview: [],

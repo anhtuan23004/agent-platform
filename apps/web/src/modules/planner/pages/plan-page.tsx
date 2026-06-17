@@ -81,12 +81,16 @@ export function PlanPage({
     const sourceById = new Map(tasks.map((t) => [t.id, t]));
     const assigneeIdSet = new Set(filters.assignee_ids);
     const labelIdSet = new Set(filters.label_ids);
+    const skillTagSet = new Set(filters.skill_tags);
 
     for (const t of tasks) {
       if (filters.assignee_ids.length && !t.assignees.some((a) => assigneeIdSet.has(a.user_id))) {
         continue;
       }
       if (filters.label_ids.length && !t.labels.some((l) => labelIdSet.has(l.id))) {
+        continue;
+      }
+      if (filters.skill_tags.length && !t.skill_tags.some((s) => skillTagSet.has(s))) {
         continue;
       }
       if (q && !t.title.toLowerCase().includes(q.toLowerCase())) {
@@ -191,7 +195,10 @@ export function PlanPage({
   });
 
   const hasActiveFilters =
-    filters.assignee_ids.length > 0 || filters.label_ids.length > 0 || q.length > 0;
+    filters.assignee_ids.length > 0 ||
+    filters.label_ids.length > 0 ||
+    filters.skill_tags.length > 0 ||
+    q.length > 0;
   const totalVisible =
     Array.from(activeByBucket.values()).reduce((acc, l) => acc + l.length, 0) +
     Array.from(completedByBucket.values()).reduce((acc, l) => acc + l.length, 0);
@@ -251,7 +258,7 @@ export function PlanPage({
           <button
             type="button"
             onClick={() => {
-              onFiltersChange({ assignee_ids: [], label_ids: [] });
+              onFiltersChange({ assignee_ids: [], label_ids: [], skill_tags: [] });
               onQChange?.('');
             }}
           >

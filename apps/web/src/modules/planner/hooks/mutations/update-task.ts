@@ -16,6 +16,7 @@ interface UpdateVars {
       | 'percent_complete'
       | 'is_deferred'
       | 'due_at'
+      | 'skill_tags'
       | 'review_state'
     >
   >;

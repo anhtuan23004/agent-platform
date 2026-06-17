@@ -1,5 +1,5 @@
 import { buildActorSession, getUserProfile, listUsers, matchUsersToTopic } from '@seta/identity';
-import { getTask, listDistinctLabels, listTasks, listTasksByLabel } from '@seta/planner';
+import { getTask, listDistinctSkillTags, listTasks, listTasksBySkillTag } from '@seta/planner';
 import type {
   AvailabilityPort,
   SkillSearchPort,
@@ -20,10 +20,10 @@ export function makeTaskReader(): TaskReaderPort {
           title: t.title,
           description: t.description ?? null,
           // TaskDetailRow carries plan_id, not a group id, and the pipeline never
-          // reads groupId (the analyzer only uses title/description/labels). Left
+          // reads groupId (the analyzer only uses title/description/skillTags). Left
           // blank rather than firing a second query for an unused field.
           groupId: '',
-          labels: t.labels.map((l) => l.name),
+          skillTags: t.skill_tags,
         };
       } catch {
         return null;
@@ -32,15 +32,15 @@ export function makeTaskReader(): TaskReaderPort {
   };
 }
 
-// ---- TaskSearch: planner.listTasksByLabel (deterministic, case-insensitive) ----
+// ---- TaskSearch: planner.listTasksBySkillTag (deterministic, case-insensitive) ----
 const TASK_SEARCH_DEFAULT_LIMIT = 20;
 
 export function makeTaskSearch(): TaskSearchPort {
   return {
-    async byLabels(names, limit, ctx, completionStatus) {
+    async bySkillTags(tags, limit, ctx, completionStatus) {
       const session = await buildActorSession({ user_id: ctx.actorUserId });
-      const { results } = await listTasksByLabel({
-        names,
+      const { results } = await listTasksBySkillTag({
+        tags,
         completionStatus,
         // Clamp to the domain function's 1..50 contract; default 20 when unset.
         limit: Math.min(Math.max(limit || TASK_SEARCH_DEFAULT_LIMIT, 1), 50),
@@ -50,12 +50,12 @@ export function makeTaskSearch(): TaskSearchPort {
         taskId: r.taskId,
         title: r.title,
         status: r.status,
-        labels: r.labels,
+        skillTags: r.skillTags,
       }));
     },
-    async listAvailableLabels(ctx) {
+    async listAvailableTags(ctx) {
       const session = await buildActorSession({ user_id: ctx.actorUserId });
-      return listDistinctLabels({ session });
+      return listDistinctSkillTags({ session });
     },
   };
 }

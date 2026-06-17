@@ -15,8 +15,8 @@ import { buildStaffingOrchestrationRuntime } from '../../../src/backend/orchestr
 const fakePorts = {
   taskReader: { load: async () => null } satisfies TaskReaderPort,
   taskSearch: {
-    byLabels: async () => [],
-    listAvailableLabels: async () => [],
+    bySkillTags: async () => [],
+    listAvailableTags: async () => [],
   } satisfies TaskSearchPort,
   skillSearch: { search: async () => [] } satisfies SkillSearchPort,
   availability: {

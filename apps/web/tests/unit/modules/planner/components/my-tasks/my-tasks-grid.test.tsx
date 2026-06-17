@@ -28,6 +28,7 @@ function fxTask(over: Partial<TaskWithPlan> = {}): TaskWithPlan {
     is_deferred: false,
     preview_type: 'automatic',
     review_state: null,
+    skill_tags: [],
     start_at: null,
     due_at: null,
     order_hint: null,

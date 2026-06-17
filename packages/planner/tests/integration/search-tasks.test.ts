@@ -40,7 +40,7 @@ describe('searchTasks', () => {
       const taskOpts = {
         title: 'kubernetes review',
         description: 'review prod cluster for kubernetes deployment issues',
-        labels: ['kubernetes'] as string[],
+        skill_tags: ['kubernetes'] as string[],
       };
       const task = await seedTaskForTest(pool, taskOpts);
 
@@ -50,7 +50,7 @@ describe('searchTasks', () => {
         plan_id: task.plan_id,
         title: taskOpts.title,
         description: taskOpts.description,
-        labels: taskOpts.labels,
+        skill_tags: taskOpts.skill_tags,
         provider,
         pgVector,
       });
@@ -83,7 +83,7 @@ describe('searchTasks', () => {
       const taskOpts = {
         title: 'kubernetes review',
         description: 'review prod cluster for kubernetes deployment issues',
-        labels: ['kubernetes'] as string[],
+        skill_tags: ['kubernetes'] as string[],
       };
       const task = await seedTaskForTest(pool, taskOpts);
 
@@ -93,7 +93,7 @@ describe('searchTasks', () => {
         plan_id: task.plan_id,
         title: taskOpts.title,
         description: taskOpts.description,
-        labels: taskOpts.labels,
+        skill_tags: taskOpts.skill_tags,
         provider: realProvider,
         pgVector,
       });

@@ -75,7 +75,7 @@ describe('embedTask', () => {
       const seeded = await seedTaskForTest(pool, {
         title: 'short',
         description: 'few tokens',
-        labels: ['x'],
+        skill_tags: ['x'],
       });
 
       await embedTask(
@@ -92,7 +92,7 @@ describe('embedTask', () => {
       const source = buildTaskSource({
         title: 'short',
         description: 'few tokens',
-        labels: ['x'],
+        skill_tags: ['x'],
       });
       expect(meta!.source_hash).toBe(sourceHash(source));
       expect(meta!.tenant_id).toBe(seeded.tenant_id);
@@ -108,7 +108,7 @@ describe('embedTask', () => {
       const seeded = await seedTaskForTest(pool, {
         title: 'same title',
         description: 'same description',
-        labels: ['go'],
+        skill_tags: ['go'],
       });
 
       const payload = { tenant_id: seeded.tenant_id, task_id: seeded.task_id, event_id: 'e2' };
@@ -128,6 +128,7 @@ describe('embedTask', () => {
       const seeded = await seedTaskForTest(pool, {
         title: 'will be deleted',
         description: 'some description',
+        skill_tags: [],
       });
       const payload = { tenant_id: seeded.tenant_id, task_id: seeded.task_id, event_id: 'e3' };
       await embedTask(payload, { provider, pgVector });
@@ -156,6 +157,7 @@ describe('embedTask', () => {
       const seeded = await seedTaskForTest(pool, {
         title: 'too long',
         description: longDesc,
+        skill_tags: [],
       });
 
       await embedTask(
@@ -177,6 +179,7 @@ describe('embedTask', () => {
       const seeded = await seedTaskForTest(pool, {
         title: 'short',
         description: 'fits fine',
+        skill_tags: [],
       });
 
       await embedTask(
@@ -215,6 +218,7 @@ describe('embedTask', () => {
       const seeded = await seedTaskForTest(pool, {
         title: 'recover',
         description: longDesc,
+        skill_tags: [],
       });
 
       await embedTask(
@@ -246,6 +250,7 @@ describe('embedTask', () => {
       const seeded = await seedTaskForTest(pool, {
         title: 'initial',
         description: 'first version',
+        skill_tags: [],
       });
 
       await embedTask(

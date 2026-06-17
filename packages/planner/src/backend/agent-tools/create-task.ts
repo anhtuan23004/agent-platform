@@ -1,7 +1,6 @@
 import { RequestContext } from '@mastra/core/request-context';
 import { actorFromContext, defineAgentTool, recordEntityExposure } from '@seta/agent-sdk';
 import { buildActorSession } from '@seta/identity';
-import { applyLabelsByName } from '../domain/apply-labels-by-name.ts';
 import { createTask } from '../domain/create-task.ts';
 import {
   type DedupInput,
@@ -47,14 +46,7 @@ export function plannerCreateTaskTool(_deps?: PlannerCreateTaskDeps) {
         bucket_id: parsedDraft.bucket_id,
         title: parsedDraft.title,
         description: parsedDraft.description,
-      });
-
-      // Skills are modeled as labels.
-      await applyLabelsByName({
-        plan_id: parsedDraft.plan_id,
-        task_id: task.id,
-        names: parsedDraft.labels,
-        session,
+        skill_tags: parsedDraft.skill_tags,
       });
 
       await recordEntityExposure(ctx as never, {
