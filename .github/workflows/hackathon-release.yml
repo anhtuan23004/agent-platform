@@ -155,6 +155,8 @@ jobs:
             # If this EC2 is ever replaced, delete secrets.env first so fresh secrets
             # are generated and the database is re-initialised cleanly.
             SECRETS_FILE=/opt/seta/secrets.env
+            sudo mkdir -p /opt/seta/demo-assets
+            sudo chown "$(id -u):$(id -g)" /opt/seta/demo-assets
             sudo mkdir -p /opt/seta
             if [ ! -f "$SECRETS_FILE" ]; then
               echo "=== First deploy: generating persistent app secrets ==="
