@@ -51,7 +51,8 @@ FROM deps AS sources
 COPY apps/server/  apps/server/
 COPY apps/cli/     apps/cli/
 COPY apps/worker/  apps/worker/
-COPY hackathon/data/ data/
+COPY config/       config/
+COPY hackathon/data/ hackathon/data/
 
 # Typecheck-only — fail the image build if the TS doesn't pass.
 RUN pnpm --filter=@seta/server exec tsc --noEmit \
@@ -82,8 +83,9 @@ RUN pnpm --filter=@seta/server deploy --prod --ignore-scripts --legacy /out/apps
 RUN cp -R apps/server/src /out/apps/server/src \
  && cp -R apps/cli/src    /out/apps/cli/src \
  && cp -R apps/worker/src /out/apps/worker/src \
+ && cp -R config         /out/config \
  && mkdir -p /out/apps/cli/hackathon \
- && cp -R data            /out/apps/cli/hackathon/data
+ && cp -R hackathon/data /out/apps/cli/hackathon/data
 
 # ============================================================================
 # Stage 5 — runtime
@@ -92,7 +94,7 @@ RUN cp -R apps/server/src /out/apps/server/src \
 # ============================================================================
 FROM node:24-alpine AS runtime
 
-RUN apk add --no-cache tini \
+RUN apk add --no-cache tini sqlite \
  && addgroup -g 10001 seta \
  && adduser -D -u 10001 -G seta seta
 
@@ -105,6 +107,7 @@ WORKDIR /app
 COPY --from=prune --chown=10001:10001 /out/apps/server /app/apps/server
 COPY --from=prune --chown=10001:10001 /out/apps/cli    /app/apps/cli
 COPY --from=prune --chown=10001:10001 /out/apps/worker /app/apps/worker
+COPY --from=prune --chown=10001:10001 /out/config      /app/config
 COPY --chown=10001:10001 infra/docker/entrypoint.sh    /entrypoint.sh
 
 RUN chmod +x /entrypoint.sh

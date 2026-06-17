@@ -241,7 +241,7 @@ program
 program
   .command('seed')
   .description(
-    'Load the hackathon dataset (users, plans, buckets, tasks, timesheet). Auto-creates the tenant + admin if missing; idempotent on re-run.',
+    'Load the hackathon dataset (users, plans, buckets, tasks, timesheet, PMO_02 from mock-data.db). Auto-creates the tenant + admin if missing; idempotent on re-run.',
   )
   .option('--tenant <slug-or-id>', 'Tenant slug or UUID', 'hackathon')
   .option('--tenant-name <name>', 'Tenant display name when bootstrapping (defaults to slug)')
@@ -255,7 +255,7 @@ program
   .option('--password <password>', 'Password for created users', 'ChangeMe@2026')
   .option(
     '--only <modules>',
-    'Comma-separated subset of phases to run: users,planner,availability (default: all)',
+    'Comma-separated subset of phases to run: users,planner,availability,pmo (default: all)',
   )
   .action(
     async (opts: {

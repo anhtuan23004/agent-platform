@@ -1,4 +1,6 @@
-import type { CanonicalField } from '../canonical-schema.ts';
+import type { CanonicalField } from '../canonical-types.ts';
+import type { IngestionDomainConfig } from '../domain-config.ts';
+import { PMO_DOMAIN_CONFIG } from '../pmo-domain-config.ts';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -7,9 +9,41 @@ export interface CrossSheetScoreResult {
   details: string;
 }
 
-// ── ID fields that can be cross-referenced ───────────────────────────────────
+// ── Derive cross-referenceable ID fields from domain config ──────────────────
 
-const ID_FIELDS = new Set(['member_id', 'project_id', 'pm_id', 'line_manager_id', 'config_id']);
+function buildIdFields(domainConfig: IngestionDomainConfig): Set<string> {
+  const ids = new Set<string>();
+  for (const rule of domainConfig.referenceRules) {
+    ids.add(rule.sourceField);
+    ids.add(rule.targetField);
+  }
+  // Also include any field ending in _id that appears in natural keys
+  for (const table of domainConfig.tables) {
+    for (const nk of table.naturalKey) {
+      if (nk.endsWith('_id')) ids.add(nk);
+    }
+  }
+  // Include fields referencing IDs (e.g. pm_id, line_manager_id) by convention
+  for (const table of domainConfig.tables) {
+    for (const field of table.fields) {
+      if (field.name.endsWith('_id') && field.dataType === 'string') {
+        ids.add(field.name);
+      }
+    }
+  }
+  return ids;
+}
+
+let cachedIdFields: Set<string> | null = null;
+let cachedConfigKey: string | null = null;
+
+function getIdFields(domainConfig: IngestionDomainConfig): Set<string> {
+  const key = `${domainConfig.domainId}:${domainConfig.version}`;
+  if (cachedIdFields && cachedConfigKey === key) return cachedIdFields;
+  cachedIdFields = buildIdFields(domainConfig);
+  cachedConfigKey = key;
+  return cachedIdFields;
+}
 
 // ── Main scorer ──────────────────────────────────────────────────────────────
 
@@ -17,9 +51,12 @@ export function scoreCrossSheet(
   columnValues: string[],
   canonicalField: CanonicalField,
   masterValues: string[] | null, // values from master sheet, if available
+  domainConfig: IngestionDomainConfig = PMO_DOMAIN_CONFIG,
 ): CrossSheetScoreResult {
+  const idFields = getIdFields(domainConfig);
+
   // Only score ID fields that have a cross-sheet reference
-  if (!ID_FIELDS.has(canonicalField.name)) {
+  if (!idFields.has(canonicalField.name)) {
     // Non-ID fields: no cross-sheet signal available → neutral
     return { score: 0.5, details: 'No cross-sheet signal for this field type' };
   }

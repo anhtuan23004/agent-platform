@@ -201,16 +201,18 @@ export function scoreValuePattern(
   canonicalField: CanonicalField,
   allValues: string[],
 ): ValuePatternResult {
-  // Dispatch to field-specific scorer based on data type + field name
+  // Dispatch by data type. Field-name heuristics replaced by data-type + valuePattern metadata.
   switch (canonicalField.dataType) {
     case 'percentage':
       return scoreAllocationPct(profile, allValues);
 
-    case 'number':
-      if (canonicalField.name === 'logged_hours') {
+    case 'number': {
+      // If the field has a valuePattern suggesting daily hours (0-24 range), use hours scorer
+      if (canonicalField.valuePattern && /\\d\+.*\\d/.test(canonicalField.valuePattern)) {
         return scoreLoggedHours(profile, allValues);
       }
       return scoreGenericNumber(profile, allValues);
+    }
 
     case 'date':
       return scoreDate(profile, allValues);
@@ -219,7 +221,8 @@ export function scoreValuePattern(
       return scoreCategory(profile, allValues);
 
     case 'string':
-      if (canonicalField.name.includes('_id') || canonicalField.name === 'member_id') {
+      // ID fields detected by name suffix convention (domain-agnostic)
+      if (canonicalField.name.endsWith('_id')) {
         return scoreMemberId(profile, allValues);
       }
       return scoreGenericString(profile, allValues);

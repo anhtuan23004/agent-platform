@@ -50,10 +50,6 @@ describe('ingestion-session state machine', () => {
       ).not.toThrow();
     });
 
-    it('staging_normalized → published (no review needed)', () => {
-      expect(() => assertValidTransition('staging_normalized', 'published')).not.toThrow();
-    });
-
     it('awaiting_publish_review → published (approved)', () => {
       expect(() => assertValidTransition('awaiting_publish_review', 'published')).not.toThrow();
     });
@@ -88,6 +84,12 @@ describe('ingestion-session state machine', () => {
 
     it('awaiting_confirmation → normalizing (must confirm first)', () => {
       expect(() => assertValidTransition('awaiting_confirmation', 'normalizing')).toThrow(
+        InvalidTransitionError,
+      );
+    });
+
+    it('staging_normalized → published is blocked until publish review approval', () => {
+      expect(() => assertValidTransition('staging_normalized', 'published')).toThrow(
         InvalidTransitionError,
       );
     });

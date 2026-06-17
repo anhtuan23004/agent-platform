@@ -7,6 +7,7 @@ export type IngestionStatus =
   | 'awaiting_confirmation'
   | 'confirmed'
   | 'normalizing'
+  | 'awaiting_normalization_review'
   | 'staging_normalized'
   | 'awaiting_publish_review'
   | 'published'
@@ -18,8 +19,9 @@ const VALID_TRANSITIONS: Record<IngestionStatus, IngestionStatus[]> = {
   profiling: ['awaiting_confirmation', 'confirmed', 'failed'],
   awaiting_confirmation: ['confirmed', 'rejected'],
   confirmed: ['normalizing'],
-  normalizing: ['staging_normalized', 'failed'],
-  staging_normalized: ['awaiting_publish_review', 'published'],
+  normalizing: ['awaiting_normalization_review', 'staging_normalized', 'failed'],
+  awaiting_normalization_review: ['staging_normalized', 'rejected', 'failed'],
+  staging_normalized: ['awaiting_publish_review'],
   awaiting_publish_review: ['published', 'rejected'],
   published: [],
   failed: [],

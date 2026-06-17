@@ -1,15 +1,21 @@
 import type { WorkflowContribution } from '@seta/agent-sdk';
-import { IngestInputSchema } from './ingest-data/schemas.ts';
-import { ingestDataWorkflow } from './ingest-data/spec.ts';
+import { DemoAnalyticsTraceInputSchema } from './demo-analytics-trace/schemas.ts';
+import { demoAnalyticsTraceWorkflow } from './demo-analytics-trace/spec.ts';
+import { IngestDataV2InputSchema } from './ingest-data-v2/schemas.ts';
+import { ingestDataV2Workflow } from './ingest-data-v2/spec.ts';
 
 export const pmoWorkflows: WorkflowContribution[] = [
   {
-    id: 'pmo.ingestData',
+    id: 'pmo.ingestData.v2',
     build: (_mastra) => {
-      // Register the workflow on the Mastra instance at boot time
-      // The actual registration is handled by the agent engine
-      return ingestDataWorkflow;
+      // Register the dynamic runtime workflow on the Mastra instance at boot time.
+      return ingestDataV2Workflow;
     },
-    inputSchema: IngestInputSchema,
+    inputSchema: IngestDataV2InputSchema,
+  },
+  {
+    id: 'pmo.demoAnalyticsTrace',
+    build: (_mastra) => demoAnalyticsTraceWorkflow,
+    inputSchema: DemoAnalyticsTraceInputSchema,
   },
 ];

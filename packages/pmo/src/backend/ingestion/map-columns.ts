@@ -1,6 +1,8 @@
 import type { CanonicalField, CanonicalSchema } from './canonical-schema.ts';
-import { PMO_CANONICAL_SCHEMA } from './canonical-schema.ts';
 import type { SheetRoleCandidate } from './detect-sheet-role.ts';
+import type { IngestionDomainConfig } from './domain-config.ts';
+import { type LlmMappingHintMap, llmMappingHintKey } from './llm-mapping-hints.ts';
+import { PMO_DOMAIN_CANONICAL_SCHEMA, PMO_DOMAIN_CONFIG } from './pmo-domain-config.ts';
 import type { SheetProfile } from './profile-columns.ts';
 import { scoreCrossSheet } from './scoring/cross-sheet.ts';
 import { scoreDataType } from './scoring/data-type.ts';
@@ -16,12 +18,18 @@ export interface ColumnMapping {
   confidence: number;
   evidence: string;
   status: 'auto_accept' | 'needs_review' | 'blocked';
+  candidates?: Array<{
+    sourceColumn: string;
+    confidence: number;
+    blocked: boolean;
+  }>;
   scoringBreakdown: {
     headerSimilarity: number;
     valuePattern: number;
     dataType: number;
     sheetContext: number;
     crossSheet: number;
+    llmSemantic: number;
   };
 }
 
@@ -45,21 +53,59 @@ const WEIGHTS = {
   crossSheet: 0.1,
 };
 
+const DEFAULT_LLM_BONUS_WEIGHT = 0.06;
+const MIN_BASE_FOR_LLM_ADJUSTMENT = 0.6;
+const MIN_BASE_FOR_AUTO_ACCEPT = 0.9;
+const STRONG_BASE_FOR_LLM_DISAGREEMENT = 0.8;
+const LOW_LLM_DISAGREEMENT_THRESHOLD = 0.2;
+
+export interface MapColumnsOptions {
+  llmHints?: LlmMappingHintMap | null;
+  llmBonusWeight?: number;
+  domainConfig?: IngestionDomainConfig;
+}
+
+function clamp01(value: number): number {
+  if (value <= 0) return 0;
+  if (value >= 1) return 1;
+  return value;
+}
+
 // ── Helper: get master values for cross-sheet scoring ────────────────────────
+// Derives master table lookups from domainConfig.referenceRules instead of hardcoding table IDs.
+
+function buildMasterTableLookup(domainConfig: IngestionDomainConfig): Map<string, string> {
+  // Maps sourceField -> targetTable for reference rule lookups
+  // e.g. member_id -> member_master, project_id -> project_master
+  const lookup = new Map<string, string>();
+  for (const rule of domainConfig.referenceRules) {
+    lookup.set(rule.sourceField, rule.targetTable);
+  }
+  // Also include self-referencing ID fields (e.g. pm_id, line_manager_id -> member_master)
+  // by finding fields with _id suffix that share a targetField with an existing rule
+  for (const table of domainConfig.tables) {
+    for (const field of table.fields) {
+      if (field.name.endsWith('_id') && !lookup.has(field.name)) {
+        // Check if any reference rule's targetField matches this field name pattern
+        for (const rule of domainConfig.referenceRules) {
+          if (rule.targetField === field.name) {
+            lookup.set(field.name, rule.targetTable);
+          }
+        }
+      }
+    }
+  }
+  return lookup;
+}
 
 function getMasterValues(
   fieldName: string,
   allSheetProfiles: SheetProfile[],
   schema: CanonicalSchema,
+  domainConfig: IngestionDomainConfig,
 ): string[] | null {
-  // For member_id → look for member_master sheet values
-  // For project_id → look for project_master sheet values
-  let masterTableId: string | null = null;
-  if (fieldName === 'member_id' || fieldName === 'pm_id' || fieldName === 'line_manager_id') {
-    masterTableId = 'member_master';
-  } else if (fieldName === 'project_id') {
-    masterTableId = 'project_master';
-  }
+  const masterLookup = buildMasterTableLookup(domainConfig);
+  const masterTableId = masterLookup.get(fieldName) ?? null;
 
   if (!masterTableId) return null;
 
@@ -83,10 +129,8 @@ function getMasterValues(
       for (const col of profile.columns) {
         const headerResult = scoreHeaderSimilarity(col.columnName, masterIdField);
         if (headerResult.score >= 0.9) {
-          // Collect all values from this column across all rows
           const values =
             profile.columns.find((c) => c.columnName === col.columnName)?.sampleValues ?? [];
-          // For cross-sheet we ideally want all values, but sample is acceptable for scoring
           return values.length > 0 ? values : null;
         }
       }
@@ -102,7 +146,8 @@ export function mapColumns(
   sheetProfile: SheetProfile,
   sheetRole: SheetRoleCandidate,
   allSheetProfiles: SheetProfile[],
-  schema: CanonicalSchema = PMO_CANONICAL_SCHEMA,
+  schema: CanonicalSchema = PMO_DOMAIN_CANONICAL_SCHEMA,
+  options: MapColumnsOptions = {},
 ): TableMapping {
   const table = schema.tables.find((t) => t.id === sheetRole.candidateRole);
   if (!table) {
@@ -121,15 +166,19 @@ export function mapColumns(
   interface ScoredCandidate {
     sourceColumn: string;
     field: CanonicalField;
+    baseConfidence: number;
     confidence: number;
     breakdown: ColumnMapping['scoringBreakdown'];
     blocked: boolean;
   }
 
   const allCandidates: ScoredCandidate[] = [];
+  const llmBonusWeight = clamp01(options.llmBonusWeight ?? DEFAULT_LLM_BONUS_WEIGHT);
+
+  const domainConfig = options.domainConfig ?? PMO_DOMAIN_CONFIG;
 
   for (const field of table.fields) {
-    const masterValues = getMasterValues(field.name, allSheetProfiles, schema);
+    const masterValues = getMasterValues(field.name, allSheetProfiles, schema, domainConfig);
 
     for (const col of sheetProfile.columns) {
       // Get all values for this column from sheet rows
@@ -166,8 +215,10 @@ export function mapColumns(
         field,
         allValues,
       );
-      const contextScore = scoreSheetContext(sheetRole, field);
-      const crossSheetResult = scoreCrossSheet(allValues, field, masterValues);
+      const contextScore = scoreSheetContext(sheetRole, field, domainConfig);
+      const crossSheetResult = scoreCrossSheet(allValues, field, masterValues, domainConfig);
+      const llmSemantic =
+        options.llmHints?.get(llmMappingHintKey(field.name, col.columnName)) ?? 0.5;
 
       const breakdown = {
         headerSimilarity: headerResult.score,
@@ -175,18 +226,28 @@ export function mapColumns(
         dataType: dataTypeResult.score,
         sheetContext: contextScore,
         crossSheet: crossSheetResult.score,
+        llmSemantic,
       };
 
-      const confidence =
+      const baselineConfidence =
         WEIGHTS.headerSimilarity * breakdown.headerSimilarity +
         WEIGHTS.valuePattern * breakdown.valuePattern +
         WEIGHTS.dataType * breakdown.dataType +
         WEIGHTS.sheetContext * breakdown.sheetContext +
         WEIGHTS.crossSheet * breakdown.crossSheet;
 
+      const llmAdjustment =
+        baselineConfidence >= MIN_BASE_FOR_LLM_ADJUSTMENT
+          ? llmBonusWeight * (breakdown.llmSemantic - 0.5)
+          : 0;
+
+      // A small LLM bonus/penalty nudges confidence without overriding deterministic signals.
+      const confidence = clamp01(baselineConfidence + llmAdjustment);
+
       allCandidates.push({
         sourceColumn: col.columnName,
         field,
+        baseConfidence: Math.round(baselineConfidence * 100) / 100,
         confidence: Math.round(confidence * 100) / 100,
         breakdown,
         blocked: dataTypeResult.blocked,
@@ -204,6 +265,20 @@ export function mapColumns(
   const mappings: ColumnMapping[] = [];
   const ambiguous: string[] = [];
 
+  const candidatesByField = new Map<
+    string,
+    Array<{ sourceColumn: string; confidence: number; blocked: boolean }>
+  >();
+  for (const candidate of allCandidates) {
+    const byField = candidatesByField.get(candidate.field.name) ?? [];
+    byField.push({
+      sourceColumn: candidate.sourceColumn,
+      confidence: candidate.confidence,
+      blocked: candidate.blocked,
+    });
+    candidatesByField.set(candidate.field.name, byField);
+  }
+
   // First pass: greedy assignment
   for (const candidate of allCandidates) {
     if (assignedColumns.has(candidate.sourceColumn)) continue;
@@ -217,14 +292,22 @@ export function mapColumns(
         !assignedColumns.has(c.sourceColumn),
     );
     const gap = secondBest ? candidate.confidence - secondBest.confidence : 1.0;
+    const hasStrongLlmDisagreement =
+      candidate.baseConfidence >= STRONG_BASE_FOR_LLM_DISAGREEMENT &&
+      candidate.breakdown.llmSemantic <= LOW_LLM_DISAGREEMENT_THRESHOLD;
 
     // Determine status
     let status: ColumnMapping['status'];
     if (candidate.blocked) {
       status = 'blocked';
-    } else if (candidate.confidence >= 0.9 && gap >= 0.1) {
+    } else if (
+      !hasStrongLlmDisagreement &&
+      candidate.confidence >= 0.9 &&
+      candidate.baseConfidence >= MIN_BASE_FOR_AUTO_ACCEPT &&
+      gap >= 0.1
+    ) {
       status = 'auto_accept';
-    } else if (candidate.confidence >= 0.7) {
+    } else if (candidate.confidence >= 0.7 || hasStrongLlmDisagreement) {
       status = 'needs_review';
     } else {
       // Below 0.70 → skip this assignment (field remains unmapped)
@@ -248,6 +331,10 @@ export function mapColumns(
       confidence: candidate.confidence,
       evidence,
       status,
+      candidates: (candidatesByField.get(candidate.field.name) ?? [])
+        .slice()
+        .sort((a, b) => b.confidence - a.confidence)
+        .slice(0, 5),
       scoringBreakdown: candidate.breakdown,
     });
   }
@@ -291,6 +378,8 @@ function buildEvidence(breakdown: ColumnMapping['scoringBreakdown'], fieldName: 
   if (breakdown.dataType >= 0.8) parts.push('data type compatible');
   if (breakdown.sheetContext >= 0.8) parts.push('field belongs to this sheet type');
   if (breakdown.crossSheet >= 0.8) parts.push('values match master data');
+  if (breakdown.llmSemantic >= 0.8) parts.push('llm semantic hint supports this match');
+  if (breakdown.llmSemantic <= 0.2) parts.push('llm semantic hint strongly disagrees');
 
   return parts.length > 0
     ? `${fieldName}: ${parts.join(', ')}`

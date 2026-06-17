@@ -4,7 +4,7 @@ Seta is a multi-tenant, AI-first work-management platform implemented as a modul
 
 This document is the single source of truth for the implementation shape. When the code and this document disagree, the document is treated as the bug — the code is corrected to match.
 
-**Related documents.** [`tech-stack.md`](./tech-stack.md) records why each dependency was chosen. [`agent-architecture.md`](./agent-architecture.md) covers the agent system in depth. [`creating-modules.md`](./creating-modules.md) is the module-author guide. [`hosting/aws.md`](./hosting/aws.md) covers production deployment.
+**Related documents.** [`tech-stack.md`](./tech-stack.md) records why each dependency was chosen. [`agent-architecture.md`](./agent-architecture.md) covers the agent system in depth. [`creating-modules.md`](./creating-modules.md) is the module-author guide. [`workflow-ui-playbook.md`](./workflow-ui-playbook.md) is the implementation checklist for adding new evented workflows and their UI surfaces. [`hosting/aws.md`](./hosting/aws.md) covers production deployment.
 
 ---
 

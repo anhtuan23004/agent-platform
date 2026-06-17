@@ -14,6 +14,7 @@ import {
   listPlans,
   listTasks,
 } from '@seta/planner';
+import { seedPmo02FromMockDbForTenant } from '@seta/pmo';
 import {
   buildRegistry,
   IMPLICIT_PERMISSIONS,
@@ -24,6 +25,7 @@ import {
 import { sql } from 'drizzle-orm';
 import pino from 'pino';
 import { mapPriorityNumber, mapStatusFields, parseCsvs, splitIds } from './lib/csv-parser.ts';
+import type { ParsedCsvs } from './lib/csv-types.ts';
 import { resolveTenantId, UUID_RE } from './lib/tenant-resolve.ts';
 import { tenantCreateCommand } from './tenant-create.ts';
 
@@ -59,8 +61,8 @@ async function resolveTenantIdOrNull(input: string): Promise<string | null> {
   }
 }
 
-type Module = 'users' | 'planner' | 'availability';
-const ALL_MODULES: Module[] = ['users', 'planner', 'availability'];
+type Module = 'users' | 'planner' | 'availability' | 'pmo';
+const ALL_MODULES: Module[] = ['users', 'planner', 'availability', 'pmo'];
 
 function parseModules(only: string | undefined): Set<Module> {
   if (!only) return new Set(ALL_MODULES);
@@ -70,6 +72,18 @@ function parseModules(only: string | undefined): Set<Module> {
     .filter((m): m is Module => (ALL_MODULES as string[]).includes(m));
   if (requested.length === 0) return new Set(ALL_MODULES);
   return new Set(requested);
+}
+
+function emptyCsvs(): ParsedCsvs {
+  return {
+    users: [],
+    groups: [],
+    plans: [],
+    buckets: [],
+    planMembers: [],
+    tasks: [],
+    timesheet: [],
+  };
 }
 
 async function resolveUserIdByEmail(tenantId: string, email: string): Promise<string> {
@@ -135,9 +149,13 @@ export async function seedCommand(opts: SeedOpts): Promise<void> {
   const session = await buildAdminSession(tenantId, opts.adminEmail);
   const modules = parseModules(opts.only);
 
-  // Phase 1 — Parse all CSVs
-  log.info({ dir: opts.dir }, 'phase 1: parsing CSVs');
-  const csvs = parseCsvs(opts.dir);
+  const needsCsvs = modules.has('users') || modules.has('planner') || modules.has('availability');
+  const csvs = needsCsvs ? parseCsvs(opts.dir) : emptyCsvs();
+  if (needsCsvs) {
+    log.info({ dir: opts.dir }, 'phase 1: parsing CSVs');
+  } else {
+    log.info('phase 1: CSV parsing skipped');
+  }
 
   // Phase 2 — Create users (or resolve existing when users module is skipped)
   const idMap = new Map<string, string>(); // csvId → db uuid
@@ -563,6 +581,29 @@ export async function seedCommand(opts: SeedOpts): Promise<void> {
         phase: 'availability',
         updated: availabilityUpdated,
         skipped: availabilitySkipped,
+      })}\n`,
+    );
+  }
+
+  if (!modules.has('pmo')) {
+    process.stdout.write(`${JSON.stringify({ phase: 'pmo', skipped: true })}\n`);
+  } else if (process.env.PMO_SEED_ENABLED === 'false') {
+    process.stdout.write(
+      `${JSON.stringify({ phase: 'pmo', skipped: true, reason: 'PMO_SEED_ENABLED=false' })}\n`,
+    );
+  } else {
+    log.info('phase 9: seeding PMO_02 from mock-data.db');
+    const result = await seedPmo02FromMockDbForTenant({
+      tenantId,
+      mockDbPath: process.env.PMO_MOCK_DB_PATH || undefined,
+    });
+    process.stdout.write(
+      `${JSON.stringify({
+        phase: 'pmo',
+        source: 'mock-data.db',
+        mockDbPath: result.mockDbPath,
+        inserted: result.inserted,
+        ingestionSessionId: result.ingestionSessionId,
       })}\n`,
     );
   }

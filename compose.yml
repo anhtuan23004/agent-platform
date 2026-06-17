@@ -262,6 +262,8 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL}
       PLATFORM_MODULES: ${PLATFORM_MODULES:-*}
+      # Optional: mount demo PMO_02 SQLite at this path (hackathon-db-reset workflow).
+      PMO_MOCK_DB_PATH: ${PMO_MOCK_DB_PATH:-}
       CRYPTO_KEY_PROVIDER: ${CRYPTO_KEY_PROVIDER:-env}
       CRYPTO_KMS_KEY_ARN: ${CRYPTO_KMS_KEY_ARN:-}
       CRYPTO_LOCAL_MASTER_KEY: ${CRYPTO_LOCAL_MASTER_KEY:-}

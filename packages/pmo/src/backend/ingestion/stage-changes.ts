@@ -1,26 +1,23 @@
 import { createHash } from 'node:crypto';
-import { PMO_CANONICAL_SCHEMA } from './canonical-schema.ts';
+import type { IngestionDomainConfig, IngestionTableConfig } from './domain-config.ts';
 import type { NormalizedRow } from './normalize-rows.ts';
+import { PMO_DOMAIN_CONFIG } from './pmo-domain-config.ts';
 
 // ── Natural key definitions ──────────────────────────────────────────────────
 
-const NATURAL_KEY_FIELDS: Record<string, string[]> = {
-  resource_allocation: ['member_id', 'project_id', 'start_date', 'end_date'],
-  timesheet: ['member_id', 'work_date', 'project_id', 'log_category'],
-  leave: ['member_id', 'leave_date', 'leave_type'],
-  member_master: ['member_id'],
-  project_master: ['project_id'],
-  overbook_idle_config: ['config_id'],
-  calendar_weeks: ['week_id'],
-  kpi_norms: ['norm_id'],
-};
-
 // ── Mutable value fields (excluded from natural key, included in source_row_hash) ──
 
-function getMutableFields(tableId: string): string[] {
-  const table = PMO_CANONICAL_SCHEMA.tables.find((t) => t.id === tableId);
+function getTableConfig(
+  domainConfig: IngestionDomainConfig,
+  tableId: string,
+): IngestionTableConfig | undefined {
+  return domainConfig.tables.find((table) => table.id === tableId);
+}
+
+function getMutableFields(domainConfig: IngestionDomainConfig, tableId: string): string[] {
+  const table = getTableConfig(domainConfig, tableId);
   if (!table) return [];
-  const keyFields = new Set(NATURAL_KEY_FIELDS[tableId] ?? []);
+  const keyFields = new Set(table.naturalKey);
   return table.fields.map((f) => f.name).filter((name) => !keyFields.has(name));
 }
 
@@ -46,14 +43,19 @@ export function computeNaturalKeyHash(
   tableId: string,
   tenantId: string,
   values: Record<string, unknown>,
+  domainConfig: IngestionDomainConfig = PMO_DOMAIN_CONFIG,
 ): string {
-  const keyFields = NATURAL_KEY_FIELDS[tableId] ?? [];
+  const keyFields = getTableConfig(domainConfig, tableId)?.naturalKey ?? [];
   const payload = stableStringify({ ...values, __tenant: tenantId }, ['__tenant', ...keyFields]);
   return createHash('sha256').update(payload).digest('hex');
 }
 
-export function computeSourceRowHash(tableId: string, values: Record<string, unknown>): string {
-  const mutableFields = getMutableFields(tableId);
+export function computeSourceRowHash(
+  tableId: string,
+  values: Record<string, unknown>,
+  domainConfig: IngestionDomainConfig = PMO_DOMAIN_CONFIG,
+): string {
+  const mutableFields = getMutableFields(domainConfig, tableId);
   const payload = stableStringify(values, mutableFields);
   return createHash('sha256').update(payload).digest('hex');
 }
@@ -89,6 +91,7 @@ export function classifyRows(
   tenantId: string,
   normalizedRows: NormalizedRow[],
   activeRecords: ActiveRecord[],
+  domainConfig: IngestionDomainConfig = PMO_DOMAIN_CONFIG,
 ): StagedRow[] {
   const activeMap = new Map<string, string>();
   for (const rec of activeRecords) {
@@ -99,12 +102,11 @@ export function classifyRows(
   const seenInUpload = new Map<string, number>(); // hash → first index
   const staged: StagedRow[] = [];
 
-  for (let i = 0; i < normalizedRows.length; i++) {
-    const row = normalizedRows[i]!;
-    const naturalKeyHash = computeNaturalKeyHash(tableId, tenantId, row.values);
-    const sourceRowHash = computeSourceRowHash(tableId, row.values);
+  for (const [i, row] of normalizedRows.entries()) {
+    const naturalKeyHash = computeNaturalKeyHash(tableId, tenantId, row.values, domainConfig);
+    const sourceRowHash = computeSourceRowHash(tableId, row.values, domainConfig);
 
-    const keyFields = NATURAL_KEY_FIELDS[tableId] ?? [];
+    const keyFields = getTableConfig(domainConfig, tableId)?.naturalKey ?? [];
     const naturalKeyDisplay: Record<string, string> = {};
     for (const f of keyFields) {
       naturalKeyDisplay[f] = String(row.values[f] ?? '');
@@ -166,48 +168,82 @@ export function classifyRows(
   return staged;
 }
 
-// ── Timesheet aggregation ────────────────────────────────────────────────────
+// ── Row aggregation (e.g. timesheet hours summing) ───────────────────────────
 
-export function aggregateTimesheetRows(tenantId: string, rows: NormalizedRow[]): NormalizedRow[] {
+export interface AggregateRowsOptions {
+  tableId: string;
+  /** Field whose numeric values should be summed within each natural key group */
+  sumField: string;
+  /** Optional text field to merge (keep first non-empty) */
+  mergeTextField?: string;
+}
+
+export function aggregateRows(
+  tenantId: string,
+  rows: NormalizedRow[],
+  options: AggregateRowsOptions,
+  domainConfig: IngestionDomainConfig = PMO_DOMAIN_CONFIG,
+): NormalizedRow[] {
+  const { tableId, sumField, mergeTextField } = options;
   const groups = new Map<
     string,
-    { hours: number; description: string; sourceRow: number; values: Record<string, unknown> }
+    { sum: number; mergeText: string; sourceRow: number; values: Record<string, unknown> }
   >();
 
   for (const row of rows) {
-    const hash = computeNaturalKeyHash('timesheet', tenantId, row.values);
+    const hash = computeNaturalKeyHash(tableId, tenantId, row.values, domainConfig);
     const existing = groups.get(hash);
-    const hours = (row.values.logged_hours as number) ?? 0;
+    const numVal = (row.values[sumField] as number) ?? 0;
 
     if (!existing) {
       groups.set(hash, {
-        hours,
-        description: (row.values.description as string) ?? '',
+        sum: numVal,
+        mergeText: mergeTextField ? ((row.values[mergeTextField] as string) ?? '') : '',
         sourceRow: row.sourceRow,
         values: { ...row.values },
       });
     } else {
-      // Aggregate: sum hours, keep latest non-empty description
-      existing.hours += hours;
-      const desc = (row.values.description as string) ?? '';
-      if (desc && !existing.description) {
-        existing.description = desc;
+      existing.sum += numVal;
+      if (mergeTextField) {
+        const text = (row.values[mergeTextField] as string) ?? '';
+        if (text && !existing.mergeText) {
+          existing.mergeText = text;
+        }
       }
     }
   }
 
-  return [...groups.values()].map((g) => ({
+  return [...groups.values()].map((g) => {
+    const values: Record<string, unknown> = { ...g.values, [sumField]: g.sum };
+    if (mergeTextField) {
+      values[mergeTextField] = g.mergeText || null;
+    }
+    return {
+      tableId,
+      sourceRow: g.sourceRow,
+      values,
+      parseErrors: [],
+    };
+  });
+}
+
+/**
+ * @deprecated Use `aggregateRows()` with explicit options instead.
+ * Kept for backward compatibility with existing callers.
+ */
+export function aggregateTimesheetRows(tenantId: string, rows: NormalizedRow[]): NormalizedRow[] {
+  return aggregateRows(tenantId, rows, {
     tableId: 'timesheet',
-    sourceRow: g.sourceRow,
-    values: { ...g.values, logged_hours: g.hours, description: g.description || null },
-    parseErrors: [],
-  }));
+    sumField: 'logged_hours',
+    mergeTextField: 'description',
+  });
 }
 
 // ── Table-specific duplicate handling policy ─────────────────────────────────
 
-export function shouldBlockDuplicateInUpload(tableId: string): boolean {
-  // Timesheet duplicates are aggregated, not blocked
-  if (tableId === 'timesheet') return false;
-  return true;
+export function shouldBlockDuplicateInUpload(
+  tableId: string,
+  domainConfig: IngestionDomainConfig = PMO_DOMAIN_CONFIG,
+): boolean {
+  return (getTableConfig(domainConfig, tableId)?.duplicatePolicy ?? 'block') === 'block';
 }

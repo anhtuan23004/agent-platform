@@ -51,6 +51,8 @@ export {
   RegistryNotFrozenError,
   type SpecialistSpec,
   type WorkflowDedupeKey,
+  type WorkflowSnapshotDecoratorArgs,
+  type WorkflowSnapshotDecoratorSpec,
   type WorkflowSpec,
 } from './registry.ts';
 export { assertNoSessionField } from './registry-assertions.ts';

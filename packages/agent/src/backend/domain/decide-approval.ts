@@ -23,6 +23,7 @@ export interface DecideApprovalOpts {
    */
   alternateIndex?: number;
   alternateIndices?: number[];
+  payloadPatch?: Record<string, unknown>;
   note?: string;
   mastra: Mastra;
   log?: {
@@ -57,6 +58,7 @@ export interface RecordApprovalDecisionOpts {
   approvalId: string;
   decision: 'approve' | 'reject' | 'modify';
   overrideUserIds?: string[];
+  payloadPatch?: Record<string, unknown>;
   note?: string;
   /** When true (the /chat/resume route), require the row to be an agentic
    *  native-suspend card (mastra_run_id set). Rejected INSIDE the transaction
@@ -85,12 +87,25 @@ function resumeDataFromDecision(
   overrideUserIds: string[] | undefined,
   alternateIndex: number | undefined,
   alternateIndices: number[] | undefined,
+  payloadPatch: Record<string, unknown> | undefined,
 ): Record<string, unknown> | undefined {
   const card = (ctx.proposedPayload ?? null) as ApprovalCardLike | null;
   if (!card) return undefined;
+
+  const selectedIndices =
+    alternateIndices ?? (alternateIndex !== undefined ? [alternateIndex] : []);
+
+  if (decision === 'modify' && selectedIndices.length > 0 && card.alternates) {
+    const first = selectedIndices[0];
+    if (first !== undefined) {
+      const argsPatch = card.alternates[first]?.argsPatch;
+      return payloadPatch && argsPatch ? { ...argsPatch, ...payloadPatch } : argsPatch;
+    }
+  }
+
   if (decision === 'approve') {
     // Multi-select: merge existingId from each alternate into existingIds array
-    const indices = alternateIndices ?? (alternateIndex !== undefined ? [alternateIndex] : []);
+    const indices = selectedIndices;
     if (indices.length > 0 && card.alternates) {
       const existingIds: string[] = [];
       for (const idx of indices) {
@@ -101,17 +116,25 @@ function resumeDataFromDecision(
         }
       }
       if (existingIds.length > 0) {
-        return { kind: 'link', existingIds };
+        const argsPatch = { kind: 'link', existingIds };
+        return payloadPatch ? { ...argsPatch, ...payloadPatch } : argsPatch;
       }
     }
-    return card.primary?.argsPatch;
+    const argsPatch = card.primary?.argsPatch;
+    return payloadPatch && argsPatch ? { ...argsPatch, ...payloadPatch } : argsPatch;
   }
-  if (decision === 'reject') return card.decline?.argsPatch;
+  if (decision === 'reject') {
+    const argsPatch = card.decline?.argsPatch;
+    return payloadPatch && argsPatch ? { ...argsPatch, ...payloadPatch } : argsPatch;
+  }
   // modify: substitute the user-composed assignee set into primary.argsPatch.
   if (decision === 'modify' && overrideUserIds && overrideUserIds.length > 0) {
     if (card.primary?.argsPatch) {
-      return { ...card.primary.argsPatch, assigneeUserIds: overrideUserIds };
+      return { ...card.primary.argsPatch, assigneeUserIds: overrideUserIds, ...payloadPatch };
     }
+  }
+  if (decision === 'modify' && payloadPatch) {
+    return { ...(card.primary?.argsPatch ?? { decision }), ...payloadPatch };
   }
   return undefined;
 }
@@ -199,6 +222,7 @@ export async function recordApprovalDecision(
     const decisionPayload = {
       decision: opts.decision,
       ...(opts.overrideUserIds !== undefined ? { override_user_ids: opts.overrideUserIds } : {}),
+      ...(opts.payloadPatch !== undefined ? { payload_patch: opts.payloadPatch } : {}),
       ...(opts.note !== undefined ? { note: opts.note } : {}),
     };
     await tx.execute(sql`
@@ -241,6 +265,7 @@ export async function decideApproval(opts: DecideApprovalOpts): Promise<DecideAp
     approvalId: opts.approvalId,
     decision: opts.decision,
     overrideUserIds: opts.overrideUserIds,
+    payloadPatch: opts.payloadPatch,
     note: opts.note,
   });
 
@@ -281,6 +306,7 @@ export async function decideApproval(opts: DecideApprovalOpts): Promise<DecideAp
     opts.overrideUserIds,
     opts.alternateIndex,
     opts.alternateIndices,
+    opts.payloadPatch,
   );
   const resumeData: Record<string, unknown> = fromCard ?? {
     decision: opts.decision,

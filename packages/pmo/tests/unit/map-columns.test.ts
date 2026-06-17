@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SheetRoleCandidate } from '../../src/backend/ingestion/detect-sheet-role.ts';
+import { llmMappingHintKey } from '../../src/backend/ingestion/llm-mapping-hints.ts';
 import { mapColumns } from '../../src/backend/ingestion/map-columns.ts';
 import type { SheetProfile } from '../../src/backend/ingestion/profile-columns.ts';
 
@@ -193,6 +194,7 @@ describe('mapColumns', () => {
       expect(mapping.scoringBreakdown).toHaveProperty('dataType');
       expect(mapping.scoringBreakdown).toHaveProperty('sheetContext');
       expect(mapping.scoringBreakdown).toHaveProperty('crossSheet');
+      expect(mapping.scoringBreakdown).toHaveProperty('llmSemantic');
       expect(mapping.confidence).toBeGreaterThan(0);
     }
   });
@@ -223,5 +225,100 @@ describe('mapColumns', () => {
     const canonicalFields = result.mappings.map((m) => m.canonicalField);
     const uniqueFields = new Set(canonicalFields);
     expect(uniqueFields.size).toBe(canonicalFields.length);
+  });
+
+  it('does not apply LLM adjustment when deterministic base is too low', () => {
+    const profile = makeProfile('Noisy_RA', ['X_col'], {
+      sampleValues: {
+        X_col: ['foo', 'bar', 'baz'],
+      },
+    });
+
+    const hintMap = new Map<string, number>([[llmMappingHintKey('member_id', 'X_col'), 1.0]]);
+
+    const baseline = mapColumns(profile, makeRole('resource_allocation', 0.95), [profile]);
+    const withAggressiveLlm = mapColumns(
+      profile,
+      makeRole('resource_allocation', 0.95),
+      [profile],
+      undefined,
+      {
+        llmHints: hintMap,
+        llmBonusWeight: 1,
+      },
+    );
+
+    expect(baseline.mappings.find((m) => m.canonicalField === 'member_id')).toBeUndefined();
+    expect(
+      withAggressiveLlm.mappings.find((m) => m.canonicalField === 'member_id'),
+    ).toBeUndefined();
+    expect(withAggressiveLlm.unmappedRequired).toContain('member_id');
+  });
+
+  it('does not auto-accept when only LLM pushes final score above threshold', () => {
+    const profile = makeProfile(
+      'RA_Medium',
+      ['Employee', 'Project_ID', 'Allocation_pct', 'Start_date', 'End_date'],
+      {
+        sampleValues: {
+          Employee: ['EMP001', 'EMP002'],
+          Project_ID: ['PRJ-A', 'PRJ-B'],
+          Allocation_pct: ['0.5', '0.75'],
+          Start_date: ['2026-06-01', '2026-06-15'],
+          End_date: ['2026-06-30', '2026-07-15'],
+        },
+      },
+    );
+
+    const hintMap = new Map<string, number>([[llmMappingHintKey('member_id', 'Employee'), 1.0]]);
+
+    const result = mapColumns(
+      profile,
+      makeRole('resource_allocation', 0.85),
+      [profile],
+      undefined,
+      {
+        llmHints: hintMap,
+        llmBonusWeight: 1,
+      },
+    );
+
+    const memberMapping = result.mappings.find((m) => m.canonicalField === 'member_id');
+    expect(memberMapping).toBeDefined();
+    expect(memberMapping?.confidence).toBeGreaterThanOrEqual(0.9);
+    expect(memberMapping?.status).toBe('needs_review');
+  });
+
+  it('forces needs_review when deterministic is strong but LLM strongly disagrees', () => {
+    const profile = makeProfile(
+      'DS01_Resource_Allocation',
+      ['Member_ID', 'Project_ID', 'Allocation_pct', 'Start_date', 'End_date'],
+      {
+        sampleValues: {
+          Member_ID: ['EMP001', 'EMP002'],
+          Project_ID: ['PRJ-A', 'PRJ-B'],
+          Allocation_pct: ['0.5', '0.75'],
+          Start_date: ['2026-06-01', '2026-06-15'],
+          End_date: ['2026-06-30', '2026-07-15'],
+        },
+      },
+    );
+
+    const hintMap = new Map<string, number>([[llmMappingHintKey('member_id', 'Member_ID'), 0.0]]);
+
+    const result = mapColumns(
+      profile,
+      makeRole('resource_allocation', 0.95),
+      [profile],
+      undefined,
+      {
+        llmHints: hintMap,
+      },
+    );
+
+    const memberMapping = result.mappings.find((m) => m.canonicalField === 'member_id');
+    expect(memberMapping).toBeDefined();
+    expect(memberMapping?.confidence).toBeGreaterThanOrEqual(0.8);
+    expect(memberMapping?.status).toBe('needs_review');
   });
 });
