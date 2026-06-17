@@ -19,8 +19,9 @@ export const pmoDetectOverbookIdleTool = defineAgentTool({
   name: 'Detect Overbook & Idle',
   description:
     'Detect overbooked (busy > threshold) and idle (busy < threshold) members ' +
-    'from the utilization read-model. Busy rate = planned ÷ standard week, so ' +
-    'part-time members and onboarding gaps are handled correctly.\n\n' +
+    'from the utilization read-model. Busy rate = planned ÷ available hours; ' +
+    'available hours are part-time, holiday, and approved-absence aware, so ' +
+    'onboarding gaps and valid edge cases are handled correctly.\n\n' +
     'Call pmo_computeMemberWeekFacts first if data was just published.',
   input: z.object({}),
   output: z.object({ findings: z.array(findingSchema) }),

@@ -8,19 +8,38 @@ export type RagColor = 'green' | 'yellow' | 'red' | 'none';
 
 export type IssueType = 'overbook' | 'idle' | 'mismatch_under' | 'mismatch_over' | 'ok';
 
-export type SuppressionReason = 'pre_hire' | 'holiday_week' | 'approved_leave' | 'approved_ot' | 'training';
+export type SuppressionReason =
+  | 'pre_hire'
+  | 'holiday_week'
+  | 'approved_leave'
+  | 'approved_ot'
+  | 'training';
 
 // ── Source row shapes (subset of canonical tables this layer reads) ──────────
 
 export interface MemberRow {
   member_id: string;
+  full_name: string;
+  role_title?: string | null;
   std_hours_week: number | null;
   join_date: Date | null;
+}
+
+export interface ProjectRow {
+  project_id: string;
+  project_name: string;
+  account_id: string | null;
+  project_type: string | null;
+  status: string | null;
+  pm_id: string | null;
+  start_date: Date | null;
+  end_date: Date | null;
 }
 
 export interface AllocationRow {
   member_id: string;
   project_id: string;
+  role?: string | null;
   weekly_planned_hours: number | null;
   start_date: Date;
   end_date: Date;

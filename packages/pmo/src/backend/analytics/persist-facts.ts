@@ -3,6 +3,7 @@ import { pmoDb } from '../db/client.ts';
 import { memberWeekFacts } from '../db/schema.ts';
 import { loadCanonicalInputs } from './load-canonical.ts';
 import { buildMemberWeekFacts } from './member-week-facts.ts';
+import { splitPmoPopulations } from './populations.ts';
 import { resolveThresholds } from './thresholds.ts';
 import type { MemberWeekFact, Thresholds } from './types.ts';
 
@@ -24,9 +25,10 @@ export async function computeAndPersistFacts(
 ): Promise<ComputeFactsResult> {
   const inputs = await loadCanonicalInputs(tenantId);
   const thresholds = resolveThresholds(inputs.configRows);
+  const { deliveryMembers } = splitPmoPopulations(inputs.members, inputs.projects);
 
   const facts = buildMemberWeekFacts({
-    members: inputs.members,
+    members: deliveryMembers,
     allocations: inputs.allocations,
     timesheets: inputs.timesheets,
     leaves: inputs.leaves,
@@ -34,9 +36,11 @@ export async function computeAndPersistFacts(
     thresholds,
   });
 
+  const db = pmoDb();
+  await db.delete(memberWeekFacts).where(eq(memberWeekFacts.tenant_id, tenantId));
+
   if (facts.length > 0) {
     const rows = facts.map((f) => toRow(tenantId, sessionId ?? null, f));
-    const db = pmoDb();
     await db
       .insert(memberWeekFacts)
       .values(rows)
@@ -70,7 +74,7 @@ export async function computeAndPersistFacts(
   return {
     factCount: facts.length,
     weekIds: inputs.weeks.map((w) => w.week_id),
-    memberCount: inputs.members.length,
+    memberCount: deliveryMembers.length,
     thresholds,
   };
 }

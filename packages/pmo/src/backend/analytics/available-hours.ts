@@ -1,4 +1,5 @@
 import { dateInWeek } from './dates.ts';
+import { isApprovedOtCompLeave } from './leave-type.ts';
 import type { LeaveRow, WeekRow } from './types.ts';
 
 // Leave types that represent genuine absence and therefore reduce available
@@ -66,8 +67,6 @@ export function computeAvailableHours(
   return Math.max(0, baseCapacity - leaveHours);
 }
 
-const APPROVED_OT_TYPE = 'approved ot comp';
-
 /**
  * Approved overtime hours for a member in a week, from leave/holiday records of
  * type "Approved OT Comp" (DS04). Each record's duration_days × std/5 = hours.
@@ -84,7 +83,7 @@ export function computeOvertimeHours(
   for (const leave of leaves) {
     if (leave.member_id !== memberId) continue;
     if (leave.approved !== true) continue;
-    if (leave.leave_type.trim().toLowerCase() !== APPROVED_OT_TYPE) continue;
+    if (!isApprovedOtCompLeave(leave.leave_type)) continue;
     if (!dateInWeek(leave.leave_date, week)) continue;
     hours += (leave.duration_days ?? 1) * perDay;
   }

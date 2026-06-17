@@ -29,13 +29,13 @@ published PMO data (resource allocation + timesheets) to flag utilization issues
 2. Then call pmo_detectOverbookIdle and/or pmo_detectMismatch as the question needs.
 
 ## Reading findings
-- Busy rate = planned ÷ standard week (part-time aware). > threshold = overbook,
-  < threshold = idle.
-- Effort consumption = logged ÷ expected. Outside threshold = mismatch
+- Busy rate = planned ÷ available hours. Available hours are part-time,
+  holiday, and approved-absence aware. > threshold = overbook, < threshold = idle.
+- Effort consumption = logged ÷ planned. Outside threshold = mismatch
   (under-log or over-log).
 - Every finding lists \`excludedWeeks\`: weeks neutralised as valid edge cases
-  (approved_leave, approved_ot). These are NOT problems — mention them as context
-  ("excluding approved OT in W5") rather than flagging them.
+  (holiday_week, approved_leave, approved_ot, training). These are NOT problems —
+  mention them as context ("excluding approved OT in W5") rather than flagging them.
 - A member who logged extra hours but has approved OT will NOT appear as a
   mismatch — that is correct, not a miss.
 

@@ -1,4 +1,5 @@
 import { dateInWeek } from './dates.ts';
+import { isApprovedOtCompLeave, isTrainingLeave } from './leave-type.ts';
 import type {
   ExcludedWeek,
   Finding,
@@ -9,8 +10,6 @@ import type {
   Thresholds,
   WeekRow,
 } from './types.ts';
-
-const APPROVED_OT_TYPE = 'approved ot comp';
 
 export interface FindingsContext {
   leaves: LeaveRow[];
@@ -37,7 +36,7 @@ function hasApprovedOt(memberId: string, week: WeekRow, leaves: LeaveRow[]): boo
     (l) =>
       l.member_id === memberId &&
       l.approved === true &&
-      l.leave_type.trim().toLowerCase() === APPROVED_OT_TYPE &&
+      isApprovedOtCompLeave(l.leave_type) &&
       dateInWeek(l.leave_date, week),
   );
 }
@@ -47,7 +46,7 @@ function hasTraining(memberId: string, week: WeekRow, leaves: LeaveRow[]): boole
     (l) =>
       l.member_id === memberId &&
       l.approved === true &&
-      l.leave_type.trim().toLowerCase() === 'training' &&
+      isTrainingLeave(l.leave_type) &&
       dateInWeek(l.leave_date, week),
   );
 }
@@ -95,6 +94,7 @@ export function analyzeMembers(facts: MemberWeekFact[], ctx: FindingsContext): M
     let busyCount = 0;
     let loggedSum = 0;
     let plannedSum = 0;
+    let anyActivity = false;
 
     for (const fact of inScope) {
       const reason = weekSuppressionReason(memberId, fact, ctx);
@@ -109,10 +109,14 @@ export function analyzeMembers(facts: MemberWeekFact[], ctx: FindingsContext): M
       }
       loggedSum += fact.loggedHours;
       plannedSum += fact.plannedHours;
+      if (fact.plannedHours > 0 || fact.loggedHours > 0) anyActivity = true;
     }
 
-    const busyRate = busyCount > 0 ? round4(busySum / busyCount) : null;
-    const effortConsumption = plannedSum > 0 ? round4(loggedSum / plannedSum) : null;
+    // If a member has zero plan and zero log across the whole window, do not
+    // classify them as "idle" at member-level. Surface this as 'no_plan' in
+    // the member-week facts instead (data/planning gap).
+    const busyRate = anyActivity && busyCount > 0 ? round4(busySum / busyCount) : null;
+    const effortConsumption = anyActivity && plannedSum > 0 ? round4(loggedSum / plannedSum) : null;
 
     analyses.push({
       memberId,

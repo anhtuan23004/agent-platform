@@ -19,9 +19,9 @@ export const pmoDetectMismatchTool = defineAgentTool({
   name: 'Detect Logged-vs-Planned Mismatch',
   description:
     'Detect members whose logged hours diverge from plan (effort consumption ' +
-    'outside threshold). Full-leave weeks and approved-OT weeks are excluded ' +
-    'from the ratio, so sanctioned overtime and approved leave are NOT flagged ' +
-    "(see each finding's excludedWeeks for what was neutralised).\n\n" +
+    'outside threshold). Holiday, full-leave, approved-OT, and training weeks ' +
+    'are excluded from the member-level ratio, so valid edge cases are NOT ' +
+    "flagged (see each finding's excludedWeeks for what was neutralised).\n\n" +
     'Call pmo_computeMemberWeekFacts first if data was just published.',
   input: z.object({}),
   output: z.object({ findings: z.array(findingSchema) }),

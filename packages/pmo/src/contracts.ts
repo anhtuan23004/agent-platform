@@ -1,1 +1,15 @@
-export {};
+export type {
+  DemoAllocationInput,
+  DemoAnalyticsResult,
+  DemoAnswerKeyRow,
+  DemoCanonicalInputs,
+  DemoFindingRow,
+  DemoLeaveInput,
+  DemoMemberAnalysisRow,
+  DemoMemberInput,
+  DemoMemberWeekRow,
+  DemoProjectInput,
+  DemoProjectMemberDependencyRow,
+  DemoTimesheetInput,
+  DemoWeekInput,
+} from './backend/analytics/demo-analytics.ts';

@@ -70,7 +70,7 @@ const WINDOW_START = d('2026-06-29');
 const WINDOW_END = d('2026-08-07');
 
 function ftMember(id: string, joinDate = '2020-01-01', std = 40): MemberRow {
-  return { member_id: id, std_hours_week: std, join_date: d(joinDate) };
+  return { member_id: id, full_name: id, std_hours_week: std, join_date: d(joinDate) };
 }
 
 function alloc(member: string, project: string, hours: number): AllocationRow {
@@ -179,7 +179,7 @@ describe('PMO_02 analytics — Answer_Key F-07..F-17', () => {
     expect(finding?.effortConsumption).toBeGreaterThan(0.45);
   });
 
-  it('F-12 EMP-006: mismatch_over, genuine (no approved OT → not excluded)', () => {
+  it('F-12 EMP-006: mismatch_over, genuine (no approved OT; holiday week excluded)', () => {
     const facts = buildMemberWeekFacts({
       members: [ftMember('EMP-006')],
       allocations: [alloc('EMP-006', 'PRJ-001', 38)],
@@ -191,7 +191,7 @@ describe('PMO_02 analytics — Answer_Key F-07..F-17', () => {
     const finding = maybeFinding(detectMismatch(facts, ctx()), 'EMP-006');
     expect(finding?.issueType).toBe('mismatch_over');
     expect(finding?.effortConsumption).toBeGreaterThan(1.2);
-    expect(finding?.excludedWeeks).toEqual([]);
+    expect(finding?.excludedWeeks).toEqual([{ weekId: 'W3', reason: 'holiday_week' }]);
   });
 
   it('F-13 EMP-003: leave + approved OT → NOT flagged; weeks excluded with reasons', () => {

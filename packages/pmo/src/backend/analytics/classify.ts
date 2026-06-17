@@ -14,7 +14,16 @@ export interface Classification {
  * takes precedence (capacity problem outranks logging discrepancy).
  */
 export function classifyRag(metrics: Metrics, thresholds: Thresholds): Classification {
-  const { busyRate, effortConsumption } = metrics;
+  const { busyRate, effortConsumption, plannedHours, loggedHours } = metrics;
+
+  // ── No plan / no log (unassigned) ─────────────────────────────────────────
+  // If a member has capacity but no allocations and no logs, calling them "idle"
+  // creates noisy red flags for placeholder members in the roster. Treat this
+  // as a data/planning gap instead; the demo UI will surface it via
+  // suppressionReason = 'no_plan'.
+  if (plannedHours === 0 && loggedHours === 0) {
+    return { ragColor: 'none', issueType: 'ok' };
+  }
 
   // ── Overbook / idle (busy) ────────────────────────────────────────────────
   if (busyRate !== null) {

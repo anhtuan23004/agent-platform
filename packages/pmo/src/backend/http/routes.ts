@@ -3,6 +3,7 @@ import type { SessionEnv } from '@seta/core';
 import { buildTenantKey, getS3Client, presignedUploadUrl } from '@seta/shared-storage';
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { DemoAnalyticsNoDataError, runDemoAnalytics } from '../analytics/demo-analytics.ts';
 import { pmoDb } from '../db/client.ts';
 import { ingestionSessions } from '../db/schema.ts';
 
@@ -155,6 +156,21 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
       const message = err instanceof Error ? err.message : String(err);
       console.error('[pmo/upload] error:', message, err);
       return c.json({ error: 'upload_failed', message }, 500);
+    }
+  });
+
+  // GET /api/pmo/v1/demo-analytics
+  // Runs utilization analytics on tenant canonical data (pmo.* tables, is_active=true).
+  app.get('/api/pmo/v1/demo-analytics', async (c) => {
+    const session = c.get('user');
+    try {
+      const result = await runDemoAnalytics(session.tenant_id);
+      return c.json(result);
+    } catch (err) {
+      if (err instanceof DemoAnalyticsNoDataError) {
+        return c.json({ error: 'no_data', message: err.message }, 404);
+      }
+      throw err;
     }
   });
 
