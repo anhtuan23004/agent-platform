@@ -4,7 +4,6 @@ import { buildTenantKey, presignedUploadUrl } from '@seta/shared-storage';
 import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { DemoAnalyticsNoDataError, runDemoAnalytics } from '../analytics/demo-analytics.ts';
 import { pmoDb } from '../db/client.ts';
 import { ingestionSessions } from '../db/schema.ts';
 import { createS3FileStore } from '../ingestion/s3-file-store.ts';
@@ -23,6 +22,7 @@ import {
   type WorkflowExecutionState,
   type WorkflowExecutionStep,
 } from '../profiling/workbook-profiling.ts';
+import { registerDemoAnalyticsRoutes } from './demo-analytics-route.ts';
 
 type PlanningState = 'uploaded' | 'generating_plan' | 'plan_review' | 'approved_plan';
 type ProfilingStepStatus = 'in_progress' | 'needs_review' | 'completed' | 'failed';
@@ -1889,20 +1889,7 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
     });
   });
 
-  // GET /api/pmo/v1/demo-analytics
-  // Runs the utilization pipeline on canonical tenant data for the calculation demo UI.
-  app.get('/api/pmo/v1/demo-analytics', async (c) => {
-    const session = c.get('user');
-    try {
-      const result = await runDemoAnalytics(session.tenant_id);
-      return c.json(result);
-    } catch (err) {
-      if (err instanceof DemoAnalyticsNoDataError) {
-        return c.json({ error: 'no_data', message: err.message }, 404);
-      }
-      throw err;
-    }
-  });
+  registerDemoAnalyticsRoutes(app);
 
   return app;
 }
