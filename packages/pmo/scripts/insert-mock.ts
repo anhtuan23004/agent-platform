@@ -24,7 +24,6 @@ import {
   computeNaturalKeyHash,
   computeSourceRowHash,
 } from '../src/backend/ingestion/stage-changes.ts';
-import { exportMockSkillsCsv } from './lib/export-mock-skills-csv.ts';
 import {
   buildMemberSkillsAndHistory,
   type MemberSkillsProfile,
@@ -662,11 +661,6 @@ async function main() {
     { encoding: 'utf8' },
   );
   console.log(countProc.stdout.trim());
-
-  const csv = exportMockSkillsCsv({ dbPath: DB_PATH });
-  console.log(
-    `csv: skills=${csv.memberSkillRows} history=${csv.taskHistoryRows} profiles=${csv.memberProfileRows} swaps=${csv.rebalanceSwapRows}`,
-  );
 }
 
 main().catch((err) => {
