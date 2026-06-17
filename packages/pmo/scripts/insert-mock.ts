@@ -25,6 +25,10 @@ import {
   computeSourceRowHash,
 } from '../src/backend/ingestion/stage-changes.ts';
 import {
+  exportMockSkillsCsv,
+  type MockAllocationWithProject,
+} from './lib/export-mock-skills-csv.ts';
+import {
   buildMemberSkillsAndHistory,
   type MemberSkillsProfile,
   type MemberTaskHistoryEntry,
@@ -325,6 +329,36 @@ function deriveSkillsAndHistory(perTable: Partial<Record<CanonicalTableId, Norma
     log_category: r.values.log_category ? rowStr(r.values.log_category) : null,
   }));
   return buildMemberSkillsAndHistory({ members, allocations, projects, timesheets });
+}
+
+function deriveAllocationsWithProjects(
+  perTable: Partial<Record<CanonicalTableId, NormalizedRow[]>>,
+): MockAllocationWithProject[] {
+  const projects = new Map(
+    (perTable.project_master ?? []).map((r) => [
+      rowStr(r.values.project_id),
+      {
+        project_name: rowStr(r.values.project_name),
+        project_type: r.values.project_type ? rowStr(r.values.project_type) : '',
+      },
+    ]),
+  );
+  return (perTable.resource_allocation ?? [])
+    .map((r) => {
+      const project_id = rowStr(r.values.project_id);
+      const project = projects.get(project_id);
+      if (!project) return null;
+      return {
+        member_id: rowStr(r.values.member_id),
+        project_id,
+        project_name: project.project_name,
+        project_type: project.project_type,
+        role: r.values.role ? rowStr(r.values.role) : null,
+        weekly_planned_hours:
+          r.values.weekly_planned_hours != null ? rowNum(r.values.weekly_planned_hours) : null,
+      };
+    })
+    .filter((row): row is MockAllocationWithProject => row !== null);
 }
 
 function buildMemberSkillsInserts(profiles: MemberSkillsProfile[]): string[] {
@@ -641,7 +675,7 @@ async function main() {
   sql.push(...buildTaskHistoryInserts(history));
   sql.push('COMMIT;');
 
-  const proc = spawnSync('sqlite3', [DB_PATH], { input: sql.join('\n') + '\n', encoding: 'utf8' });
+  const proc = spawnSync('sqlite3', [DB_PATH], { input: `${sql.join('\n')}\n`, encoding: 'utf8' });
   if (proc.status !== 0) throw new Error(`sqlite3 failed: ${proc.stderr || proc.stdout}`);
 
   const countProc = spawnSync(
@@ -661,6 +695,20 @@ async function main() {
     { encoding: 'utf8' },
   );
   console.log(countProc.stdout.trim());
+
+  const csv = exportMockSkillsCsv({
+    profiles,
+    history,
+    allocations: deriveAllocationsWithProjects(perTable),
+    members: (perTable.member_master ?? []).map((r) => ({
+      member_id: rowStr(r.values.member_id),
+      full_name: rowStr(r.values.full_name),
+      std_hours_week: r.values.std_hours_week != null ? rowNum(r.values.std_hours_week) : null,
+    })),
+  });
+  console.log(
+    `csv: skills=${csv.memberSkillRows} history=${csv.taskHistoryRows} profiles=${csv.memberProfileRows} swaps=${csv.rebalanceSwapRows}`,
+  );
 }
 
 main().catch((err) => {

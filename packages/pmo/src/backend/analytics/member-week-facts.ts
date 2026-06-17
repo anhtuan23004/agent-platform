@@ -1,7 +1,7 @@
+import { computeOvertimeHours } from './available-hours.ts';
 import { classifyRag } from './classify.ts';
 import { sortWeeks } from './dates.ts';
 import { computeWeekMetrics, round4 } from './metrics.ts';
-import { computeOvertimeHours } from './available-hours.ts';
 import type {
   AllocationRow,
   LeaveRow,
