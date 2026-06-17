@@ -244,7 +244,10 @@ describe('PMO_02 analytics — Answer_Key F-07..F-17', () => {
     });
     const w3 = factOf(facts, 'EMP-XX', 'W3');
     expect(w3.availableHours).toBe(32); // 40 × 4/5
-    expect(w3.effortConsumption).toBeCloseTo(1.0, 5); // 32 / (40 × 0.8)
+    // Per-week N06 is logged / planned; holiday weeks are excluded at member-level aggregation.
+    expect(w3.effortConsumption).toBeCloseTo(0.8, 5); // 32 / 40
+    const analysis = analyzeMembers(facts, ctx()).find((a) => a.memberId === 'EMP-XX');
+    expect(analysis?.excludedWeeks).toContainEqual({ weekId: 'W3', reason: 'holiday_week' });
     expect(maybeFinding(detectMismatch(facts, ctx()), 'EMP-XX')).toBeUndefined();
   });
 

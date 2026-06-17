@@ -5,6 +5,7 @@ import type {
   LeaveRow,
   MemberWeekFact,
   RagColor,
+  SuppressionReason,
   Thresholds,
   WeekRow,
 } from './types.ts';
@@ -61,16 +62,26 @@ function groupByMember(facts: MemberWeekFact[]): Map<string, MemberWeekFact[]> {
   return map;
 }
 
+/** Weeks where busy / N06 are structurally distorted and must not drive findings. */
+function weekSuppressionReason(
+  memberId: string,
+  fact: MemberWeekFact,
+  ctx: FindingsContext,
+): SuppressionReason | null {
+  const week = ctx.weeksById.get(fact.weekId);
+  if (week && (week.holiday_hours_ft ?? 0) > 0) return 'holiday_week';
+  if (week && hasApprovedOt(memberId, week, ctx.leaves)) return 'approved_ot';
+  if (week && hasTraining(memberId, week, ctx.leaves)) return 'training';
+  if (fact.availableHours === 0) return 'approved_leave';
+  return null;
+}
+
 /**
  * Aggregate per-week facts into a member-level analysis.
  *
- * - Busy rate is constant across weeks (planned/std), so the member value is
- *   the mean of in-scope weeks' busy.
- * - Effort consumption is Σlogged / Σexpected over in-scope weeks, EXCLUDING
- *   full-leave weeks (available = 0 → approved_leave), approved-OT weeks
- *   (approved_ot), and training-weeks (training). Holiday/partial-leave weeks
- *   stay in — their expected hours are already prorated, so they neither
- *   inflate nor deflate the ratio.
+ * Busy rate and effort consumption share the same exclusion set: holiday weeks,
+ * full-leave weeks (available = 0), approved-OT weeks, and training weeks.
+ * Member busy = mean of remaining in-scope weeks; EC = Σlogged / Σplanned.
  */
 export function analyzeMembers(facts: MemberWeekFact[], ctx: FindingsContext): MemberAnalysis[] {
   const byMember = groupByMember(facts);
@@ -83,33 +94,25 @@ export function analyzeMembers(facts: MemberWeekFact[], ctx: FindingsContext): M
     let busySum = 0;
     let busyCount = 0;
     let loggedSum = 0;
-    let expectedSum = 0;
+    let plannedSum = 0;
 
     for (const fact of inScope) {
+      const reason = weekSuppressionReason(memberId, fact, ctx);
+      if (reason) {
+        excludedWeeks.push({ weekId: fact.weekId, reason });
+        continue;
+      }
+
       if (fact.busyRate !== null) {
         busySum += fact.busyRate;
         busyCount += 1;
       }
-
-      const week = ctx.weeksById.get(fact.weekId);
-      if (week && hasApprovedOt(memberId, week, ctx.leaves)) {
-        excludedWeeks.push({ weekId: fact.weekId, reason: 'approved_ot' });
-        continue;
-      }
-      if (week && hasTraining(memberId, week, ctx.leaves)) {
-        excludedWeeks.push({ weekId: fact.weekId, reason: 'training' });
-        continue;
-      }
-      if (fact.availableHours === 0) {
-        excludedWeeks.push({ weekId: fact.weekId, reason: 'approved_leave' });
-        continue;
-      }
       loggedSum += fact.loggedHours;
-      expectedSum += fact.expectedLoggedHours;
+      plannedSum += fact.plannedHours;
     }
 
     const busyRate = busyCount > 0 ? round4(busySum / busyCount) : null;
-    const effortConsumption = expectedSum > 0 ? round4(loggedSum / expectedSum) : null;
+    const effortConsumption = plannedSum > 0 ? round4(loggedSum / plannedSum) : null;
 
     analyses.push({
       memberId,

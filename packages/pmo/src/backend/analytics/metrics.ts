@@ -1,5 +1,10 @@
 import { computeAvailableHours } from './available-hours.ts';
-import { computeBillableHours, computeLoggedHours, computePlannedHours, computeTrainingHours } from './planned-hours.ts';
+import {
+  computeBillableHours,
+  computeLoggedHours,
+  computePlannedHours,
+  computeTrainingHours,
+} from './planned-hours.ts';
 import type { AllocationRow, LeaveRow, TimesheetRow, WeekRow } from './types.ts';
 
 export interface WeekMetricInputs {
@@ -70,10 +75,9 @@ export function computeWeekMetrics(inputs: WeekMetricInputs): WeekMetrics {
   const billableRate = loggedHours > 0 ? billableHours / loggedHours : null;
   const benchRate = availableHours > 0 ? benchHours / availableHours : null;
   const overtimeRatio = stdHoursWeek > 0 ? overtimeHours / stdHoursWeek : null;
-  const effortConsumption = expectedLoggedHours > 0 ? loggedHours / expectedLoggedHours : null;
-  const trainingCompliance = requiredTrainingHours > 0
-    ? Math.min(trainingHours / requiredTrainingHours, 1)
-    : null;
+  const effortConsumption = plannedHours > 0 ? loggedHours / plannedHours : null;
+  const trainingCompliance =
+    requiredTrainingHours > 0 ? Math.min(trainingHours / requiredTrainingHours, 1) : null;
 
   return {
     availableHours,
