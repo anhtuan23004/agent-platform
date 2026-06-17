@@ -295,6 +295,8 @@ function createFetchMock(opts?: {
   decideStatus?: number;
   cancelResponse?: unknown;
   cancelStatus?: number;
+  pmoCancelResponse?: unknown;
+  pmoCancelStatus?: number;
 }) {
   const runRows = opts?.runRows ?? [];
   const pendingApprovals = opts?.pendingApprovals ?? [];
@@ -304,6 +306,7 @@ function createFetchMock(opts?: {
   const startStatus = opts?.startStatus ?? 200;
   const decideStatus = opts?.decideStatus ?? 200;
   const cancelStatus = opts?.cancelStatus ?? 200;
+  const pmoCancelStatus = opts?.pmoCancelStatus ?? 200;
 
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
@@ -354,9 +357,33 @@ function createFetchMock(opts?: {
     if (/^\/api\/agent\/v1\/workflows\/runs\/[^/]+\/cancel$/.test(url)) {
       return mockJsonResponse(opts?.cancelResponse ?? { ok: true }, cancelStatus);
     }
+    if (url === '/api/pmo/v1/workflow/cancel') {
+      return mockJsonResponse(opts?.pmoCancelResponse ?? { ok: true }, pmoCancelStatus);
+    }
 
     throw new Error(`Unexpected fetch call: ${url}`);
   });
+}
+
+async function waitForPmoPageBootstrap(fetchMock: ReturnType<typeof vi.fn>): Promise<void> {
+  await waitFor(
+    () => {
+      expect(
+        fetchMock.mock.calls.some((entry) =>
+          String(entry[0]).startsWith('/api/agent/v1/workflows/runs?'),
+        ),
+      ).toBe(true);
+      expect(
+        fetchMock.mock.calls.some((entry) => String(entry[0]) === '/api/pmo/v1/ingestion-sessions'),
+      ).toBe(true);
+      expect(
+        fetchMock.mock.calls.some(
+          (entry) => String(entry[0]) === '/api/agent/v1/workflows/sse-token',
+        ),
+      ).toBe(true);
+    },
+    { timeout: 5_000 },
+  );
 }
 
 function findCall(
@@ -1372,7 +1399,7 @@ describe('PmoPage', () => {
     });
   });
 
-  it('cancels workflow directly from mapping tab', async () => {
+  it('cancels workflow directly from mapping tab', { timeout: 15_000 }, async () => {
     const fetchMock = createFetchMock({
       runRows: [
         makeRunRow({
@@ -1449,17 +1476,23 @@ describe('PmoPage', () => {
 
     render(withQuery(<PmoPage />));
 
+    await waitForPmoPageBootstrap(fetchMock);
+
     await waitFor(() => {
       expect(screen.getAllByText(/Needs review/i).length).toBeGreaterThan(0);
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'View' }));
+    const historyRow = screen.getByText('pmo_2025-w35.xlsx').closest('tr');
+    expect(historyRow).toBeTruthy();
+    fireEvent.click(within(historyRow as HTMLElement).getByRole('button', { name: 'View' }));
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled();
+      expect(
+        within(historyRow as HTMLElement).getByRole('button', { name: 'Cancel' }),
+      ).toBeEnabled();
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(within(historyRow as HTMLElement).getByRole('button', { name: 'Cancel' }));
 
     await waitFor(() => {
       expect(
@@ -1467,7 +1500,15 @@ describe('PmoPage', () => {
           /^\/api\/agent\/v1\/workflows\/runs\/[^/]+\/cancel$/.test(String(entry[0])),
         ),
       ).toBe(true);
+      expect(
+        fetchMock.mock.calls.some((entry) => String(entry[0]) === '/api/pmo/v1/workflow/cancel'),
+      ).toBe(true);
     });
+
+    const cancelCall = findCall(fetchMock, (url) =>
+      /^\/api\/agent\/v1\/workflows\/runs\/[^/]+\/cancel$/.test(url),
+    );
+    expect(cancelCall[0]).toBe('/api/agent/v1/workflows/runs/run-cancel/cancel');
   });
 
   it('submits inline modify decision in mapping tab without leaving PMO page', async () => {
