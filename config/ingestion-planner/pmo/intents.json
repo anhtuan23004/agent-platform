@@ -1,0 +1,42 @@
+{
+  "version": "1.0.0",
+  "default_intent_mode": "review_only",
+  "low_confidence_requires_confirmation": true,
+  "intents": [
+    {
+      "intent_mode": "review_only",
+      "label": "Review only",
+      "description": "The user wants to inspect, review, understand, summarize, or validate the workbook without mapping columns, staging records, comparing database changes, or publishing.",
+      "allowed_action_ids": ["workbook_profiling"]
+    },
+    {
+      "intent_mode": "mapping_readiness",
+      "label": "Mapping readiness",
+      "description": "The user wants workbook review plus mapping preparation or column alignment, but does not ask to stage records or publish changes.",
+      "allowed_action_ids": ["workbook_profiling", "column_mapping"]
+    },
+    {
+      "intent_mode": "stage_preview",
+      "label": "Stage and preview",
+      "description": "The user wants to ingest, load, normalize, stage, compare, or preview database changes without explicitly publishing.",
+      "allowed_action_ids": [
+        "workbook_profiling",
+        "column_mapping",
+        "normalize_to_staging",
+        "database_change_summary"
+      ]
+    },
+    {
+      "intent_mode": "publish_intent",
+      "label": "Publish after approval",
+      "description": "The user explicitly wants to publish, apply, commit, sync, update canonical PMO data, or otherwise write approved changes to target tables.",
+      "allowed_action_ids": [
+        "workbook_profiling",
+        "column_mapping",
+        "normalize_to_staging",
+        "database_change_summary",
+        "publish_after_approval"
+      ]
+    }
+  ]
+}

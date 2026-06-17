@@ -1,0 +1,44 @@
+{
+  "version": "1.0.0",
+  "examples": [
+    {
+      "goal": "Review this file",
+      "intent_mode": "review_only",
+      "allowed_action_ids": ["workbook_profiling"],
+      "expected_title": "Plan to review uploaded PMO workbook",
+      "expected_goal_summary": "Review the uploaded workbook by profiling its structure and content fit before any mapping, staging, database comparison, or publish action."
+    },
+    {
+      "goal": "Review and map this file",
+      "intent_mode": "mapping_readiness",
+      "allowed_action_ids": ["workbook_profiling", "column_mapping"],
+      "expected_title": "Plan to review and map uploaded PMO workbook",
+      "expected_goal_summary": "Review workbook structure and prepare a controlled mapping proposal for user approval."
+    },
+    {
+      "goal": "Ingest and show DB changes, but do not publish",
+      "intent_mode": "stage_preview",
+      "allowed_action_ids": [
+        "workbook_profiling",
+        "column_mapping",
+        "normalize_to_staging",
+        "database_change_summary"
+      ],
+      "expected_title": "Plan to stage PMO workbook and preview database changes",
+      "expected_goal_summary": "Prepare staged data and a database change summary for review without publishing changes."
+    },
+    {
+      "goal": "Publish this workbook after approval",
+      "intent_mode": "publish_intent",
+      "allowed_action_ids": [
+        "workbook_profiling",
+        "column_mapping",
+        "normalize_to_staging",
+        "database_change_summary",
+        "publish_after_approval"
+      ],
+      "expected_title": "Plan to publish PMO workbook after approval",
+      "expected_goal_summary": "Run the controlled ingestion chain and publish approved PMO changes only after explicit review."
+    }
+  ]
+}

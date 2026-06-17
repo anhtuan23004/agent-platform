@@ -5,12 +5,10 @@ import {
   type PmoPlan,
   type PmoPlanningSession,
   type PmoProfilingArea,
-  type PmoWorkflowExecutionStepStatus,
   pmoApi,
 } from '../api/client';
-import { PmoPlanSection } from '../components/pmo-plan-section';
 import { PmoSessionHistoryPanel } from '../components/pmo-session-history-panel';
-import { PmoWorkflowExecutionSection } from '../components/pmo-workflow-execution-section';
+import { PmoWorkflowCardsSection } from '../components/pmo-workflow-cards-section';
 import { usePmoMappingReviewActions } from '../hooks/use-pmo-mapping-review-actions';
 import { usePmoNormalizationReviewActions } from '../hooks/use-pmo-normalization-review-actions';
 import { usePmoPublishReviewActions } from '../hooks/use-pmo-publish-review-actions';
@@ -20,7 +18,6 @@ import {
   buildExecutionCards,
   formatBytes,
   formatLocalDate,
-  groupExecutionCardsByAction,
   profilingSheetKey,
 } from './pmo-page.logic';
 
@@ -98,7 +95,6 @@ export function PmoPage() {
     selectedPublishView,
     runtimeActiveStepId,
     hasRuntimeCurrentStepMatch,
-    timeline,
   } = usePmoWorkflowRuntime({
     selectedSession,
     executionCards,
@@ -121,23 +117,6 @@ export function PmoPage() {
       };
     });
   }, [selectedSession]);
-
-  const proposedWorkflowSteps = useMemo(() => {
-    const sessionPlan = selectedSession?.plan;
-    if (!sessionPlan?.proposed_workflow?.length) {
-      return [] as PmoPlan['proposed_workflow'];
-    }
-
-    return sessionPlan.proposed_workflow.slice().sort((a, b) => a.step_no - b.step_no);
-  }, [selectedSession]);
-
-  const proposedStepStatusByNo = useMemo(() => {
-    const map = new Map<number, PmoWorkflowExecutionStepStatus>();
-    for (const step of executionState?.steps ?? []) {
-      map.set(step.step_no, step.status);
-    }
-    return map;
-  }, [executionState]);
 
   const selectedRuntimeRun = selectedSession
     ? (runtimeRunBySessionId.get(selectedSession.ingestion_session_id) ?? null)
@@ -177,10 +156,6 @@ export function PmoPage() {
     });
   }, [sessions, runtimeRunBySessionId]);
 
-  const executionActionGroups = useMemo(
-    () => groupExecutionCardsByAction(executionCardsForDisplay),
-    [executionCardsForDisplay],
-  );
   const firstExecutionStepNo = executionCardsForDisplay[0]?.step_no ?? null;
 
   const loadSessions = useCallback(async (keepSelection = true) => {
@@ -222,6 +197,7 @@ export function PmoPage() {
     isUploading,
     isGenerating,
     isApproving,
+    isConfirmingIntent,
     isAppendingDocument,
     isSavingProfilingReview,
     isApprovingProfiling,
@@ -231,6 +207,7 @@ export function PmoPage() {
     handleAnalyzeGeneratePlan,
     handleRegeneratePlan,
     handleApprovePlanAndStart,
+    handleConfirmPlanIntent,
     handleAppendDocument,
     handleSaveProfilingReview,
     handleApproveProfilingContinue,
@@ -581,14 +558,11 @@ export function PmoPage() {
               </section>
             ) : (
               <div className="space-y-3">
-                <PmoPlanSection
+                <PmoWorkflowCardsSection
                   selectedSession={selectedSession}
                   plan={plan}
                   goalDraft={goalDraft}
-                  timeline={timeline}
-                  proposedWorkflowSteps={proposedWorkflowSteps}
-                  proposedStepStatusByNo={proposedStepStatusByNo}
-                  runtimeActiveStepId={runtimeActiveStepId}
+                  executionCards={executionCardsForDisplay}
                   selectedFeedback={selectedFeedback}
                   onFeedbackChange={(nextValue) => {
                     setFeedbackBySessionId((prev) => ({
@@ -598,23 +572,18 @@ export function PmoPage() {
                   }}
                   isGenerating={isGenerating}
                   isApproving={isApproving}
+                  isConfirmingIntent={isConfirmingIntent}
+                  onConfirmIntent={handleConfirmPlanIntent}
                   onRegeneratePlan={handleRegeneratePlan}
                   onApprovePlanAndStart={handleApprovePlanAndStart}
                   feedbackHistoryItems={feedbackHistoryItems}
+                  runtime={executionRuntime}
+                  mapping={executionMapping}
+                  normalization={executionNormalization}
+                  publish={executionPublish}
+                  profiling={executionProfiling}
+                  planContext={executionPlan}
                 />
-
-                {executionCardsForDisplay.length > 0 ? (
-                  <PmoWorkflowExecutionSection
-                    selectedSession={selectedSession}
-                    executionActionGroups={executionActionGroups}
-                    runtime={executionRuntime}
-                    mapping={executionMapping}
-                    normalization={executionNormalization}
-                    publish={executionPublish}
-                    profiling={executionProfiling}
-                    plan={executionPlan}
-                  />
-                ) : null}
               </div>
             )}
           </section>

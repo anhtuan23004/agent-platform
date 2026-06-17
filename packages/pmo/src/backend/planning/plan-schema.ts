@@ -15,6 +15,13 @@ export const PlanDataAreaSchema = z.enum([
 
 export const PlanConfidenceSchema = z.enum(['low', 'medium', 'high']);
 
+export const IntentModeSchema = z.enum([
+  'review_only',
+  'mapping_readiness',
+  'stage_preview',
+  'publish_intent',
+]);
+
 export const ReviewActionSchema = z.enum(['approve', 'modify', 'regenerate', 'reject', 'continue']);
 
 export const RiskTypeSchema = z.enum(['risk', 'assumption', 'missing_information']);
@@ -23,14 +30,24 @@ export const ImpactSchema = z.enum(['low', 'medium', 'high']);
 
 export const WorkflowStepSchema = z.object({
   step_no: z.number().int().positive(),
-  planner_step_id: z.string().min(1).optional(),
-  action_id: z.enum(PMO_PLAN_ACTION_IDS).optional(),
-  review_type: z.enum(PMO_REVIEW_TYPES).optional(),
+  planner_step_id: z.string().min(1),
+  action_id: z.enum(PMO_PLAN_ACTION_IDS),
+  review_type: z.enum(PMO_REVIEW_TYPES),
   step_name: z.string().min(1),
   description: z.string().min(1),
   agent_responsibility: z.string().min(1),
   user_responsibility: z.string().min(1),
   requires_user_review: z.boolean(),
+});
+
+export const IntentAnalysisSchema = z.object({
+  intent_mode: IntentModeSchema,
+  confidence: PlanConfidenceSchema,
+  rationale: z.string().min(1),
+  requires_confirmation: z.boolean(),
+  allowed_action_ids: z.array(z.enum(PMO_PLAN_ACTION_IDS)).min(1),
+  confirmed_at: z.string().optional(),
+  confirmed_by: z.string().optional(),
 });
 
 export const ReviewGateSchema = z.object({
@@ -78,6 +95,7 @@ export const NextActionSchema = z.object({
 });
 
 export const PmoWorkflowPlanSchema = z.object({
+  intent_analysis: IntentAnalysisSchema.optional(),
   title: z.string().min(1),
   goal_summary: z.string().min(1),
   uploaded_file_summary: z.object({
@@ -88,6 +106,7 @@ export const PmoWorkflowPlanSchema = z.object({
   }),
   scope_assumption: ScopeAssumptionSchema,
   proposed_workflow: z.array(WorkflowStepSchema).min(1),
+  compiled_workflow: z.array(WorkflowStepSchema).min(1).optional(),
   review_gates: z.array(ReviewGateSchema).min(1),
   state_management_plan: StateManagementPlanSchema,
   risks_and_assumptions: z.array(RiskOrAssumptionSchema).min(1),

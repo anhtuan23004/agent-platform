@@ -157,6 +157,16 @@ function readProposedWorkflow(plan: unknown): ProposedWorkflowStep[] {
   }));
 }
 
+function requiresIntentConfirmation(plan: unknown): boolean {
+  if (!plan || typeof plan !== 'object' || Array.isArray(plan)) return false;
+  const intentAnalysis = (plan as { intent_analysis?: unknown }).intent_analysis;
+  if (!intentAnalysis || typeof intentAnalysis !== 'object' || Array.isArray(intentAnalysis)) {
+    return false;
+  }
+
+  return (intentAnalysis as { requires_confirmation?: unknown }).requires_confirmation === true;
+}
+
 function normalizeKnownProfilingArea(area: unknown): KnownProfilingArea | null {
   if (
     area === 'resource_allocation' ||
@@ -587,6 +597,10 @@ const PlanGenerateRequestSchema = z.object({
 });
 
 const PlanApproveRequestSchema = z.object({
+  ingestion_session_id: z.string().uuid(),
+});
+
+const PlanConfirmIntentRequestSchema = z.object({
   ingestion_session_id: z.string().uuid(),
 });
 
@@ -1112,6 +1126,110 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
 
   // POST /api/pmo/v1/plan/approve
   // Approves current plan and moves to next workflow step marker.
+  app.post('/api/pmo/v1/plan/confirm-intent', async (c) => {
+    const session = c.get('user');
+    const body = await c.req.json().catch(() => ({}));
+    const parsed = PlanConfirmIntentRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: 'invalid_request', details: parsed.error.issues }, 400);
+    }
+
+    const { ingestion_session_id } = parsed.data;
+    const db = pmoDb();
+    const rows = await db
+      .select({
+        id: ingestionSessions.id,
+        status: ingestionSessions.status,
+        planning_plan: ingestionSessions.planning_plan,
+      })
+      .from(ingestionSessions)
+      .where(
+        and(
+          eq(ingestionSessions.id, ingestion_session_id),
+          eq(ingestionSessions.tenant_id, session.tenant_id),
+        ),
+      )
+      .limit(1);
+
+    const row = rows[0];
+    if (!row) {
+      return c.json({ error: 'not_found', message: 'ingestion session not found' }, 404);
+    }
+
+    if (readPlanningState(row.status) !== 'plan_review') {
+      return c.json(
+        {
+          error: 'invalid_state',
+          message: 'Intent can be confirmed only while the plan is in review.',
+        },
+        409,
+      );
+    }
+
+    if (
+      !row.planning_plan ||
+      typeof row.planning_plan !== 'object' ||
+      Array.isArray(row.planning_plan)
+    ) {
+      return c.json(
+        {
+          error: 'invalid_state',
+          message: 'Cannot confirm intent before a plan exists.',
+        },
+        409,
+      );
+    }
+
+    const plan = row.planning_plan as Record<string, unknown>;
+    const intentAnalysis =
+      plan.intent_analysis &&
+      typeof plan.intent_analysis === 'object' &&
+      !Array.isArray(plan.intent_analysis)
+        ? (plan.intent_analysis as Record<string, unknown>)
+        : null;
+
+    if (!intentAnalysis) {
+      return c.json(
+        {
+          error: 'invalid_state',
+          message: 'Plan does not contain intent analysis.',
+        },
+        409,
+      );
+    }
+
+    const nowIso = new Date().toISOString();
+    const nextPlan = {
+      ...plan,
+      intent_analysis: {
+        ...intentAnalysis,
+        requires_confirmation: false,
+        confirmed_at: nowIso,
+        confirmed_by: session.user_id,
+      },
+    };
+
+    await db
+      .update(ingestionSessions)
+      .set({
+        planning_plan: nextPlan,
+        planning_last_generated_at: new Date(),
+      })
+      .where(
+        and(
+          eq(ingestionSessions.id, ingestion_session_id),
+          eq(ingestionSessions.tenant_id, session.tenant_id),
+        ),
+      );
+
+    return c.json({
+      ingestion_session_id,
+      planning_state: 'plan_review' as const,
+      plan: nextPlan,
+      confirmed_at: nowIso,
+    });
+  });
+
   app.post('/api/pmo/v1/plan/approve', async (c) => {
     const session = c.get('user');
     const body = await c.req.json().catch(() => ({}));
@@ -1166,6 +1284,17 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
         {
           error: 'invalid_state',
           message: 'Cannot approve before a plan exists.',
+        },
+        409,
+      );
+    }
+
+    if (requiresIntentConfirmation(row.planning_plan)) {
+      return c.json(
+        {
+          error: 'intent_confirmation_required',
+          message:
+            'The planner is not confident about the requested workflow scope. Confirm the intent or regenerate the plan with clearer feedback before approving.',
         },
         409,
       );

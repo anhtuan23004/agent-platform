@@ -42,6 +42,7 @@ interface UsePmoSessionActionsResult {
   isUploading: boolean;
   isGenerating: boolean;
   isApproving: boolean;
+  isConfirmingIntent: boolean;
   isAppendingDocument: boolean;
   isSavingProfilingReview: boolean;
   isApprovingProfiling: boolean;
@@ -51,6 +52,7 @@ interface UsePmoSessionActionsResult {
   handleAnalyzeGeneratePlan: () => Promise<void>;
   handleRegeneratePlan: () => Promise<void>;
   handleApprovePlanAndStart: () => Promise<void>;
+  handleConfirmPlanIntent: () => Promise<void>;
   handleAppendDocument: (file: File) => Promise<void>;
   handleSaveProfilingReview: () => Promise<void>;
   handleApproveProfilingContinue: () => Promise<void>;
@@ -80,6 +82,7 @@ export function usePmoSessionActions(
   const [isUploading, setIsUploading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
+  const [isConfirmingIntent, setIsConfirmingIntent] = useState(false);
   const [isAppendingDocument, setIsAppendingDocument] = useState(false);
   const [isSavingProfilingReview, setIsSavingProfilingReview] = useState(false);
   const [isApprovingProfiling, setIsApprovingProfiling] = useState(false);
@@ -234,6 +237,38 @@ export function usePmoSessionActions(
       setIsApproving(false);
     }
   }, [isApproving, loadSessions, selectedSession]);
+
+  const handleConfirmPlanIntent = useCallback(async () => {
+    if (!selectedSession) {
+      return;
+    }
+
+    if (selectedSession.planning_state !== 'plan_review') {
+      toast.error('Cannot confirm intent', {
+        description: 'Intent can be confirmed only while the plan is in review.',
+      });
+      return;
+    }
+
+    if (isConfirmingIntent) {
+      return;
+    }
+
+    setIsConfirmingIntent(true);
+    try {
+      await pmoApi.confirmPlanIntent(selectedSession.ingestion_session_id);
+      await loadSessions(true);
+
+      toast.success('Intent confirmed', {
+        description: 'Plan review is now ready for approval.',
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Intent confirmation failed.';
+      toast.error('Confirm intent failed', { description: message });
+    } finally {
+      setIsConfirmingIntent(false);
+    }
+  }, [isConfirmingIntent, loadSessions, selectedSession]);
 
   const handleAppendDocument = useCallback(
     async (file: File) => {
@@ -514,6 +549,7 @@ export function usePmoSessionActions(
     isUploading,
     isGenerating,
     isApproving,
+    isConfirmingIntent,
     isAppendingDocument,
     isSavingProfilingReview,
     isApprovingProfiling,
@@ -523,6 +559,7 @@ export function usePmoSessionActions(
     handleAnalyzeGeneratePlan,
     handleRegeneratePlan,
     handleApprovePlanAndStart,
+    handleConfirmPlanIntent,
     handleAppendDocument,
     handleSaveProfilingReview,
     handleApproveProfilingContinue,

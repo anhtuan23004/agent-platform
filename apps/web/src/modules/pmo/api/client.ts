@@ -24,6 +24,22 @@ export interface UploadWorkbookResponse {
 }
 
 export interface PmoPlan {
+  intent_analysis?: {
+    intent_mode: 'review_only' | 'mapping_readiness' | 'stage_preview' | 'publish_intent';
+    confidence: 'low' | 'medium' | 'high';
+    rationale: string;
+    requires_confirmation: boolean;
+    allowed_action_ids: Array<
+      | 'workbook_profiling'
+      | 'column_mapping'
+      | 'normalize_to_staging'
+      | 'database_change_summary'
+      | 'publish_after_approval'
+      | 'generic_review'
+    >;
+    confirmed_at?: string;
+    confirmed_by?: string;
+  };
   title: string;
   goal_summary: string;
   uploaded_file_summary: {
@@ -66,6 +82,7 @@ export interface PmoPlan {
     user_responsibility: string;
     requires_user_review: boolean;
   }>;
+  compiled_workflow?: PmoPlan['proposed_workflow'];
   review_gates: Array<{
     gate_name: string;
     when_it_happens: string;
@@ -297,6 +314,13 @@ export interface ApprovePlanResponse {
   profiling_review: PmoProfilingReviewState | null;
 }
 
+export interface ConfirmPlanIntentResponse {
+  ingestion_session_id: string;
+  planning_state: 'plan_review';
+  plan: PmoPlan;
+  confirmed_at: string;
+}
+
 export interface AppendSessionDocumentResponse {
   ingestion_session_id: string;
   document: PmoSessionDocumentProfileRecord;
@@ -400,6 +424,16 @@ export const pmoApi = {
       credentials: 'include',
     });
     return jsonOrThrow<ApprovePlanResponse>(res);
+  },
+
+  async confirmPlanIntent(ingestionSessionId: string): Promise<ConfirmPlanIntentResponse> {
+    const res = await fetch('/api/pmo/v1/plan/confirm-intent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ingestion_session_id: ingestionSessionId }),
+      credentials: 'include',
+    });
+    return jsonOrThrow<ConfirmPlanIntentResponse>(res);
   },
 
   async appendSessionDocument(
