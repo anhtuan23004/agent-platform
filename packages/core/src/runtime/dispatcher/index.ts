@@ -200,8 +200,18 @@ export async function startDispatcher(opts: {
       } catch {
         // ignore: connection may already be torn down
       }
+      // Drain subscriber handlers before UNLISTEN/release. Tearing down the LISTEN
+      // connection first can block indefinitely while a handler is still running on
+      // the pool — shutdown would never reach loop.shutdown() and tests time out.
+      await Promise.all(loops.map((l) => l.shutdown(timeoutMs)));
+      if (tapInFlight) {
+        await Promise.race([tapInFlight, new Promise<void>((r) => setTimeout(r, timeoutMs))]);
+      }
       try {
-        await listener.query('UNLISTEN events');
+        await Promise.race([
+          listener.query('UNLISTEN events'),
+          new Promise<void>((r) => setTimeout(r, timeoutMs)),
+        ]);
       } catch {
         // ignore: best-effort
       }
@@ -209,10 +219,6 @@ export async function startDispatcher(opts: {
         listener.release();
       } catch {
         // ignore: already released
-      }
-      await Promise.all(loops.map((l) => l.shutdown(timeoutMs)));
-      if (tapInFlight) {
-        await Promise.race([tapInFlight, new Promise<void>((r) => setTimeout(r, timeoutMs))]);
       }
       // Drop the observable-gauge callback so the next dispatcher instance (e.g. the
       // next test) wires its own. Without this, the SDK would call into a closed pool.
