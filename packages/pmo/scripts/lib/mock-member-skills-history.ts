@@ -360,7 +360,10 @@ const TITLE_SKILLS: Array<{ pattern: RegExp; skills: string[] }> = [
   { pattern: /senior|l[5-6]/i, skills: ['architecture', 'cross-team-coordination'] },
 ];
 
-const DEFAULT_ROLE_PROFILE: RoleProfile = ROLE_PROFILES.BE!;
+const DEFAULT_ROLE_PROFILE: RoleProfile = ROLE_PROFILES.BE ?? {
+  skills: [],
+  duties: [],
+};
 
 function roleProfile(role: string): RoleProfile {
   return ROLE_PROFILES[normalizeRole(role)] ?? DEFAULT_ROLE_PROFILE;
@@ -413,8 +416,9 @@ export function buildMemberSkillsProfiles(input: {
   const rolesByMember = new Map<string, Set<string>>();
   for (const a of input.allocations) {
     const role = normalizeRole(a.role);
-    if (!rolesByMember.has(a.member_id)) rolesByMember.set(a.member_id, new Set());
-    rolesByMember.get(a.member_id)!.add(role);
+    const roles = rolesByMember.get(a.member_id) ?? new Set<string>();
+    roles.add(role);
+    rolesByMember.set(a.member_id, roles);
   }
 
   return input.members.map((m) => {
@@ -543,11 +547,12 @@ export function evaluateSkillFit(input: {
   const sameProject = input.projectId
     ? targetHistory.some((h) => h.project_id === input.projectId)
     : false;
+  const projectType = input.projectType;
   const sameDomain =
-    input.projectType != null &&
-    input.projectType.length > 0 &&
+    projectType != null &&
+    projectType.length > 0 &&
     targetHistory.some(
-      (h) => h.project_type === input.projectType || h.project_type.includes(input.projectType!),
+      (h) => h.project_type === projectType || h.project_type.includes(projectType),
     );
 
   let score = matched.length * 3;
@@ -624,7 +629,6 @@ export function proposeRebalanceSwaps(input: {
   const idleThreshold = input.idleThreshold ?? 0.75;
   const minTransferHours = input.minTransferHours ?? 2;
 
-  const capacityById = new Map(input.capacities.map((c) => [c.member_id, c]));
   const profileById = new Map(input.profiles.map((p) => [p.member_id, p]));
   const proposals: MemberSwapProposal[] = [];
 
@@ -751,7 +755,7 @@ export function proposeRebalanceSwaps(input: {
         const target = profileById.get(targetCap.member_id);
         if (!target) continue;
         const fit = evaluateSkillFit({
-          source: source!,
+          source,
           target,
           role,
           history: input.history,

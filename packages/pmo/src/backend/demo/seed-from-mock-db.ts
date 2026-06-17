@@ -80,7 +80,14 @@ function now(): Date {
 
 function parseDate(iso: string | null | undefined): Date | null {
   if (!iso) return null;
-  return new Date(iso);
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function parseRequiredDate(field: string, iso: string | null | undefined): Date {
+  const date = parseDate(iso);
+  if (!date) throw new Error(`Invalid required PMO seed date for ${field}: ${iso ?? '<empty>'}`);
+  return date;
 }
 
 function toBool(v: number | boolean | null | undefined): boolean | null {
@@ -299,10 +306,12 @@ export async function seedPmo02FromMockDbForTenant(
 
     await tx.insert(calendarWeeks).values(
       weeks.map((w) => {
+        const weekStart = parseRequiredDate('calendar_weeks.week_start', w.week_start);
+        const weekEnd = parseRequiredDate('calendar_weeks.week_end', w.week_end);
         const values = {
           week_id: w.week_id,
-          week_start: parseDate(w.week_start)!,
-          week_end: parseDate(w.week_end)!,
+          week_start: weekStart,
+          week_end: weekEnd,
           working_days: w.working_days,
           holiday_hours_ft: w.holiday_hours_ft,
           note: w.note,
@@ -379,11 +388,13 @@ export async function seedPmo02FromMockDbForTenant(
     if (allocations.length > 0) {
       await tx.insert(resourceAllocations).values(
         allocations.map((a) => {
+          const startDate = parseRequiredDate('resource_allocation.start_date', a.start_date);
+          const endDate = parseRequiredDate('resource_allocation.end_date', a.end_date);
           const values = {
             member_id: a.member_id,
             project_id: a.project_id,
-            start_date: parseDate(a.start_date)!,
-            end_date: parseDate(a.end_date)!,
+            start_date: startDate,
+            end_date: endDate,
             allocation_pct: a.allocation_pct,
             weekly_planned_hours: a.weekly_planned_hours,
             role: a.role,
@@ -398,8 +409,8 @@ export async function seedPmo02FromMockDbForTenant(
             project_id: a.project_id,
             role: a.role,
             allocation_pct: a.allocation_pct,
-            start_date: parseDate(a.start_date)!,
-            end_date: parseDate(a.end_date)!,
+            start_date: startDate,
+            end_date: endDate,
             weekly_planned_hours: a.weekly_planned_hours,
             source_row: a.source_row,
             created_at: now(),
@@ -414,9 +425,10 @@ export async function seedPmo02FromMockDbForTenant(
       const batch = tsRows.slice(i, i + BATCH);
       await tx.insert(timesheets).values(
         batch.map((t) => {
+          const workDate = parseRequiredDate('timesheet.work_date', t.work_date);
           const values = {
             member_id: t.member_id,
-            work_date: parseDate(t.work_date)!,
+            work_date: workDate,
             project_id: t.project_id,
             log_category: t.log_category,
             logged_hours: t.logged_hours,
@@ -432,7 +444,7 @@ export async function seedPmo02FromMockDbForTenant(
             is_active: true,
             member_id: t.member_id,
             project_id: t.project_id,
-            work_date: parseDate(t.work_date)!,
+            work_date: workDate,
             logged_hours: t.logged_hours,
             log_category: t.log_category,
             task_ref: t.task_ref,
@@ -447,9 +459,10 @@ export async function seedPmo02FromMockDbForTenant(
     if (leaves.length > 0) {
       await tx.insert(leaveRecords).values(
         leaves.map((l) => {
+          const leaveDate = parseRequiredDate('leave.leave_date', l.leave_date);
           const values = {
             member_id: l.member_id,
-            leave_date: parseDate(l.leave_date)!,
+            leave_date: leaveDate,
             leave_type: l.leave_type,
           };
           const hashValues = {
@@ -467,7 +480,7 @@ export async function seedPmo02FromMockDbForTenant(
             is_active: true,
             record_id: l.record_id,
             member_id: l.member_id,
-            leave_date: parseDate(l.leave_date)!,
+            leave_date: leaveDate,
             leave_type: l.leave_type,
             approved: toBool(l.approved),
             duration_days: l.duration_days,

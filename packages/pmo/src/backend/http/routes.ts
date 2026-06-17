@@ -4,6 +4,7 @@ import { buildTenantKey, presignedUploadUrl } from '@seta/shared-storage';
 import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { DemoAnalyticsNoDataError, runDemoAnalytics } from '../analytics/demo-analytics.ts';
 import { pmoDb } from '../db/client.ts';
 import { ingestionSessions } from '../db/schema.ts';
 import { createS3FileStore } from '../ingestion/s3-file-store.ts';
