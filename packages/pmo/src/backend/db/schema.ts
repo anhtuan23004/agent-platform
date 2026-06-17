@@ -235,6 +235,7 @@ export const overbookIdleConfig = pmoSchema.table(
     idle_threshold: real('idle_threshold').notNull(),
     mismatch_pct_threshold: real('mismatch_pct_threshold'),
     ot_max_hours_per_week: real('ot_max_hours_per_week'),
+    required_training_hours: real('required_training_hours'),
     effective_date: timestamp('effective_date', { withTimezone: true }),
     // Metadata
     source_row: integer('source_row'),
@@ -319,4 +320,45 @@ export const stagingChanges = pmoSchema.table(
     created_at: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [index('staging_session_type').on(t.ingestion_session_id, t.change_type)],
+);
+
+// ── Analytics read-model (computed after publish from canonical tables) ──────
+
+export const memberWeekFacts = pmoSchema.table(
+  'member_week_facts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenant_id: uuid('tenant_id').notNull(),
+    last_ingestion_session_id: uuid('last_ingestion_session_id'),
+    // Grain: one member × week
+    member_id: text('member_id').notNull(),
+    week_id: text('week_id').notNull(),
+    scope_status: text('scope_status').notNull(), // IN_SCOPE | PRE_HIRE
+    // Hours
+    available_hours: real('available_hours').notNull(),
+    planned_hours: real('planned_hours').notNull(),
+    logged_hours: real('logged_hours').notNull(),
+    expected_logged_hours: real('expected_logged_hours').notNull(),
+    // Hours (computed, not nullable)
+    billable_hours: real('billable_hours').notNull().default(0),
+    bench_hours: real('bench_hours').notNull().default(0),
+    overtime_hours: real('overtime_hours').notNull().default(0),
+    training_hours: real('training_hours').notNull().default(0),
+    // Metrics (nullable when denominator is zero)
+    busy_rate: real('busy_rate'),
+    utilization: real('utilization'),
+    billable_rate: real('billable_rate'),
+    bench_rate: real('bench_rate'),
+    overtime_ratio: real('overtime_ratio'),
+    effort_consumption: real('effort_consumption'),
+    training_compliance: real('training_compliance'),
+    // Classification
+    rag_color: text('rag_color').notNull(), // green | yellow | red | none
+    issue_type: text('issue_type').notNull(), // overbook|idle|mismatch_under|mismatch_over|ok
+    computed_at: timestamp('computed_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('mwf_member_week_unique').on(t.tenant_id, t.member_id, t.week_id),
+    index('mwf_tenant_issue').on(t.tenant_id, t.issue_type),
+  ],
 );

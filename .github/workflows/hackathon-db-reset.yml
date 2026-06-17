@@ -20,7 +20,7 @@ on:
         required: false
         default: 'ChangeMe@2026'
       only:
-        description: 'Comma-separated phases to run: users,planner,availability (default: all)'
+        description: 'Comma-separated phases to run: users,planner,availability,pmo (default: all)'
         required: false
         default: ''
 

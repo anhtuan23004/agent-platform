@@ -11,4 +11,9 @@ export const pmoWorkflows: WorkflowContribution[] = [
     },
     inputSchema: IngestDataV2InputSchema,
   },
+  {
+    id: 'pmo.demoAnalyticsTrace',
+    build: (_mastra) => demoAnalyticsTraceWorkflow,
+    inputSchema: DemoAnalyticsTraceInputSchema,
+  },
 ];
