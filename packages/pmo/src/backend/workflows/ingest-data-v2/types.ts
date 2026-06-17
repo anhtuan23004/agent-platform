@@ -1,5 +1,5 @@
 import type { ApprovalCard } from '@seta/agent-sdk';
-import type { ReviewCheckpointState } from '../../ingestion/review-contracts.ts';
+import type { ReviewCheckpointState } from '@seta/ingestion';
 import type { PmoPlanActionId, PmoReviewType } from '../../planning/step-metadata.ts';
 import type {
   ProfilingReviewState,
@@ -61,7 +61,7 @@ export interface DynamicIngestRuntimeContext {
     tableMappings: unknown[];
     validationStatus: 'confirmed' | 'needs_review' | 'blocked';
     workbookConfidence: number;
-  };
+  } & ReviewCheckpointState;
   confirmed_mapping?: ReviewCheckpointState & {
     confirmedMappings?: unknown[];
     mappingReviewRows?: Array<{ k: string; v: string }>;
@@ -73,7 +73,7 @@ export interface DynamicIngestRuntimeContext {
     hasBlockingIssues: boolean;
     hasUpdates: boolean;
     requiresReview: boolean;
-  };
+  } & ReviewCheckpointState;
 }
 
 export interface PmoDynamicHandlerInput {

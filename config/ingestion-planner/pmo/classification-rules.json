@@ -1,0 +1,29 @@
+{
+  "version": "1.0.0",
+  "classification_rules": [
+    {
+      "rule": "If the user only asks to review, analyze, inspect, check structure, or understand the file, classify as review_only."
+    },
+    {
+      "rule": "If the user asks to map columns, prepare mapping, or check mapping readiness, classify as mapping_readiness."
+    },
+    {
+      "rule": "If the user asks to normalize, stage, preview database changes, check what would be inserted or updated, or check ingestion readiness without publishing, classify as stage_preview."
+    },
+    {
+      "rule": "If the user clearly asks to publish, import into PMO, write to database, update PMO records, or apply changes after approval, classify as publish_intent."
+    },
+    {
+      "rule": "If the user goal is ambiguous, choose the lowest-risk intent that satisfies the request."
+    },
+    {
+      "rule": "Do not include publish_after_approval unless the user explicitly asks for publish, import, write, update, or apply changes."
+    },
+    {
+      "rule": "The phrase 'check if ready to import' means stage_preview, not publish_intent."
+    },
+    {
+      "rule": "The phrase 'import if valid' or 'publish after approval' means publish_intent, but actual publish still requires explicit user approval later."
+    }
+  ]
+}

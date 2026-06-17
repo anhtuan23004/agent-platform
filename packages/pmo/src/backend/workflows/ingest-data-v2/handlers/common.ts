@@ -1,7 +1,6 @@
+import type { IngestionDomainAdapter, IngestionDomainConfig } from '@seta/ingestion';
 import type { z } from 'zod';
 import type { SchemaDetectionResult } from '../../../ingestion/detect-schema.ts';
-import type { IngestionDomainAdapter } from '../../../ingestion/domain-adapter.ts';
-import type { IngestionDomainConfig } from '../../../ingestion/domain-config.ts';
 import type { WorkbookParseResult } from '../../../ingestion/parse-workbook.ts';
 import type { PmoPlannerStepMetadata } from '../../../planning/step-metadata.ts';
 import type { MappingOverride } from '../cards.ts';
@@ -16,6 +15,31 @@ export type StagingChangeSummary = z.infer<typeof StagingOutputSchema>['changeSu
 export interface MappingResult {
   confirmedMappings: DetectTableMapping[];
   mappingReviewRows: MappingReviewRow[];
+}
+
+export interface ProfilingResult {
+  tableMappings: DetectTableMapping[];
+  validationStatus: 'confirmed' | 'needs_review' | 'blocked';
+  workbookConfidence: number;
+}
+
+export interface DbChangeSummaryResult {
+  changeSummary: StagingChangeSummary;
+  blockingIssues: BlockingIssue[];
+  mappingReviewRows: MappingReviewRow[];
+  hasBlockingIssues: boolean;
+  hasUpdates: boolean;
+  requiresReview: boolean;
+}
+
+export interface NormalizationResult extends DbChangeSummaryResult {
+  rowCountsByTable: Record<string, number>;
+  duplicateInUploadRows: Array<{
+    tableId: string;
+    naturalKey: Record<string, string>;
+    sourceRow: number;
+    policy: 'allow' | 'skip' | 'block';
+  }>;
 }
 
 export interface DynamicHandlerDeps {

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { IngestionDomainConfig, IngestionTableConfig } from './domain-config.ts';
+import type { ActiveRecord, IngestionDomainConfig, IngestionTableConfig } from '@seta/ingestion';
 import type { NormalizedRow } from './normalize-rows.ts';
 import { PMO_DOMAIN_CONFIG } from './pmo-domain-config.ts';
 
@@ -80,11 +80,6 @@ export interface StagedRow {
 }
 
 // ── Staging logic ────────────────────────────────────────────────────────────
-
-export interface ActiveRecord {
-  natural_key_hash: string;
-  source_row_hash: string;
-}
 
 export function classifyRows(
   tableId: string,

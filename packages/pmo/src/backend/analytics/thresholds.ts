@@ -32,6 +32,7 @@ export function resolveThresholds(rows: ConfigRow[]): Thresholds {
     idleThreshold: latest.idle_threshold ?? DEFAULT_THRESHOLDS.idleThreshold,
     mismatchPctThreshold: latest.mismatch_pct_threshold ?? DEFAULT_THRESHOLDS.mismatchPctThreshold,
     otMaxHoursPerWeek: latest.ot_max_hours_per_week ?? DEFAULT_THRESHOLDS.otMaxHoursPerWeek,
-    requiredTrainingHours: latest.required_training_hours ?? DEFAULT_THRESHOLDS.requiredTrainingHours,
+    requiredTrainingHours:
+      latest.required_training_hours ?? DEFAULT_THRESHOLDS.requiredTrainingHours,
   };
 }

@@ -43,6 +43,10 @@ export interface PmoPlannerExampleDefinition {
   expected_goal_summary: string;
 }
 
+export interface PmoClassificationRuleDefinition {
+  rule: string;
+}
+
 export interface PmoPlannerCatalog {
   version: string;
   default_intent_mode: PmoIntentMode;
@@ -50,6 +54,7 @@ export interface PmoPlannerCatalog {
   intents: PmoIntentDefinition[];
   steps: PmoPlannerStepDefinition[];
   examples: PmoPlannerExampleDefinition[];
+  classification_rules: PmoClassificationRuleDefinition[];
 }
 
 const ActionIdSchema = z.enum([
@@ -109,6 +114,15 @@ const ExamplesFileSchema = z.object({
   examples: z.array(ExampleDefinitionSchema).min(1),
 });
 
+const ClassificationRuleDefinitionSchema = z.object({
+  rule: z.string().min(1),
+});
+
+const ClassificationRulesFileSchema = z.object({
+  version: z.string().min(1),
+  classification_rules: z.array(ClassificationRuleDefinitionSchema).min(1),
+});
+
 function findRepoRoot(startDir: string): string {
   let current = path.resolve(startDir);
   for (;;) {
@@ -131,7 +145,8 @@ function catalogDirHasRequiredFiles(dir: string): boolean {
   return (
     fs.existsSync(path.join(dir, 'steps.json')) &&
     fs.existsSync(path.join(dir, 'intents.json')) &&
-    fs.existsSync(path.join(dir, 'examples.json'))
+    fs.existsSync(path.join(dir, 'examples.json')) &&
+    fs.existsSync(path.join(dir, 'classification-rules.json'))
   );
 }
 
@@ -171,7 +186,7 @@ function resolvePmoPlannerCatalogDir(): string {
 
   throw new Error(
     `PMO planner catalog not found. Tried: ${candidates.join(', ')}. ` +
-      'Set PMO_PLANNER_CATALOG_DIR to a directory containing steps.json, intents.json, and examples.json.',
+      'Set PMO_PLANNER_CATALOG_DIR to a directory containing steps.json, intents.json, examples.json, and classification-rules.json.',
   );
 }
 
@@ -184,6 +199,9 @@ export function loadPmoPlannerCatalog(): PmoPlannerCatalog {
   const stepsFile = StepsFileSchema.parse(readJsonFile(path.join(baseDir, 'steps.json')));
   const intentsFile = IntentsFileSchema.parse(readJsonFile(path.join(baseDir, 'intents.json')));
   const examplesFile = ExamplesFileSchema.parse(readJsonFile(path.join(baseDir, 'examples.json')));
+  const classificationRulesFile = ClassificationRulesFileSchema.parse(
+    readJsonFile(path.join(baseDir, 'classification-rules.json')),
+  );
 
   const stepIds = new Set(stepsFile.steps.map((step) => step.action_id));
   const issues: string[] = [];
@@ -221,6 +239,7 @@ export function loadPmoPlannerCatalog(): PmoPlannerCatalog {
     intents: intentsFile.intents,
     steps: stepsFile.steps,
     examples: examplesFile.examples,
+    classification_rules: classificationRulesFile.classification_rules,
   };
 
   return cachedCatalog;

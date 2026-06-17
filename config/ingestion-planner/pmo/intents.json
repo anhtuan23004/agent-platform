@@ -12,13 +12,13 @@
     {
       "intent_mode": "mapping_readiness",
       "label": "Mapping readiness",
-      "description": "The user wants workbook review plus ingestion readiness, suitability/validity for import, PMO schema fit, mapping preparation, or column alignment, but does not ask to stage records, compare database changes, or publish changes.",
+      "description": "The user wants workbook review plus PMO schema fit, mapping preparation, or column alignment only. This intent answers whether columns can be mapped, but it does not answer whether the file is ready for ingestion, what will be skipped, or what records will be created or updated.",
       "allowed_action_ids": ["workbook_profiling", "column_mapping"]
     },
     {
       "intent_mode": "stage_preview",
       "label": "Stage and preview",
-      "description": "The user wants to ingest, load, normalize, stage, compare, or preview database changes without explicitly publishing.",
+      "description": "The user wants to check ingestion readiness, determine whether the file is ready/suitable/valid/importable/ingestible, identify missing or extra data, see skipped/failed rows, normalize/stage records, or preview created/updated/overwritten database changes without explicitly publishing.",
       "allowed_action_ids": [
         "workbook_profiling",
         "column_mapping",

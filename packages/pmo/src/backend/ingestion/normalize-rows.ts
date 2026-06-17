@@ -1,4 +1,4 @@
-import type { IngestionDomainConfig } from './domain-config.ts';
+import type { IngestionDomainConfig } from '@seta/ingestion';
 import type { TableMapping } from './map-columns.ts';
 import type { ParsedSheet } from './parse-workbook.ts';
 import { PMO_DOMAIN_CONFIG } from './pmo-domain-config.ts';

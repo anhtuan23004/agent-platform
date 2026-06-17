@@ -1,5 +1,5 @@
+import type { IngestionDomainConfig } from '@seta/ingestion';
 import { describe, expect, it } from 'vitest';
-import type { IngestionDomainConfig } from '../../src/backend/ingestion/domain-config.ts';
 import type { TableMapping } from '../../src/backend/ingestion/map-columns.ts';
 import { normalizeRows } from '../../src/backend/ingestion/normalize-rows.ts';
 import type { ParsedSheet } from '../../src/backend/ingestion/parse-workbook.ts';

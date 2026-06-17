@@ -1,4 +1,6 @@
 import type { WorkflowContribution } from '@seta/agent-sdk';
+import { DemoAnalyticsTraceInputSchema } from './demo-analytics-trace/schemas.ts';
+import { demoAnalyticsTraceWorkflow } from './demo-analytics-trace/spec.ts';
 import { IngestDataV2InputSchema } from './ingest-data-v2/schemas.ts';
 import { ingestDataV2Workflow } from './ingest-data-v2/spec.ts';
 

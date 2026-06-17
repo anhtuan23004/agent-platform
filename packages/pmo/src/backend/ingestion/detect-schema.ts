@@ -1,6 +1,6 @@
+import type { IngestionDomainConfig } from '@seta/ingestion';
 import { domainConfigToCanonicalSchema } from './canonical-compat.ts';
 import { detectSheetRoles } from './detect-sheet-role.ts';
-import type { IngestionDomainConfig } from './domain-config.ts';
 import { maybeInferLlmMappingHints } from './llm-mapping-hints.ts';
 import type { TableMapping } from './map-columns.ts';
 import { mapColumns } from './map-columns.ts';

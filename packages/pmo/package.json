@@ -36,6 +36,7 @@
     "@mastra/core": "^1.42.0",
     "@seta/agent-sdk": "workspace:^",
     "@seta/core": "workspace:^",
+    "@seta/ingestion": "workspace:^",
     "@seta/shared-db": "workspace:^",
     "@seta/shared-rbac": "workspace:^",
     "@seta/shared-storage": "workspace:*",

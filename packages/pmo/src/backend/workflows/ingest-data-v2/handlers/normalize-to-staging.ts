@@ -1,24 +1,34 @@
+import {
+  appendCheckpoint,
+  appendProposal,
+  approveProposal,
+  createProposal,
+  getLatestApprovedCheckpoint,
+  type IngestionReferenceRule,
+  type ReviewAction,
+  type ReviewCheckpointState,
+} from '@seta/ingestion';
 import { eq as drizzleEq } from 'drizzle-orm';
 import { pmoDb as getPmoDb } from '../../../db/client.ts';
 import { stagingChanges } from '../../../db/schema.ts';
-import type { IngestionReferenceRule } from '../../../ingestion/domain-config.ts';
 import { normalizeRows } from '../../../ingestion/normalize-rows.ts';
-import type { ReviewCheckpointState } from '../../../ingestion/review-contracts.ts';
 import {
   classifyRows,
   type StagedRow,
   shouldBlockDuplicateInUpload,
 } from '../../../ingestion/stage-changes.ts';
 import { buildNormalizationReviewCard } from '../cards.ts';
-import { getLatestApprovedCheckpoint } from '../checkpoints.ts';
-import type { PmoDynamicStepHandler } from '../types.ts';
+import type { DynamicIngestRuntimeContext, PmoDynamicStepHandler } from '../types.ts';
 import type {
   BlockingIssue,
   DetectTableMapping,
   DynamicHandlerDeps,
   MappingResult,
+  NormalizationResult,
   StagingChangeSummary,
 } from './common.ts';
+
+type StagingResultState = NonNullable<DynamicIngestRuntimeContext['staging_result']>;
 
 function isMissingRequiredValue(value: unknown): boolean {
   if (value === null || value === undefined) return true;
@@ -52,6 +62,27 @@ interface ReferenceLookup {
   rule: IngestionReferenceRule;
   uploadedTargetIds: Set<string>;
   dbTargetIds: Set<string>;
+}
+
+function buildStagingPayload(params: {
+  normalization: NormalizationResult;
+  checkpointState: ReviewCheckpointState;
+  requiresReview: boolean;
+}): StagingResultState {
+  return {
+    changeSummary: params.normalization.changeSummary,
+    blockingIssues: params.normalization.blockingIssues,
+    mappingReviewRows: params.normalization.mappingReviewRows,
+    hasBlockingIssues: params.normalization.hasBlockingIssues,
+    hasUpdates: params.normalization.hasUpdates,
+    requiresReview: params.requiresReview,
+    ...(params.checkpointState.review_proposals
+      ? { review_proposals: params.checkpointState.review_proposals }
+      : {}),
+    ...(params.checkpointState.approved_checkpoints
+      ? { approved_checkpoints: params.checkpointState.approved_checkpoints }
+      : {}),
+  };
 }
 
 function resolveApprovedMappingResult(
@@ -169,6 +200,8 @@ export function createNormalizeToStagingHandler(
       };
 
       const allStaged: StagedRow[] = [];
+      const rowCountsByTable: Record<string, number> = {};
+      const duplicateInUploadRows: NormalizationResult['duplicateInUploadRows'] = [];
       const changeSummary: Array<{
         tableId: string;
         counts: {
@@ -185,6 +218,7 @@ export function createNormalizeToStagingHandler(
       }> = [];
 
       for (const [tableId, rows] of Object.entries(normResult.tables)) {
+        rowCountsByTable[tableId] = rows.length;
         const requiredFields = deps.requiredFieldsByTable.get(tableId) ?? [];
         for (const row of rows) {
           for (const parseError of row.parseErrors) {
@@ -238,6 +272,15 @@ export function createNormalizeToStagingHandler(
           deps.domainConfig,
         );
         allStaged.push(...staged);
+        for (const stagedRow of staged) {
+          if (stagedRow.changeType !== 'duplicate_in_upload') continue;
+          duplicateInUploadRows.push({
+            tableId,
+            naturalKey: stagedRow.naturalKeyDisplay,
+            sourceRow: stagedRow.sourceRow,
+            policy: shouldBlockDuplicateInUpload(tableId, deps.domainConfig) ? 'block' : 'skip',
+          });
+        }
 
         const counts = {
           new_records: 0,
@@ -246,7 +289,10 @@ export function createNormalizeToStagingHandler(
           duplicates_in_upload: 0,
         };
         for (const stagedRow of staged) {
-          counts[`${stagedRow.changeType}s` as keyof typeof counts]++;
+          if (stagedRow.changeType === 'new_record') counts.new_records++;
+          if (stagedRow.changeType === 'updated_record') counts.updated_records++;
+          if (stagedRow.changeType === 'exact_duplicate') counts.exact_duplicates++;
+          if (stagedRow.changeType === 'duplicate_in_upload') counts.duplicates_in_upload++;
         }
 
         const sampleChanges = staged
@@ -270,12 +316,46 @@ export function createNormalizeToStagingHandler(
       const hasUpdates = changeSummary.some(
         (table) => table.counts.new_records + table.counts.updated_records > 0,
       );
-      const hasBlockingDuplicates = changeSummary.some(
-        (table) =>
-          table.counts.duplicates_in_upload > 0 &&
-          shouldBlockDuplicateInUpload(table.tableId, deps.domainConfig),
-      );
+      const hasBlockingDuplicates = duplicateInUploadRows.some((row) => row.policy === 'block');
       const blocked = hasBlockingIssues || hasBlockingDuplicates;
+      const normalizationResult: NormalizationResult = {
+        changeSummary: changeSummary as StagingChangeSummary,
+        blockingIssues,
+        mappingReviewRows: confirmed.mappingReviewRows,
+        hasBlockingIssues,
+        hasUpdates,
+        requiresReview: true,
+        rowCountsByTable,
+        duplicateInUploadRows,
+      };
+      const nextAllowedActions: ReviewAction[] = blocked
+        ? ['reject', 'rerun']
+        : ['approve', 'reject', 'rerun'];
+      const proposal =
+        input.runtimeContext.staging_result?.review_proposals?.normalize_to_staging?.at(-1) ??
+        createProposal({
+          state: input.runtimeContext.staging_result ?? {},
+          stepId: 'normalize_to_staging',
+          proposal: normalizationResult,
+          status: 'needs_review',
+          reviewRequired: true,
+          nextAllowedActions,
+          createdBy: 'agent',
+          metadata: {
+            blocked,
+            blocking_issue_count: blockingIssues.length,
+            duplicate_in_upload_count: duplicateInUploadRows.length,
+          },
+        });
+      const proposedState = input.runtimeContext.staging_result?.review_proposals
+        ?.normalize_to_staging?.length
+        ? (input.runtimeContext.staging_result as ReviewCheckpointState)
+        : appendProposal(input.runtimeContext.staging_result ?? {}, proposal);
+      const proposedStagingPayload = buildStagingPayload({
+        normalization: normalizationResult,
+        checkpointState: proposedState,
+        requiresReview: true,
+      });
 
       if (!input.resumeData) {
         return {
@@ -291,14 +371,7 @@ export function createNormalizeToStagingHandler(
           }),
           sessionStatus: 'awaiting_normalization_review',
           runtimeContextPatch: {
-            staging_result: {
-              changeSummary,
-              blockingIssues,
-              mappingReviewRows: confirmed.mappingReviewRows,
-              hasBlockingIssues,
-              hasUpdates,
-              requiresReview: true,
-            },
+            staging_result: proposedStagingPayload,
           },
           outputSummary: {
             status: 'needs_review',
@@ -339,14 +412,7 @@ export function createNormalizeToStagingHandler(
           }),
           sessionStatus: 'awaiting_normalization_review',
           runtimeContextPatch: {
-            staging_result: {
-              changeSummary,
-              blockingIssues,
-              mappingReviewRows: confirmed.mappingReviewRows,
-              hasBlockingIssues,
-              hasUpdates,
-              requiresReview: true,
-            },
+            staging_result: proposedStagingPayload,
           },
           outputSummary: {
             status: 'needs_review',
@@ -354,6 +420,18 @@ export function createNormalizeToStagingHandler(
           },
         };
       }
+
+      const checkpoint = approveProposal({
+        proposal,
+        approvedOutput: normalizationResult,
+        approvedBy: input.userId || 'system',
+      });
+      const approvedState = appendCheckpoint(proposedState, checkpoint);
+      const approvedStagingPayload = buildStagingPayload({
+        normalization: normalizationResult,
+        checkpointState: approvedState,
+        requiresReview: false,
+      });
 
       const db = getPmoDb();
       await db
@@ -378,28 +456,15 @@ export function createNormalizeToStagingHandler(
         kind: 'completed',
         sessionStatus: 'staging_normalized',
         runtimeContextPatch: {
-          staging_result: {
-            changeSummary,
-            blockingIssues,
-            mappingReviewRows: confirmed.mappingReviewRows,
-            hasBlockingIssues,
-            hasUpdates,
-            requiresReview: false,
-          },
+          staging_result: approvedStagingPayload,
         },
         sessionPatch: {
-          change_summary: {
-            changeSummary,
-            blockingIssues,
-            mappingReviewRows: confirmed.mappingReviewRows,
-            hasBlockingIssues,
-            hasUpdates,
-            requiresReview: false,
-          },
+          change_summary: approvedStagingPayload,
         },
         outputSummary: {
           status: 'staging_normalized',
           change_tables: changeSummary.length,
+          checkpoint_version: checkpoint.version,
         },
       };
     },

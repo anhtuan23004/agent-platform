@@ -537,7 +537,7 @@ async function main() {
   }
   sql.push('COMMIT;');
 
-  const proc = spawnSync('sqlite3', [DB_PATH], { input: sql.join('\n') + '\n', encoding: 'utf8' });
+  const proc = spawnSync('sqlite3', [DB_PATH], { input: `${sql.join('\n')}\n`, encoding: 'utf8' });
   if (proc.status !== 0) throw new Error(`sqlite3 failed: ${proc.stderr || proc.stdout}`);
 
   const countProc = spawnSync(
