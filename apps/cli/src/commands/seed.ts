@@ -13,7 +13,7 @@ import {
   listPlans,
   listTasks,
 } from '@seta/planner';
-import { seedPmo02DemoFixtureForTenant } from '@seta/pmo';
+import { seedPmo02FromMockDbForTenant } from '@seta/pmo';
 import {
   buildRegistry,
   IMPLICIT_PERMISSIONS,
@@ -582,12 +582,21 @@ export async function seedCommand(opts: SeedOpts): Promise<void> {
 
   if (!modules.has('pmo')) {
     process.stdout.write(`${JSON.stringify({ phase: 'pmo', skipped: true })}\n`);
+  } else if (process.env.PMO_SEED_ENABLED === 'false') {
+    process.stdout.write(
+      `${JSON.stringify({ phase: 'pmo', skipped: true, reason: 'PMO_SEED_ENABLED=false' })}\n`,
+    );
   } else {
-    log.info('phase 9: seeding PMO demo fixture');
-    const result = await seedPmo02DemoFixtureForTenant({ tenantId });
+    log.info('phase 9: seeding PMO_02 from mock-data.db');
+    const result = await seedPmo02FromMockDbForTenant({
+      tenantId,
+      mockDbPath: process.env.PMO_MOCK_DB_PATH || undefined,
+    });
     process.stdout.write(
       `${JSON.stringify({
         phase: 'pmo',
+        source: 'mock-data.db',
+        mockDbPath: result.mockDbPath,
         inserted: result.inserted,
         ingestionSessionId: result.ingestionSessionId,
       })}\n`,

@@ -536,7 +536,7 @@ export function DemoCalculationPage() {
         <EmptyState
           icon={<Database className="size-6" />}
           title="No PMO data for this tenant"
-          description="Seed demo data (or ingest a workbook), then reload this page."
+          description="Load PMO_02 into Postgres for your tenant, then reload: run pnpm db:seed locally, or insert-mock.ts then TENANT_ID=<uuid> DATABASE_URL=... insert-mock-to-tenant.ts on a remote host."
         />
       ) : null}
 

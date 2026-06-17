@@ -9,7 +9,6 @@ import type {
   TimesheetRow,
   WeekRow,
 } from '../../src/backend/analytics/types.ts';
-
 export const DEFAULT_MOCK_DB_PATH = resolve(import.meta.dirname, '../../../../mock-data.db');
 
 export interface MockCanonicalInputs {

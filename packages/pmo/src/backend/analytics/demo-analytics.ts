@@ -26,7 +26,9 @@ import type {
 
 export class DemoAnalyticsNoDataError extends Error {
   constructor() {
-    super('No PMO canonical data for this tenant. Run insert-demo-fixture-to-tenant.ts first.');
+    super(
+      'No PMO canonical data for this tenant. Run pnpm db:seed or insert-mock-to-tenant.ts first.',
+    );
     this.name = 'DemoAnalyticsNoDataError';
   }
 }

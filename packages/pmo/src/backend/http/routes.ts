@@ -22,6 +22,7 @@ import {
   type WorkflowExecutionState,
   type WorkflowExecutionStep,
 } from '../profiling/workbook-profiling.ts';
+import { registerDemoAnalyticsRoutes } from './demo-analytics-route.ts';
 
 type PlanningState = 'uploaded' | 'generating_plan' | 'plan_review' | 'approved_plan';
 type ProfilingStepStatus = 'in_progress' | 'needs_review' | 'completed' | 'failed';
@@ -1887,6 +1888,8 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
       profiling_review: nextExecutionState.profiling_review,
     });
   });
+
+  registerDemoAnalyticsRoutes(app);
 
   return app;
 }
