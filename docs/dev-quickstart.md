@@ -59,7 +59,7 @@ Creates the `hackathon` tenant + admin, then loads `hackathon/data/*.csv` (≈30
 
 Sign in as the admin `admin@hackathon.com` (or any CSV user) with password `ChangeMe@2026`.
 
-Useful flags: `--tenant <slug>`, `--admin-email <email>`, `--dir <path>`, `--only users,planner,availability`, `--password <pw>`.
+Useful flags: `--tenant <slug>`, `--admin-email <email>`, `--dir <path>`, `--only users,planner,availability,pmo`, `--password <pw>`.
 
 ### Option B — empty sandbox tenant (fastest)
 
