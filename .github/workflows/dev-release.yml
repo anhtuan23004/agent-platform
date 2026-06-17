@@ -1,4 +1,4 @@
-name: Release
+name: Dev Release
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: dev-release-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -33,23 +33,27 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - id: parse
-        name: Parse tag into vX, vX.Y, vX.Y.Z
+        name: Parse tag into vX, vX.Y, vX.Y.Z (or dev-<sha> on manual dispatch)
         shell: bash
         run: |
           ref="${GITHUB_REF#refs/tags/}"
-          if [[ ! "$ref" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-            echo "Tag '$ref' is not vX.Y.Z; aborting." >&2
+          if [[ "$ref" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "version=$ref" >> "$GITHUB_OUTPUT"
+            echo "major=v${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+            echo "minor=v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}" >> "$GITHUB_OUTPUT"
+            echo "semver_ok=true" >> "$GITHUB_OUTPUT"
+          else
+            # Manual workflow_dispatch (non-tag): derive a dev version from the SHA.
+            # The ECR release jobs are skipped in this mode — only deploy-dev runs,
+            # building images locally on the `future` host.
+            echo "version=dev-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
             echo "semver_ok=false" >> "$GITHUB_OUTPUT"
-            exit 1
           fi
-          echo "version=$ref" >> "$GITHUB_OUTPUT"
-          echo "major=v${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
-          echo "minor=v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}" >> "$GITHUB_OUTPUT"
-          echo "semver_ok=true" >> "$GITHUB_OUTPUT"
 
   build:
     name: Build & push ${{ matrix.image.name }}
     needs: metadata
+    if: startsWith(github.ref, 'refs/tags/v')   # ECR release path; dev dispatch builds locally
     runs-on: ubuntu-latest
     strategy:
       fail-fast: true
@@ -103,6 +107,7 @@ jobs:
   smoke:
     name: Smoke test seta-server
     needs: [metadata, build]
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - name: Configure AWS credentials
@@ -126,6 +131,7 @@ jobs:
   scan:
     name: Trivy scan
     needs: [metadata, build]
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - name: Configure AWS credentials
@@ -159,6 +165,7 @@ jobs:
   sign:
     name: Cosign sign + SBOM attest
     needs: [metadata, build, smoke, scan]
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -224,7 +231,7 @@ jobs:
 
   web-s3:
     name: Sync web bundle to S3 + invalidate CloudFront
-    if: vars.PLATFORM_AWS_MIRROR == 'true'
+    if: ${{ startsWith(github.ref, 'refs/tags/v') && vars.PLATFORM_AWS_MIRROR == 'true' }}
     needs: [metadata, build, sign]
     runs-on: ubuntu-latest
     permissions:
@@ -280,6 +287,7 @@ jobs:
   github-release:
     name: Create GitHub Release
     needs: [metadata, build, sign]
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -307,7 +315,7 @@ jobs:
 
           \`\`\`
           cosign verify ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:server-${VERSION} \\
-            --certificate-identity-regexp='^https://github.com/${{ github.repository }}/\\.github/workflows/release\\.yml@refs/tags/v.*\$' \\
+            --certificate-identity-regexp='^https://github.com/${{ github.repository }}/\\.github/workflows/dev-release\\.yml@refs/tags/v.*\$' \\
             --certificate-oidc-issuer='https://token.actions.githubusercontent.com'
           \`\`\`
 
@@ -319,3 +327,137 @@ jobs:
             --notes-file release-notes.md \
             --generate-notes \
             --verify-tag
+
+  # ── Build + deploy the dev stack on the on-prem GPU host (`future`) ─────────
+  #
+  # Dev/self-host deploy path. Images are built LOCALLY on the `future` runner
+  # from source — no ECR, no AWS. Intentionally separate from the production
+  # `hackathon-release.yml` flow.
+  #
+  # Trigger: `workflow_dispatch` (or a vX.Y.Z tag). On manual dispatch the ECR
+  # release jobs above are skipped and only this job runs.
+  #
+  # PREREQUISITES (one-time):
+  #   1. A self-hosted runner labeled `future` on the GPU host (private LAN
+  #      192.168.90.127, unreachable from GitHub-hosted runners).
+  #   2. Ollama running on the host, bound to 0.0.0.0:11434, model pulled:
+  #        ollama pull gemma4:12b-it-qat
+  #   3. Repo VARIABLES: DEV_APP_DOMAIN (e.g. 192.168.90.127), optional
+  #      OLLAMA_BASE_URL, ACME_EMAIL.  Repo SECRET: OPENAI_API_KEY (embeddings
+  #      stay on OpenAI — pgvector columns are sized to text-embedding-3 dims).
+  deploy-dev:
+    name: Build + deploy ${{ needs.metadata.outputs.version }} to dev (future)
+    needs: [metadata]
+    runs-on: [self-hosted, future]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Build server + web images locally
+        shell: bash
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          set -euo pipefail
+          echo "=== Building seta-server:${VERSION} ==="
+          DOCKER_BUILDKIT=1 docker build -f infra/docker/server.Dockerfile -t "seta-server:${VERSION}" .
+          echo "=== Building seta-web:${VERSION} ==="
+          DOCKER_BUILDKIT=1 docker build -f infra/docker/web.Dockerfile -t "seta-web:${VERSION}" .
+
+      - name: Write runtime .env (self-hosted Gemma + OpenAI embeddings)
+        shell: bash
+        env:
+          VERSION:         ${{ needs.metadata.outputs.version }}
+          DEV_APP_DOMAIN:  ${{ vars.DEV_APP_DOMAIN }}
+          ACME_EMAIL:      ${{ vars.ACME_EMAIL || 'devops@seta-international.vn' }}
+          # Reachable from inside the compose containers. Default targets the
+          # host via its LAN IP; requires Ollama bound to 0.0.0.0. Override with
+          # the `OLLAMA_BASE_URL` repo variable if the host address differs.
+          OLLAMA_BASE_URL: ${{ vars.OLLAMA_BASE_URL || 'http://192.168.90.127:11434/v1' }}
+          OPENAI_API_KEY:  ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+
+          # Persist generated secrets across deploys (survive redeploys without
+          # living in GitHub Secrets). Delete this file to re-init the DB cleanly.
+          SECRETS_FILE="$HOME/.seta-dev-secrets.env"
+          if [ ! -f "$SECRETS_FILE" ]; then
+            echo "=== First deploy: generating persistent app secrets ==="
+            printf 'POSTGRES_PASSWORD=%s\nBETTER_AUTH_SECRET=%s\nCRYPTO_LOCAL_MASTER_KEY=%s\n' \
+              "$(openssl rand -hex 16)" \
+              "$(openssl rand -hex 32)" \
+              "$(openssl rand -hex 32)" > "$SECRETS_FILE"
+            chmod 600 "$SECRETS_FILE"
+          fi
+          # shellcheck source=/dev/null
+          source "$SECRETS_FILE"
+
+          SERVER_IMAGE="seta-server:${VERSION}"
+          WEB_IMAGE="seta-web:${VERSION}"
+
+          cat > .env.deploy <<EOF
+          NODE_ENV=production
+          PLATFORM_IMAGE_SERVER=${SERVER_IMAGE}
+          PLATFORM_IMAGE_WEB=${WEB_IMAGE}
+          PLATFORM_VERSION=${VERSION}
+          PLATFORM_MODULES=*
+          PLATFORM_DOMAIN=${DEV_APP_DOMAIN}
+          PLATFORM_TLS_MODE=self-signed
+          PLATFORM_ACME_EMAIL=${ACME_EMAIL}
+          DATABASE_URL=postgres://seta:${POSTGRES_PASSWORD}@postgres:5432/seta
+          POSTGRES_USER=seta
+          POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+          POSTGRES_DB=seta
+          PORT=3000
+          PUBLIC_URL=https://${DEV_APP_DOMAIN}
+          BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET}
+          CRYPTO_KEY_PROVIDER=env
+          CRYPTO_LOCAL_MASTER_KEY=${CRYPTO_LOCAL_MASTER_KEY}
+          CORS_ORIGINS=https://${DEV_APP_DOMAIN}
+          SESSION_COOKIE_SAMESITE=strict
+          EVENTS_RETENTION_DAYS=30
+          KNOWLEDGE_AV_REQUIRED=false
+          MAILER_DEFAULT_TRANSPORT=dev-stub
+          MAILER_DEFAULT_SENDER=noreply@${DEV_APP_DOMAIN}
+          # ── Self-hosted chat model: Gemma 4 12B (QAT) via Ollama on this host ──
+          AGENT_MODELS=ollama/gemma4:12b-it-qat:balanced
+          AGENT_MODEL_DEFAULT=auto
+          OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
+          # Embeddings stay on OpenAI — pgvector columns are sized to its dims.
+          EMBED_MODEL=openai/text-embedding-3-small
+          OPENAI_API_KEY=${OPENAI_API_KEY}
+          EOF
+          chmod 600 .env.deploy
+
+      - name: Migrate and bring up the stack (locally built images)
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose --env-file .env.deploy run --rm migrator
+          docker compose --env-file .env.deploy up -d \
+            --remove-orphans --wait --wait-timeout 300 \
+            proxy server web worker
+
+      - name: Smoke test (health/ready + model reachability)
+        shell: bash
+        env:
+          DEV_APP_DOMAIN:  ${{ vars.DEV_APP_DOMAIN }}
+          OLLAMA_BASE_URL: ${{ vars.OLLAMA_BASE_URL || 'http://192.168.90.127:11434/v1' }}
+        run: |
+          set -euo pipefail
+          echo "=== Ollama reachable? ==="
+          curl -sf "${OLLAMA_BASE_URL%/v1}/api/tags" >/dev/null \
+            && echo "ok: ollama responding" \
+            || { echo "❌ Ollama not reachable at ${OLLAMA_BASE_URL}"; exit 1; }
+
+          echo "=== App health/ready ==="
+          code=000
+          for i in $(seq 1 12); do
+            code=$(curl -sk -o /dev/null -w "%{http_code}" \
+              --max-time 5 "https://${DEV_APP_DOMAIN}/health/ready" || true)
+            [ "$code" = "200" ] && break
+            echo "  attempt $i/12: HTTP $code — retrying in 5s…"
+            sleep 5
+          done
+          [ "$code" = "200" ] \
+            || { echo "❌ Smoke test failed (last HTTP status: $code)"; exit 1; }
+          echo "✅ Dev deploy healthy"
