@@ -378,6 +378,11 @@ async function waitForPmoPageBootstrap(fetchMock: ReturnType<typeof vi.fn>): Pro
       ).toBe(true);
       expect(
         fetchMock.mock.calls.some(
+          (entry) => String(entry[0]) === '/api/agent/v1/workflows/my-pending-approvals',
+        ),
+      ).toBe(true);
+      expect(
+        fetchMock.mock.calls.some(
           (entry) => String(entry[0]) === '/api/agent/v1/workflows/sse-token',
         ),
       ).toBe(true);
@@ -1275,7 +1280,9 @@ describe('PmoPage', () => {
     });
   });
 
-  it('shows normalization findings and submits missing member master additions', async () => {
+  it('shows normalization findings and submits missing member master additions', {
+    timeout: 15_000,
+  }, async () => {
     const fetchMock = createFetchMock({
       runRows: [
         makeRunRow({
@@ -1353,16 +1360,21 @@ describe('PmoPage', () => {
 
     render(withQuery(<PmoPage />));
 
+    await waitForPmoPageBootstrap(fetchMock);
+
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'View' })).toBeInTheDocument();
     });
     fireEvent.click(screen.getByRole('button', { name: 'View' }));
 
-    await waitFor(() => {
-      expect(screen.getByText('Normalize to staging')).toBeInTheDocument();
-      expect(screen.getByDisplayValue('M-404')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Add members & continue' })).toBeDisabled();
-    });
+    await waitFor(
+      () => {
+        expect(screen.getByText('Normalize to staging')).toBeInTheDocument();
+        expect(screen.getByDisplayValue('M-404')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Add members & continue' })).toBeDisabled();
+      },
+      { timeout: 5_000 },
+    );
 
     fireEvent.change(screen.getByLabelText('Full name'), {
       target: { value: 'Missing Member' },

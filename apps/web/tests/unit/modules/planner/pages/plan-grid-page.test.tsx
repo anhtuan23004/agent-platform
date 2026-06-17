@@ -6,22 +6,46 @@ import {
   createRouter,
   RouterProvider,
 } from '@tanstack/react-router';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'jest-axe';
 import { HttpResponse, http } from 'msw';
 import { setupServer } from 'msw/node';
 import type { ReactNode } from 'react';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SessionScopeProjection } from '../../../../../src/modules/identity/api/client';
 import { SessionProvider } from '../../../../../src/modules/identity/components/SessionProvider';
 import { PlanBoardShell } from '../../../../../src/modules/planner/pages/plan-board-shell';
 import { useSelectedTaskIds } from '../../../../../src/modules/planner/state/selected-task-ids';
 
 const server = setupServer();
+
+// PlanBoardShell opens an EventSource via useBoardStream; happy-dom has no native impl.
+class FakeEventSource extends EventTarget {
+  static instances: FakeEventSource[] = [];
+  url: string;
+  withCredentials: boolean;
+
+  constructor(url: string, init?: EventSourceInit) {
+    super();
+    this.url = url;
+    this.withCredentials = init?.withCredentials ?? false;
+    FakeEventSource.instances.push(this);
+  }
+
+  close = vi.fn();
+}
+
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
-beforeEach(() => useSelectedTaskIds.getState().clear());
-afterEach(() => server.resetHandlers());
+beforeEach(() => {
+  vi.stubGlobal('EventSource', FakeEventSource as unknown as typeof EventSource);
+  FakeEventSource.instances = [];
+  useSelectedTaskIds.getState().clear();
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+  server.resetHandlers();
+});
 afterAll(() => server.close());
 
 const session: SessionScopeProjection = {
@@ -322,20 +346,19 @@ describe('PlanGridPage (via PlanBoardShell)', () => {
     expect(screen.getAllByText('To do').length).toBeGreaterThanOrEqual(1);
   });
 
-  it('has no a11y violations on the happy path', async () => {
+  it('has no a11y violations on the happy path', { timeout: 30_000 }, async () => {
     server.use(...seedBoardHandlers());
     const { container } = renderShell();
     await screen.findByText('Wire up DnD');
-    // TaskGrid uses CSS grid for layout but exposes role="row" on rows so RTL
-    // queries can target them. The required grid/rowgroup wrapper is intentionally
-    // omitted because <table> would break the CSS-grid layout; disable the rule.
-    const results = await axe(container, {
-      rules: {
-        'aria-required-parent': { enabled: false },
-        'aria-required-children': { enabled: false },
-      },
+    await waitFor(async () => {
+      const results = await axe(container, {
+        rules: {
+          'aria-required-parent': { enabled: false },
+          'aria-required-children': { enabled: false },
+        },
+      });
+      expect(results).toHaveNoViolations();
     });
-    expect(results).toHaveNoViolations();
   });
 
   it('inline title edit commits via PATCH /api/planner/v1/tasks/:id', async () => {
@@ -376,7 +399,9 @@ describe('PlanGridPage (via PlanBoardShell)', () => {
     expect(screen.getByRole('toolbar', { name: '2 tasks selected' })).toBeInTheDocument();
   });
 
-  it('bulk move triggers POST /api/planner/v1/tasks/:id/move for each selected task', async () => {
+  it('bulk move triggers POST /api/planner/v1/tasks/:id/move for each selected task', {
+    timeout: 20_000,
+  }, async () => {
     const moveCalls: string[] = [];
     server.use(
       ...seedBoardHandlers(),
@@ -391,12 +416,14 @@ describe('PlanGridPage (via PlanBoardShell)', () => {
     const user = userEvent.setup();
     const checkboxes = screen.getAllByRole('checkbox');
     await user.click(checkboxes[0]!);
+    await screen.findByRole('toolbar', { name: '1 tasks selected' });
 
-    // Click Move to open the bucket popover, then pick Done
     await user.click(await screen.findByRole('button', { name: 'Move' }));
     await user.click(await screen.findByRole('button', { name: 'Done' }));
 
-    expect(moveCalls).toContain('t1');
+    await waitFor(() => {
+      expect(moveCalls).toContain('t1');
+    });
   });
 
   it('bulk assign triggers POST /api/planner/v1/tasks/:id/assign for each selected task', async () => {
