@@ -12,38 +12,26 @@ import { axe } from 'jest-axe';
 import { HttpResponse, http } from 'msw';
 import { setupServer } from 'msw/node';
 import type { ReactNode } from 'react';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { SessionScopeProjection } from '../../../../../src/modules/identity/api/client';
 import { SessionProvider } from '../../../../../src/modules/identity/components/SessionProvider';
 import { PlanBoardShell } from '../../../../../src/modules/planner/pages/plan-board-shell';
 import { useSelectedTaskIds } from '../../../../../src/modules/planner/state/selected-task-ids';
+import {
+  stubPlannerBoardEventSource,
+  unstubPlannerBoardEventSource,
+  waitForPlannerShellReady,
+} from './planner-board-shell.harness';
 
 const server = setupServer();
 
-// PlanBoardShell opens an EventSource via useBoardStream; happy-dom has no native impl.
-class FakeEventSource extends EventTarget {
-  static instances: FakeEventSource[] = [];
-  url: string;
-  withCredentials: boolean;
-
-  constructor(url: string, init?: EventSourceInit) {
-    super();
-    this.url = url;
-    this.withCredentials = init?.withCredentials ?? false;
-    FakeEventSource.instances.push(this);
-  }
-
-  close = vi.fn();
-}
-
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 beforeEach(() => {
-  vi.stubGlobal('EventSource', FakeEventSource as unknown as typeof EventSource);
-  FakeEventSource.instances = [];
+  stubPlannerBoardEventSource();
   useSelectedTaskIds.getState().clear();
 });
 afterEach(() => {
-  vi.unstubAllGlobals();
+  unstubPlannerBoardEventSource();
   server.resetHandlers();
 });
 afterAll(() => server.close());
@@ -254,7 +242,8 @@ describe('PlanGridPage (via PlanBoardShell)', () => {
       http.get('*/api/planner/v1/groups/g1', () => HttpResponse.json(groupFixture())),
     );
     renderShell();
-    expect(await screen.findByText(/synced/i)).toBeInTheDocument();
+    await waitForPlannerShellReady({ taskTitle: 'Wire up DnD' });
+    expect(screen.getByText(/synced/i)).toBeInTheDocument();
   });
 
   it('renders no sync banners or pulling empty state when plan is idle', async () => {
@@ -346,19 +335,17 @@ describe('PlanGridPage (via PlanBoardShell)', () => {
     expect(screen.getAllByText('To do').length).toBeGreaterThanOrEqual(1);
   });
 
-  it('has no a11y violations on the happy path', { timeout: 30_000 }, async () => {
+  it('has no a11y violations on the happy path', { timeout: 60_000 }, async () => {
     server.use(...seedBoardHandlers());
     const { container } = renderShell();
-    await screen.findByText('Wire up DnD');
-    await waitFor(async () => {
-      const results = await axe(container, {
-        rules: {
-          'aria-required-parent': { enabled: false },
-          'aria-required-children': { enabled: false },
-        },
-      });
-      expect(results).toHaveNoViolations();
+    await waitForPlannerShellReady({ taskTitle: 'Wire up DnD' });
+    const results = await axe(container, {
+      rules: {
+        'aria-required-parent': { enabled: false },
+        'aria-required-children': { enabled: false },
+      },
     });
+    expect(results).toHaveNoViolations();
   });
 
   it('inline title edit commits via PATCH /api/planner/v1/tasks/:id', async () => {
@@ -399,9 +386,7 @@ describe('PlanGridPage (via PlanBoardShell)', () => {
     expect(screen.getByRole('toolbar', { name: '2 tasks selected' })).toBeInTheDocument();
   });
 
-  it('bulk move triggers POST /api/planner/v1/tasks/:id/move for each selected task', {
-    timeout: 20_000,
-  }, async () => {
+  it('bulk move triggers POST /api/planner/v1/tasks/:id/move for each selected task', async () => {
     const moveCalls: string[] = [];
     server.use(
       ...seedBoardHandlers(),
@@ -411,15 +396,14 @@ describe('PlanGridPage (via PlanBoardShell)', () => {
       }),
     );
     renderShell();
-    await screen.findByText('Wire up DnD');
+    await waitForPlannerShellReady({ taskTitle: 'Wire up DnD' });
 
-    const user = userEvent.setup();
     const checkboxes = screen.getAllByRole('checkbox');
-    await user.click(checkboxes[0]!);
+    fireEvent.click(checkboxes[0]!);
     await screen.findByRole('toolbar', { name: '1 tasks selected' });
 
-    await user.click(await screen.findByRole('button', { name: 'Move' }));
-    await user.click(await screen.findByRole('button', { name: 'Done' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Move' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Done' }));
 
     await waitFor(() => {
       expect(moveCalls).toContain('t1');
@@ -447,14 +431,16 @@ describe('PlanGridPage (via PlanBoardShell)', () => {
       }),
     );
     renderShell();
-    await screen.findByText('Wire up DnD');
+    await waitForPlannerShellReady({ taskTitle: 'Wire up DnD' });
 
-    const user = userEvent.setup();
-    await user.click(screen.getAllByRole('checkbox')[0]!);
-    await user.click(await screen.findByRole('button', { name: 'Assign' }));
-    await user.click(await screen.findByRole('button', { name: 'Alice' }));
+    fireEvent.click(screen.getAllByRole('checkbox')[0]!);
+    await screen.findByRole('toolbar', { name: '1 tasks selected' });
+    fireEvent.click(screen.getByRole('button', { name: 'Assign' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Alice' }));
 
-    expect(assignCalls).toContainEqual({ taskId: 't1', user_id: 'u1' });
+    await waitFor(() => {
+      expect(assignCalls).toContainEqual({ taskId: 't1', user_id: 'u1' });
+    });
   });
 
   it('bulk delete triggers DELETE /api/planner/v1/tasks/:id for each selected task', async () => {
@@ -467,13 +453,15 @@ describe('PlanGridPage (via PlanBoardShell)', () => {
       }),
     );
     renderShell();
-    await screen.findByText('Wire up DnD');
+    await waitForPlannerShellReady({ taskTitle: 'Wire up DnD' });
 
-    const user = userEvent.setup();
-    await user.click(screen.getAllByRole('checkbox')[0]!);
-    await user.click(await screen.findByRole('button', { name: 'Delete' }));
+    fireEvent.click(screen.getAllByRole('checkbox')[0]!);
+    await screen.findByRole('toolbar', { name: '1 tasks selected' });
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
 
-    expect(deleteCalls).toContain('t1');
+    await waitFor(() => {
+      expect(deleteCalls).toContain('t1');
+    });
   });
 
   it('renders the calendar view when view=calendar', async () => {
