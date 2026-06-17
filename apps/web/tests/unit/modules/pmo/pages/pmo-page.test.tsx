@@ -930,7 +930,7 @@ describe('PmoPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Workflow execution')).toBeInTheDocument();
+      expect(screen.getByText('Workflow cards')).toBeInTheDocument();
       expect(screen.queryByText('Review column mappings')).not.toBeInTheDocument();
     });
   });
@@ -1140,7 +1140,7 @@ describe('PmoPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Workflow execution')).toBeInTheDocument();
+      expect(screen.getByText('Workflow cards')).toBeInTheDocument();
       expect(screen.getAllByText('Completed').length).toBeGreaterThan(0);
     });
 
@@ -1151,7 +1151,7 @@ describe('PmoPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Workflow execution')).toBeInTheDocument();
+      expect(screen.getByText('Workflow cards')).toBeInTheDocument();
       expect(screen.getAllByText('Cancelled').length).toBeGreaterThan(0);
     });
   });
@@ -1250,9 +1250,9 @@ describe('PmoPage', () => {
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Next step' })).toBeEnabled();
-      expect(screen.getAllByText('Validation and normalization to staging').length).toBeGreaterThan(
-        0,
-      );
+      expect(
+        screen.getByRole('button', { name: /Validation and normalization to staging/i }),
+      ).toBeInTheDocument();
       expect(screen.getAllByText('22222222').length).toBeGreaterThan(0);
     });
 
@@ -1359,7 +1359,7 @@ describe('PmoPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'View' }));
 
     await waitFor(() => {
-      expect(screen.getByText('Validate normalized data')).toBeInTheDocument();
+      expect(screen.getByText('Normalize to staging')).toBeInTheDocument();
       expect(screen.getByDisplayValue('M-404')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Add members & continue' })).toBeDisabled();
     });

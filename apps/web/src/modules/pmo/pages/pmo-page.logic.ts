@@ -514,7 +514,9 @@ export function executionStepMatchesRuntimeStep(
   }
 
   if (runtime.includes('reviewchanges')) {
-    if (actionId === 'publish_after_approval') return true;
+    if (actionId === 'publish_after_approval' || actionId === 'database_change_summary') {
+      return true;
+    }
     if (actionId) return false;
     return /review|readiness|impact|database|change\s*summary|publish/.test(stepName);
   }
