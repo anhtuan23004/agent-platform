@@ -1,7 +1,22 @@
-import { Button, Input, Label } from '@seta/shared-ui';
+import { Badge, Button, Input, Label } from '@seta/shared-ui';
+import {
+  AlertCircle,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  CircleSlash,
+  Copy,
+  Database,
+  Link2Off,
+} from 'lucide-react';
+import { useMemo, useState } from 'react';
 import type { WorkflowApprovalRow } from '../api/workflow-runtime';
 import type { MemberMasterAdditionDraft } from '../hooks/use-pmo-normalization-review-actions';
-import type { NormalizationReviewViewModel } from '../pages/pmo-page.logic';
+import type {
+  NormalizationReviewRow,
+  NormalizationReviewTableGroup,
+  NormalizationReviewViewModel,
+} from '../pages/pmo-page.logic';
 
 interface PmoNormalizationReviewPanelProps {
   selectedNormalizationApproval: WorkflowApprovalRow | null;
@@ -19,7 +34,254 @@ interface PmoNormalizationReviewPanelProps {
   rejectNormalization: () => void;
 }
 
-function KvGrid(props: { rows: Array<{ k: string; v: string }>; emptyLabel: string }) {
+const STATUS_CLASS: Record<NormalizationReviewRow['status'], string> = {
+  blocked: 'border-danger-border bg-danger-tint text-danger-ink',
+  duplicate: 'border-warning-border bg-warning-tint text-warning-ink',
+  warning: 'border-warning-border bg-warning-tint text-warning-ink',
+  skipped: 'border-hairline bg-surface-2 text-ink-subtle',
+};
+
+const DECISION_LABEL: Record<NormalizationReviewRow['decision'], string> = {
+  keep_row: 'Keep row',
+  skip_row: 'Skip row',
+  skipped: 'Skipped',
+};
+
+function displayValue(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '—';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return JSON.stringify(value);
+}
+
+function parseSummaryNumber(rows: Array<{ k: string; v: string }>, key: RegExp): number {
+  const row = rows.find((item) => key.test(item.k));
+  if (!row) return 0;
+  const match = row.v.match(/-?\d+(\.\d+)?/);
+  return match ? Number(match[0]) : 0;
+}
+
+function SummaryCard(props: {
+  label: string;
+  value: string | number;
+  hint: string;
+  tone: 'neutral' | 'success' | 'danger' | 'warning' | 'purple';
+  icon: React.ComponentType<{ className?: string; 'aria-hidden'?: boolean }>;
+}) {
+  const Icon = props.icon;
+  const toneClass = {
+    neutral: 'bg-surface-2 text-ink-subtle',
+    success: 'bg-success-tint text-success-ink',
+    danger: 'bg-danger-tint text-danger-ink',
+    warning: 'bg-warning-tint text-warning-ink',
+    purple: 'bg-primary-tint text-primary-ink',
+  }[props.tone];
+
+  return (
+    <div className="flex min-h-[72px] items-center gap-3 rounded-lg border border-hairline bg-surface-1 p-3">
+      <span
+        className={`inline-flex size-9 shrink-0 items-center justify-center rounded-full ${toneClass}`}
+      >
+        <Icon className="size-4" aria-hidden />
+      </span>
+      <div className="min-w-0">
+        <p className="text-caption font-medium text-ink-subtle">{props.label}</p>
+        <p className="mt-0.5 text-xl font-semibold leading-none text-ink">{props.value}</p>
+        <p className="mt-1 text-caption text-ink-subtle">{props.hint}</p>
+      </div>
+    </div>
+  );
+}
+
+function statusLabel(row: NormalizationReviewRow): string {
+  if (row.status === 'duplicate') return 'Duplicate';
+  if (row.status === 'skipped') return 'Skipped';
+  if (row.status === 'warning') return 'Warning';
+  return row.issueLabel || 'Blocked';
+}
+
+function rowLabel(row: NormalizationReviewRow): string {
+  const prefix = row.sourceSheet || row.tableId;
+  return `${prefix}-${String(row.sourceRow).padStart(4, '0')}`;
+}
+
+function issueGroupTone(groupLabel: string): string {
+  if (/duplicate/i.test(groupLabel)) return 'text-warning-ink';
+  if (/missing|parse|multiple/i.test(groupLabel)) return 'text-danger-ink';
+  return 'text-ink-subtle';
+}
+
+function NormalizationIssueTable(props: { group: NormalizationReviewTableGroup }) {
+  const { group } = props;
+  const columns = group.columns.length > 0 ? group.columns : [];
+  const columnCount = 4 + Math.max(columns.length, 1);
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-full table-fixed border-t border-hairline text-left text-caption">
+        <thead className="bg-surface-1 text-ink-subtle">
+          <tr className="border-b border-hairline">
+            <th rowSpan={2} className="w-24 px-3 py-2 font-medium">
+              Row ID
+            </th>
+            <th rowSpan={2} className="w-32 px-3 py-2 font-medium">
+              Status
+            </th>
+            <th colSpan={Math.max(columns.length, 1)} className="px-3 py-2 text-center font-medium">
+              Details
+            </th>
+            <th rowSpan={2} className="w-56 px-3 py-2 font-medium">
+              Issue
+            </th>
+            <th rowSpan={2} className="w-36 px-3 py-2 font-medium">
+              Decision
+            </th>
+          </tr>
+          <tr className="border-b border-hairline">
+            {columns.length > 0 ? (
+              columns.map((column) => (
+                <th key={column.key} className="min-w-28 px-3 py-2 font-medium">
+                  {column.label}
+                </th>
+              ))
+            ) : (
+              <th className="min-w-28 px-3 py-2 font-medium">Values</th>
+            )}
+          </tr>
+        </thead>
+        <tbody>
+          {group.issueGroups.map((issueGroup) => (
+            <FragmentLike key={issueGroup.groupId}>
+              <tr className="border-b border-hairline bg-canvas">
+                <td
+                  colSpan={columnCount}
+                  className={`px-3 py-2 font-semibold ${issueGroupTone(issueGroup.groupLabel)}`}
+                >
+                  {issueGroup.groupLabel} · {issueGroup.rows.length} row
+                  {issueGroup.rows.length === 1 ? '' : 's'}
+                </td>
+              </tr>
+              {issueGroup.rows.map((row) => (
+                <tr key={row.id} className="border-b border-hairline last:border-b-0">
+                  <td className="px-3 py-2 font-medium text-ink">{rowLabel(row)}</td>
+                  <td className="px-3 py-2">
+                    <span
+                      className={`inline-flex items-center rounded-md border px-2 py-0.5 font-medium ${STATUS_CLASS[row.status]}`}
+                    >
+                      {statusLabel(row)}
+                    </span>
+                  </td>
+                  {columns.length > 0 ? (
+                    columns.map((column) => {
+                      const isProblem = row.problemFields.includes(column.key);
+                      return (
+                        <td key={`${row.id}-${column.key}`} className="px-3 py-2">
+                          <span
+                            className={
+                              isProblem
+                                ? 'inline-flex min-h-7 min-w-20 items-center rounded-md border border-danger-border bg-danger-tint px-2 text-danger-ink'
+                                : 'text-ink'
+                            }
+                          >
+                            {displayValue(row.values[column.key])}
+                          </span>
+                        </td>
+                      );
+                    })
+                  ) : (
+                    <td className="px-3 py-2 text-ink-subtle">—</td>
+                  )}
+                  <td className="px-3 py-2 text-ink-subtle">
+                    {row.duplicateOfRowId ? (
+                      <span>Duplicate of {row.duplicateOfRowId}</span>
+                    ) : (
+                      row.issueDetail
+                    )}
+                  </td>
+                  <td className="px-3 py-2">
+                    <span className="inline-flex items-center gap-1.5 rounded-md border border-hairline bg-surface-1 px-2 py-1 font-medium text-ink">
+                      {row.decision === 'keep_row' ? (
+                        <CheckCircle2 className="size-3.5 text-success" aria-hidden />
+                      ) : (
+                        <CircleSlash className="size-3.5 text-danger" aria-hidden />
+                      )}
+                      {DECISION_LABEL[row.decision]}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </FragmentLike>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function FragmentLike(props: { children: React.ReactNode }) {
+  return <>{props.children}</>;
+}
+
+function ReviewBySheet(props: { groups: NormalizationReviewTableGroup[] }) {
+  const [openGroups, setOpenGroups] = useState<Set<string>>(
+    () => new Set(props.groups[0]?.tableId ? [props.groups[0].tableId] : []),
+  );
+
+  if (props.groups.length === 0) return null;
+
+  return (
+    <section className="mt-4">
+      <div>
+        <h4 className="text-body-sm font-semibold text-ink">Review by sheet</h4>
+        <p className="mt-1 text-caption text-ink-subtle">
+          Issue rows are grouped by table, then by issue type. Duplicate groups are kept together.
+        </p>
+      </div>
+      <div className="mt-3 space-y-2">
+        {props.groups.map((group) => {
+          const isOpen = openGroups.has(group.tableId);
+          return (
+            <div
+              key={group.tableId}
+              className="overflow-hidden rounded-lg border border-hairline bg-surface-1"
+            >
+              <button
+                type="button"
+                className="flex w-full items-center gap-3 px-3 py-2.5 text-left"
+                onClick={() => {
+                  setOpenGroups((current) => {
+                    const next = new Set(current);
+                    if (next.has(group.tableId)) next.delete(group.tableId);
+                    else next.add(group.tableId);
+                    return next;
+                  });
+                }}
+              >
+                {isOpen ? (
+                  <ChevronDown className="size-4 text-ink-subtle" aria-hidden />
+                ) : (
+                  <ChevronRight className="size-4 text-ink-subtle" aria-hidden />
+                )}
+                <span className="font-semibold text-ink">{group.tableId}</span>
+                <Badge variant="secondary">{group.totals.issues} issues</Badge>
+                <span className="ml-auto flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-caption text-ink-subtle">
+                  <span>Blocked: {group.totals.blocked}</span>
+                  <span>Duplicates: {group.totals.duplicates}</span>
+                  <span>Missing fields: {group.totals.missingFields}</span>
+                  <span>Missing refs: {group.totals.missingRefs}</span>
+                  <span>Skip: {group.totals.skipped}</span>
+                </span>
+              </button>
+              {isOpen ? <NormalizationIssueTable group={group} /> : null}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function LegacyKvGrid(props: { rows: Array<{ k: string; v: string }>; emptyLabel: string }) {
   const { rows, emptyLabel } = props;
   if (!rows.length) return <p className="text-caption text-ink-subtle">{emptyLabel}</p>;
 
@@ -35,6 +297,70 @@ function KvGrid(props: { rows: Array<{ k: string; v: string }>; emptyLabel: stri
   );
 }
 
+function MissingMembersEditor(props: {
+  memberAdditionDrafts: MemberMasterAdditionDraft[];
+  isSubmittingNormalizationDecision: boolean;
+  updateMemberAdditionDraft: PmoNormalizationReviewPanelProps['updateMemberAdditionDraft'];
+}) {
+  if (props.memberAdditionDrafts.length === 0) return null;
+
+  return (
+    <div className="mt-4 rounded-lg border border-hairline bg-canvas p-3">
+      <p className="text-caption font-medium text-ink">Add missing member master data</p>
+      <p className="mt-1 text-caption text-ink-subtle">
+        These member IDs were not found in the workbook member master sheet or active database.
+      </p>
+
+      <div className="mt-3 space-y-3">
+        {props.memberAdditionDrafts.map((draft) => (
+          <div
+            key={draft.member_id}
+            className="grid gap-2 rounded-md border border-hairline bg-surface-1 p-2 sm:grid-cols-4"
+          >
+            <div className="space-y-1">
+              <Label htmlFor={`member-id-${draft.member_id}`}>Member ID</Label>
+              <Input id={`member-id-${draft.member_id}`} value={draft.member_id} disabled />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor={`member-name-${draft.member_id}`}>Full name</Label>
+              <Input
+                id={`member-name-${draft.member_id}`}
+                value={draft.full_name}
+                onChange={(event) =>
+                  props.updateMemberAdditionDraft(draft.member_id, 'full_name', event.target.value)
+                }
+                disabled={props.isSubmittingNormalizationDecision}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor={`member-department-${draft.member_id}`}>Department</Label>
+              <Input
+                id={`member-department-${draft.member_id}`}
+                value={draft.department}
+                onChange={(event) =>
+                  props.updateMemberAdditionDraft(draft.member_id, 'department', event.target.value)
+                }
+                disabled={props.isSubmittingNormalizationDecision}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor={`member-role-${draft.member_id}`}>Role title</Label>
+              <Input
+                id={`member-role-${draft.member_id}`}
+                value={draft.role_title}
+                onChange={(event) =>
+                  props.updateMemberAdditionDraft(draft.member_id, 'role_title', event.target.value)
+                }
+                disabled={props.isSubmittingNormalizationDecision}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function PmoNormalizationReviewPanel(props: PmoNormalizationReviewPanelProps) {
   const {
     selectedNormalizationApproval,
@@ -47,6 +373,35 @@ export function PmoNormalizationReviewPanel(props: PmoNormalizationReviewPanelPr
     approveNormalization,
     rejectNormalization,
   } = props;
+
+  const metrics = useMemo(() => {
+    const summaryRows = selectedNormalizationView?.summaryRows ?? [];
+    const tableGroups = selectedNormalizationView?.tableGroups ?? [];
+    const reviewRows = selectedNormalizationView?.reviewRows ?? [];
+    const totalRows = tableGroups.reduce((sum, group) => sum + group.rows.length, 0);
+    const blockingIssues =
+      parseSummaryNumber(summaryRows, /blocking/i) ||
+      reviewRows.filter((row) => row.status === 'blocked').length;
+    const duplicates =
+      parseSummaryNumber(summaryRows, /duplicate/i) ||
+      reviewRows.filter((row) => row.status === 'duplicate').length;
+    const missingFields =
+      parseSummaryNumber(summaryRows, /missing required/i) ||
+      reviewRows.filter((row) => row.issueType === 'missing_required').length;
+    const missingRefs =
+      parseSummaryNumber(summaryRows, /unresolved reference/i) ||
+      reviewRows.filter((row) => row.issueType === 'missing_reference').length;
+    const skipped = reviewRows.filter((row) => row.status === 'skipped').length;
+
+    return {
+      totalRows: totalRows || parseSummaryNumber(summaryRows, /rows/i),
+      blockingIssues,
+      duplicates,
+      missingFields,
+      missingRefs,
+      skipped,
+    };
+  }, [selectedNormalizationView]);
 
   if (!selectedNormalizationApproval) {
     return (
@@ -67,18 +422,19 @@ export function PmoNormalizationReviewPanel(props: PmoNormalizationReviewPanelPr
   }
 
   const missingMemberCount = selectedNormalizationView.missingMembers.length;
+  const hasStructuredReview = selectedNormalizationView.tableGroups.length > 0;
 
   return (
     <>
-      <div className="rounded-lg border border-warning-border bg-warning-tint/80 px-3 py-2 text-caption text-warning-ink">
-        Normalization review is required. Staging continues only after PMO validates the data
-        quality result for this step.
+      <div className="rounded-lg border border-danger-border bg-danger-tint/60 px-3 py-2 text-caption text-danger-ink">
+        Normalization review is required. Review issue rows grouped by table before staging
+        continues.
       </div>
 
       <section className="rounded-lg border border-hairline bg-surface-1 p-3">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
-            <h4 className="text-body-sm font-semibold text-ink">Validate normalized data</h4>
+            <h4 className="text-body-sm font-semibold text-ink">Normalize to staging</h4>
             <p className="mt-1 text-caption text-ink-subtle">{selectedNormalizationView.summary}</p>
           </div>
           <span
@@ -92,120 +448,73 @@ export function PmoNormalizationReviewPanel(props: PmoNormalizationReviewPanelPr
               ? `${missingMemberCount} member(s) need master data`
               : selectedNormalizationView.canApprove
                 ? 'Ready to stage'
-                : 'Needs correction'}
+                : 'Needs review'}
           </span>
         </div>
 
-        <div className="mt-3">
-          <KvGrid
-            rows={selectedNormalizationView.summaryRows}
-            emptyLabel="No normalization summary was provided."
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+          <SummaryCard
+            label="Issue rows"
+            value={metrics.totalRows}
+            hint="Shown below"
+            tone="neutral"
+            icon={Database}
+          />
+          <SummaryCard
+            label="Blocking issues"
+            value={metrics.blockingIssues}
+            hint="Must fix"
+            tone="danger"
+            icon={AlertCircle}
+          />
+          <SummaryCard
+            label="Duplicates"
+            value={metrics.duplicates}
+            hint="Grouped by key"
+            tone="warning"
+            icon={Copy}
+          />
+          <SummaryCard
+            label="Missing fields"
+            value={metrics.missingFields}
+            hint="Required values"
+            tone="warning"
+            icon={AlertCircle}
+          />
+          <SummaryCard
+            label="Missing refs"
+            value={metrics.missingRefs}
+            hint="Reference not found"
+            tone="purple"
+            icon={Link2Off}
+          />
+          <SummaryCard
+            label="Skipped rows"
+            value={metrics.skipped}
+            hint="Will not stage"
+            tone="neutral"
+            icon={CircleSlash}
           />
         </div>
 
-        {selectedNormalizationView.tableRows.length > 0 ? (
-          <div className="mt-3 overflow-x-auto">
-            <table className="min-w-full text-left text-caption">
-              <thead className="border-b border-hairline text-ink-subtle">
-                <tr>
-                  <th className="px-2 py-1.5">Table</th>
-                  <th className="px-2 py-1.5">Normalization result</th>
-                </tr>
-              </thead>
-              <tbody>
-                {selectedNormalizationView.tableRows.map((row) => (
-                  <tr
-                    key={`${row.k}-${row.v}`}
-                    className="border-b border-hairline last:border-b-0"
-                  >
-                    <td className="px-2 py-1.5 font-medium text-ink">{row.k}</td>
-                    <td className="px-2 py-1.5 text-ink-subtle">{row.v}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        {hasStructuredReview ? (
+          <ReviewBySheet groups={selectedNormalizationView.tableGroups} />
+        ) : (
+          <div className="mt-4">
+            <LegacyKvGrid
+              rows={selectedNormalizationView.summaryRows}
+              emptyLabel="No normalization summary was provided."
+            />
           </div>
-        ) : null}
+        )}
 
-        {selectedNormalizationView.issueRows.length > 0 ? (
-          <div className="mt-3 rounded-lg border border-danger-border bg-danger-tint/60 p-3">
-            <p className="text-caption font-medium text-danger-ink">Validation findings</p>
-            <div className="mt-2 overflow-x-auto">
-              <table className="min-w-full text-left text-caption">
-                <tbody>
-                  {selectedNormalizationView.issueRows.map((row) => (
-                    <tr
-                      key={`${row.k}-${row.v}`}
-                      className="border-b border-danger-border/70 last:border-b-0"
-                    >
-                      <td className="px-2 py-1.5 font-medium text-danger-ink">{row.k}</td>
-                      <td className="px-2 py-1.5 text-danger-ink/80">{row.v}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ) : null}
+        <MissingMembersEditor
+          memberAdditionDrafts={memberAdditionDrafts}
+          isSubmittingNormalizationDecision={isSubmittingNormalizationDecision}
+          updateMemberAdditionDraft={updateMemberAdditionDraft}
+        />
 
-        {missingMemberCount > 0 ? (
-          <div className="mt-3 rounded-lg border border-hairline bg-canvas p-3">
-            <p className="text-caption font-medium text-ink">Add missing member master data</p>
-            <p className="mt-1 text-caption text-ink-subtle">
-              These member IDs were not found in the workbook member master sheet or active
-              database.
-            </p>
-
-            <div className="mt-3 space-y-3">
-              {memberAdditionDrafts.map((draft) => (
-                <div
-                  key={draft.member_id}
-                  className="grid gap-2 rounded-md border border-hairline bg-surface-1 p-2 sm:grid-cols-4"
-                >
-                  <div className="space-y-1">
-                    <Label htmlFor={`member-id-${draft.member_id}`}>Member ID</Label>
-                    <Input id={`member-id-${draft.member_id}`} value={draft.member_id} disabled />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor={`member-name-${draft.member_id}`}>Full name</Label>
-                    <Input
-                      id={`member-name-${draft.member_id}`}
-                      value={draft.full_name}
-                      onChange={(event) =>
-                        updateMemberAdditionDraft(draft.member_id, 'full_name', event.target.value)
-                      }
-                      disabled={isSubmittingNormalizationDecision}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor={`member-department-${draft.member_id}`}>Department</Label>
-                    <Input
-                      id={`member-department-${draft.member_id}`}
-                      value={draft.department}
-                      onChange={(event) =>
-                        updateMemberAdditionDraft(draft.member_id, 'department', event.target.value)
-                      }
-                      disabled={isSubmittingNormalizationDecision}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor={`member-role-${draft.member_id}`}>Role title</Label>
-                    <Input
-                      id={`member-role-${draft.member_id}`}
-                      value={draft.role_title}
-                      onChange={(event) =>
-                        updateMemberAdditionDraft(draft.member_id, 'role_title', event.target.value)
-                      }
-                      disabled={isSubmittingNormalizationDecision}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-
-        <div className="mt-3 flex flex-wrap items-center justify-end gap-2 rounded-lg border border-hairline bg-canvas p-3">
+        <div className="mt-4 flex flex-wrap items-center justify-end gap-2 rounded-lg border border-hairline bg-canvas p-3">
           <Button
             type="button"
             size="sm"

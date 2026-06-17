@@ -40,6 +40,36 @@ export interface NormalizationResult extends DbChangeSummaryResult {
     sourceRow: number;
     policy: 'allow' | 'skip' | 'block';
   }>;
+  reviewRows: NormalizationReviewRow[];
+}
+
+export interface NormalizationReviewColumn {
+  key: string;
+  label: string;
+}
+
+export interface NormalizationReviewRow {
+  id: string;
+  groupId: string;
+  groupLabel: string;
+  tableId: string;
+  sourceSheet?: string;
+  sourceRow: number;
+  status: 'blocked' | 'duplicate' | 'warning' | 'skipped';
+  issueType:
+    | 'duplicate_in_upload'
+    | 'missing_required'
+    | 'missing_reference'
+    | 'parse_error'
+    | 'exact_duplicate';
+  issueLabel: string;
+  issueDetail: string;
+  values: Record<string, unknown>;
+  columns: NormalizationReviewColumn[];
+  problemFields: string[];
+  duplicateGroupKey?: string;
+  duplicateOfRowId?: string;
+  decision: 'keep_row' | 'skip_row' | 'skipped';
 }
 
 export interface DynamicHandlerDeps {

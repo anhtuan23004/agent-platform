@@ -51,6 +51,7 @@ const baseNormalizationResult: NormalizationResult = {
     resource_allocation: 1,
   },
   duplicateInUploadRows: [],
+  reviewRows: [],
 };
 
 const deps = {

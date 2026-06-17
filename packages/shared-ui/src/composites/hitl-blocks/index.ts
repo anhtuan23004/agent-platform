@@ -1,6 +1,7 @@
 import type { ComponentType } from 'react';
 import { CitationsBlock } from './citations-block';
 import { ConfidenceBlock } from './confidence-block';
+import { DataQualityReviewBlock } from './data-quality-review-block';
 import { DiffBlock } from './diff-block';
 import { EntityListBlock } from './entity-list-block';
 import { KvTableBlock } from './kv-table-block';
@@ -18,4 +19,5 @@ export const blockRenderers: Record<string, ComponentType<BlockProps>> = {
   confidence: ConfidenceBlock,
   citations: CitationsBlock,
   diff: DiffBlock,
+  dataQualityReview: DataQualityReviewBlock,
 };

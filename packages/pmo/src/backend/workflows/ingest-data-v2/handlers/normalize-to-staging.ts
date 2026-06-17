@@ -25,6 +25,8 @@ import type {
   DynamicHandlerDeps,
   MappingResult,
   NormalizationResult,
+  NormalizationReviewColumn,
+  NormalizationReviewRow,
   StagingChangeSummary,
 } from './common.ts';
 
@@ -62,6 +64,15 @@ interface ReferenceLookup {
   rule: IngestionReferenceRule;
   uploadedTargetIds: Set<string>;
   dbTargetIds: Set<string>;
+}
+
+interface TableReviewContext {
+  tableId: string;
+  sourceSheet: string;
+  headerRow: number;
+  columns: NormalizationReviewColumn[];
+  sourceColumnByField: Map<string, string>;
+  rawRowBySourceRow: Map<number, Record<string, unknown>>;
 }
 
 function buildStagingPayload(params: {
@@ -137,6 +148,90 @@ async function buildReferenceLookups(params: {
   );
 }
 
+function buildTableReviewContexts(params: {
+  tableMappings: DetectTableMapping[];
+  sheets: Awaited<ReturnType<DynamicHandlerDeps['getWorkbookParseResult']>>['sheets'];
+}): Map<string, TableReviewContext> {
+  const sheetByName = new Map(params.sheets.map((sheet) => [sheet.name, sheet]));
+  const contexts = new Map<string, TableReviewContext>();
+
+  for (const mapping of params.tableMappings) {
+    const sourceColumnByField = new Map<string, string>();
+    const columns: NormalizationReviewColumn[] = [];
+    for (const columnMapping of mapping.mappings) {
+      sourceColumnByField.set(columnMapping.canonicalField, columnMapping.sourceColumn);
+      columns.push({
+        key: columnMapping.sourceColumn,
+        label: columnMapping.sourceColumn,
+      });
+    }
+
+    const rawRowBySourceRow = new Map<number, Record<string, unknown>>();
+    const sheet = sheetByName.get(mapping.sourceSheet);
+    for (const [rowIndex, row] of (sheet?.rows ?? []).entries()) {
+      rawRowBySourceRow.set(mapping.headerRow + rowIndex + 1, row);
+    }
+
+    contexts.set(mapping.tableId, {
+      tableId: mapping.tableId,
+      sourceSheet: mapping.sourceSheet,
+      headerRow: mapping.headerRow,
+      columns,
+      sourceColumnByField,
+      rawRowBySourceRow,
+    });
+  }
+
+  return contexts;
+}
+
+function valueRecordForReviewRow(
+  context: TableReviewContext | undefined,
+  sourceRow: number,
+  normalizedValues: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!context) return normalizedValues;
+  const raw = context.rawRowBySourceRow.get(sourceRow);
+  if (raw) return raw;
+
+  const values: Record<string, unknown> = {};
+  for (const [field, sourceColumn] of context.sourceColumnByField.entries()) {
+    values[sourceColumn] = normalizedValues[field];
+  }
+  return values;
+}
+
+function problemColumns(context: TableReviewContext | undefined, fields: string[]): string[] {
+  if (!context) return fields;
+  return fields.map((field) => context.sourceColumnByField.get(field) ?? field);
+}
+
+function reviewRowId(tableId: string, sourceRow: number): string {
+  return `${tableId}:${sourceRow}`;
+}
+
+function issueTypeForBlockingReason(reason: string): NormalizationReviewRow['issueType'] {
+  if (reason.includes('unresolved reference')) return 'missing_reference';
+  if (reason.includes('required value missing')) return 'missing_required';
+  return 'parse_error';
+}
+
+function issueLabelForType(type: NormalizationReviewRow['issueType']): string {
+  if (type === 'duplicate_in_upload') return 'Duplicate';
+  if (type === 'missing_reference') return 'Missing reference';
+  if (type === 'missing_required') return 'Missing field';
+  if (type === 'exact_duplicate') return 'Skipped';
+  return 'Blocked';
+}
+
+function groupLabelForType(type: NormalizationReviewRow['issueType']): string {
+  if (type === 'duplicate_in_upload') return 'Duplicates';
+  if (type === 'missing_reference') return 'Missing references';
+  if (type === 'missing_required') return 'Missing fields';
+  if (type === 'exact_duplicate') return 'Rows to skip';
+  return 'Parse errors';
+}
+
 export function createNormalizeToStagingHandler(
   deps: Pick<
     DynamicHandlerDeps,
@@ -179,6 +274,10 @@ export function createNormalizeToStagingHandler(
           },
         })),
       }));
+      const reviewContexts = buildTableReviewContexts({
+        tableMappings: tableMappings as DetectTableMapping[],
+        sheets: parseResult.sheets,
+      });
 
       const normResult = normalizeRows(
         parseResult.sheets,
@@ -202,6 +301,8 @@ export function createNormalizeToStagingHandler(
       const allStaged: StagedRow[] = [];
       const rowCountsByTable: Record<string, number> = {};
       const duplicateInUploadRows: NormalizationResult['duplicateInUploadRows'] = [];
+      const reviewRows: NormalizationReviewRow[] = [];
+      const reviewRowKeys = new Set<string>();
       const changeSummary: Array<{
         tableId: string;
         counts: {
@@ -219,6 +320,7 @@ export function createNormalizeToStagingHandler(
 
       for (const [tableId, rows] of Object.entries(normResult.tables)) {
         rowCountsByTable[tableId] = rows.length;
+        const context = reviewContexts.get(tableId);
         const requiredFields = deps.requiredFieldsByTable.get(tableId) ?? [];
         for (const row of rows) {
           for (const parseError of row.parseErrors) {
@@ -272,14 +374,54 @@ export function createNormalizeToStagingHandler(
           deps.domainConfig,
         );
         allStaged.push(...staged);
+        const firstRowByNaturalKey = new Map<string, StagedRow>();
+        for (const stagedRow of staged) {
+          if (!firstRowByNaturalKey.has(stagedRow.naturalKeyHash)) {
+            firstRowByNaturalKey.set(stagedRow.naturalKeyHash, stagedRow);
+          }
+        }
         for (const stagedRow of staged) {
           if (stagedRow.changeType !== 'duplicate_in_upload') continue;
+          const firstRow = firstRowByNaturalKey.get(stagedRow.naturalKeyHash);
+          const duplicateGroupKey = `${tableId}:${stagedRow.naturalKeyHash}`;
+          const firstRowId = firstRow ? reviewRowId(tableId, firstRow.sourceRow) : undefined;
           duplicateInUploadRows.push({
             tableId,
             naturalKey: stagedRow.naturalKeyDisplay,
             sourceRow: stagedRow.sourceRow,
             policy: shouldBlockDuplicateInUpload(tableId, deps.domainConfig) ? 'block' : 'skip',
           });
+          for (const rowForReview of [firstRow, stagedRow]) {
+            if (!rowForReview) continue;
+            const key = `${tableId}:${rowForReview.sourceRow}:duplicate_in_upload`;
+            if (reviewRowKeys.has(key)) continue;
+            reviewRowKeys.add(key);
+            reviewRows.push({
+              id: reviewRowId(tableId, rowForReview.sourceRow),
+              groupId: duplicateGroupKey,
+              groupLabel: 'Duplicates',
+              tableId,
+              ...(context?.sourceSheet ? { sourceSheet: context.sourceSheet } : {}),
+              sourceRow: rowForReview.sourceRow,
+              status: 'duplicate',
+              issueType: 'duplicate_in_upload',
+              issueLabel: 'Duplicate',
+              issueDetail:
+                firstRowId && rowForReview.sourceRow !== firstRow?.sourceRow
+                  ? `Duplicate of row ${firstRowId}`
+                  : 'Duplicate group source row',
+              values: valueRecordForReviewRow(context, rowForReview.sourceRow, rowForReview.values),
+              columns: context?.columns ?? [],
+              problemFields: problemColumns(context, Object.keys(rowForReview.naturalKeyDisplay)),
+              duplicateGroupKey,
+              ...(firstRowId && rowForReview.sourceRow !== firstRow?.sourceRow
+                ? { duplicateOfRowId: firstRowId }
+                : {}),
+              decision: shouldBlockDuplicateInUpload(tableId, deps.domainConfig)
+                ? 'keep_row'
+                : 'skip_row',
+            });
+          }
         }
 
         const counts = {
@@ -293,6 +435,29 @@ export function createNormalizeToStagingHandler(
           if (stagedRow.changeType === 'updated_record') counts.updated_records++;
           if (stagedRow.changeType === 'exact_duplicate') counts.exact_duplicates++;
           if (stagedRow.changeType === 'duplicate_in_upload') counts.duplicates_in_upload++;
+        }
+
+        for (const stagedRow of staged) {
+          if (stagedRow.changeType !== 'exact_duplicate') continue;
+          const key = `${tableId}:${stagedRow.sourceRow}:exact_duplicate`;
+          if (reviewRowKeys.has(key)) continue;
+          reviewRowKeys.add(key);
+          reviewRows.push({
+            id: reviewRowId(tableId, stagedRow.sourceRow),
+            groupId: `${tableId}:exact_duplicate`,
+            groupLabel: 'Rows to skip',
+            tableId,
+            ...(context?.sourceSheet ? { sourceSheet: context.sourceSheet } : {}),
+            sourceRow: stagedRow.sourceRow,
+            status: 'skipped',
+            issueType: 'exact_duplicate',
+            issueLabel: 'Skipped',
+            issueDetail: 'Exact duplicate already exists in PMO data',
+            values: valueRecordForReviewRow(context, stagedRow.sourceRow, stagedRow.values),
+            columns: context?.columns ?? [],
+            problemFields: [],
+            decision: 'skipped',
+          });
         }
 
         const sampleChanges = staged
@@ -312,6 +477,55 @@ export function createNormalizeToStagingHandler(
       }
 
       const blockingIssues = [...blockingIssueMap.values()];
+      const blockingIssuesByRow = new Map<string, BlockingIssue[]>();
+      for (const issue of blockingIssues) {
+        const key = `${issue.tableId}:${issue.sourceRow}`;
+        blockingIssuesByRow.set(key, [...(blockingIssuesByRow.get(key) ?? []), issue]);
+      }
+      for (const [key, issues] of blockingIssuesByRow.entries()) {
+        const [tableId = '', sourceRowRaw = '0'] = key.split(':');
+        const sourceRow = Number(sourceRowRaw);
+        const context = reviewContexts.get(tableId);
+        const normalizedRow = normResult.tables[tableId]?.find(
+          (row) => row.sourceRow === sourceRow,
+        );
+        const issueTypes = new Set(issues.map((issue) => issueTypeForBlockingReason(issue.reason)));
+        const issueType =
+          issueTypes.size > 1 ? 'parse_error' : (issueTypes.values().next().value ?? 'parse_error');
+        const problemFieldNames = issues.map((issue) => issue.field);
+        const problemFieldLabels = problemColumns(context, problemFieldNames);
+        const detail = issues.map((issue) => issue.reason).join('; ');
+        const reviewKey = `${tableId}:${sourceRow}:blocking`;
+        if (reviewRowKeys.has(reviewKey)) continue;
+        reviewRowKeys.add(reviewKey);
+        reviewRows.push({
+          id: reviewRowId(tableId, sourceRow),
+          groupId: `${tableId}:${issueType}`,
+          groupLabel: issueTypes.size > 1 ? 'Multiple issues' : groupLabelForType(issueType),
+          tableId,
+          ...(context?.sourceSheet ? { sourceSheet: context.sourceSheet } : {}),
+          sourceRow,
+          status: 'blocked',
+          issueType,
+          issueLabel: issueTypes.size > 1 ? 'Multiple issues' : issueLabelForType(issueType),
+          issueDetail: detail,
+          values: valueRecordForReviewRow(context, sourceRow, normalizedRow?.values ?? {}),
+          columns: context?.columns ?? [],
+          problemFields: problemFieldLabels,
+          decision: 'keep_row',
+        });
+      }
+      reviewRows.sort((a, b) => {
+        const tableCompare = a.tableId.localeCompare(b.tableId);
+        if (tableCompare !== 0) return tableCompare;
+        const groupCompare = a.groupLabel.localeCompare(b.groupLabel);
+        if (groupCompare !== 0) return groupCompare;
+        const duplicateCompare = (a.duplicateGroupKey ?? '').localeCompare(
+          b.duplicateGroupKey ?? '',
+        );
+        if (duplicateCompare !== 0) return duplicateCompare;
+        return a.sourceRow - b.sourceRow;
+      });
       const hasBlockingIssues = blockingIssues.length > 0;
       const hasUpdates = changeSummary.some(
         (table) => table.counts.new_records + table.counts.updated_records > 0,
@@ -327,6 +541,7 @@ export function createNormalizeToStagingHandler(
         requiresReview: true,
         rowCountsByTable,
         duplicateInUploadRows,
+        reviewRows,
       };
       const nextAllowedActions: ReviewAction[] = blocked
         ? ['reject', 'rerun']
@@ -368,6 +583,7 @@ export function createNormalizeToStagingHandler(
             identity: deps.resolveCardIdentity(input.requestContext),
             toolCallId: `workflow:${input.runId}:pmo_reviewNormalization`,
             plannerStep,
+            reviewRows,
           }),
           sessionStatus: 'awaiting_normalization_review',
           runtimeContextPatch: {
@@ -409,6 +625,7 @@ export function createNormalizeToStagingHandler(
             identity: deps.resolveCardIdentity(input.requestContext),
             toolCallId: `workflow:${input.runId}:pmo_reviewNormalization`,
             plannerStep,
+            reviewRows,
           }),
           sessionStatus: 'awaiting_normalization_review',
           runtimeContextPatch: {
