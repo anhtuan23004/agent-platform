@@ -1380,6 +1380,356 @@ Acceptance criteria:
 - Tests cover both prompt output and compiler post-processing.
 - Regression tests prove the planner cannot make executor-visible fake steps.
 
+## Remaining Review-Gated Control Plane Plan
+
+The first slice of the review-gated control plane is now in place for column
+mapping:
+
+```text
+ColumnMappingProposal
+  -> mapping review gate
+  -> ApprovedCheckpoint<MappingResult>
+  -> normalize_to_staging
+```
+
+The remaining work is to apply the same model to profiling, DB change review,
+and publish approval, then clean up legacy compatibility fields once the UI and
+runtime read the checkpoint model directly.
+
+### Remaining Phase A: Profiling Proposal And Checkpoint
+
+Purpose:
+
+- Make workbook profiling an explicit reviewable output.
+- Ensure supplemental uploads or user edits create a new profiling proposal
+  version instead of mutating an approved result.
+- Give downstream mapping a stable approved profiling context.
+
+Current state:
+
+- Profiling output is stored mostly as execution/profiling state.
+- The user can approve/continue, but there is no formal
+  `ApprovedCheckpoint<ProfilingResult>` yet.
+- Supplemental upload behavior is not represented as checkpoint versioning.
+
+Steps:
+
+1. Define `ProfilingResult` around the data downstream steps need:
+   - document profiles;
+   - detected sheets;
+   - excluded sheets;
+   - workbook summary;
+   - user review decisions or waived issues.
+2. After workbook profiling completes, create
+   `ToolProposal<ProfilingResult>` with:
+   - `step_id = "workbook_profiling"`;
+   - `status = "needs_review"` when user approval is required;
+   - `status = "completed"` when profiling can auto-continue;
+   - source artifact ids for uploaded workbook/profile artifacts when
+     available.
+3. On profiling approval, append
+   `ApprovedCheckpoint<ProfilingResult>`.
+4. On supplemental upload or user modification, create profiling proposal
+   version `N + 1`.
+5. If a new profiling checkpoint invalidates existing mapping assumptions,
+   mark the old mapping checkpoint as superseded in metadata and require a new
+   mapping proposal. Do not delete or mutate the old mapping checkpoint.
+6. Keep existing profiling API/UI fields populated until the frontend can read
+   checkpoint history directly.
+
+Acceptance criteria:
+
+- Profiling approval creates an immutable checkpoint.
+- Supplemental upload creates a new profiling proposal version.
+- Mapping can read the latest approved profiling checkpoint.
+- Old profiling state remains readable for existing UI/API paths.
+- Tests prove that approving profiling v1 and then uploading more data creates
+  profiling proposal v2 while preserving checkpoint v1.
+
+### Remaining Phase B: DB Change Summary Proposal And Checkpoint
+
+Purpose:
+
+- Prevent publish from using raw staging output that has not been reviewed.
+- Make DB impact review auditable and versioned.
+- Separate internal normalization artifacts from user-approved DB change
+  summaries.
+
+Current state:
+
+- Normalize produces `staging_result` / `change_summary`.
+- The user reviews the normalization/DB impact card.
+- Publish can still be coupled to the raw staging result shape.
+
+Steps:
+
+1. Define `DbChangeSummaryResult` around the existing DB impact payload:
+   - `changeSummary`;
+   - `blockingIssues`;
+   - `mappingReviewRows`;
+   - `hasBlockingIssues`;
+   - `hasUpdates`;
+   - duplicate-in-upload status;
+   - skipped row details when available.
+2. When normalize/stage finishes and user review is required, create
+   `ToolProposal<DbChangeSummaryResult>` with:
+   - `step_id = "database_change_summary"`;
+   - `status = "needs_review"`;
+   - `review_required = true`;
+   - `next_allowed_actions = ["approve", "reject", "rerun"]`.
+3. When there are blocking issues or blocking duplicate-in-upload rows, keep the
+   proposal reviewable but do not allow approval.
+4. On user approval, append
+   `ApprovedCheckpoint<DbChangeSummaryResult>`.
+5. Keep `change_summary` compatibility payload populated until publish and UI
+   no longer depend on it directly.
+6. Add tests for:
+   - DB summary proposal creation;
+   - approval creates checkpoint;
+   - blocked summary cannot create an approved checkpoint;
+   - proposal-only state cannot unlock publish.
+
+Acceptance criteria:
+
+- DB change review has proposal/checkpoint history.
+- Blocking DB diff proposals cannot be approved.
+- Existing DB change review card still renders the same important details.
+- Publish no longer treats raw `staging_result` as an approval signal.
+
+### Remaining Phase C: Publish Uses Approved DB Checkpoint
+
+Purpose:
+
+- Enforce that publishing only happens from an approved DB change checkpoint
+  when publish approval is required.
+- Make `publish_after_approval` deterministic and auditable.
+
+Current state:
+
+- Publish reads the existing staging/change summary compatibility fields.
+- Publish approval exists as a user action, but the approved DB change payload
+  is not yet formalized as a checkpoint dependency.
+
+Steps:
+
+1. In `publish_after_approval`, require:
+
+   ```ts
+   requireApprovedCheckpoint<DbChangeSummaryResult>(
+     state,
+     'database_change_summary',
+   )
+   ```
+
+   when `INGESTION_REQUIRE_PUBLISH_APPROVAL=true`.
+2. Use the approved checkpoint metadata to verify the DB summary version being
+   published.
+3. Reject publish if:
+   - the latest DB change proposal has no approved checkpoint;
+   - the approved checkpoint is superseded;
+   - blocking issues or duplicate-in-upload blockers exist;
+   - the user only approved an older DB summary version.
+4. Keep direct publish as a separately tested path only for domains/policies
+   that explicitly allow it.
+5. Add tests proving:
+   - publish fails with raw staging result only;
+   - publish succeeds with approved DB change checkpoint;
+   - publish fails when a newer DB change proposal exists after the approved
+     checkpoint.
+
+Acceptance criteria:
+
+- Publish cannot run from raw `staging_result` when approval is required.
+- Publish can run from an approved DB change checkpoint.
+- Publish emits or records which checkpoint version was published.
+- Existing PMO publish behavior remains equivalent after approval.
+
+### Remaining Phase D: UI And API Visibility
+
+Purpose:
+
+- Make proposal/checkpoint state visible enough for audit and debugging.
+- Avoid forcing users to inspect raw JSON to understand which version was
+  approved.
+
+Current state:
+
+- Checkpoint history is persisted inside existing JSON payloads.
+- UI still mainly renders legacy workflow/review card state.
+
+Steps:
+
+1. Extend PMO session API response with normalized review gate metadata:
+
+   ```ts
+   review_gates: Array<{
+     step_id: string;
+     latest_proposal_version?: number;
+     latest_checkpoint_version?: number;
+     status: 'none' | 'needs_review' | 'approved' | 'superseded';
+     approved_at?: string;
+     approved_by?: string;
+   }>
+   ```
+
+2. Show version/status on the workflow cards:
+   - proposal version;
+   - approved checkpoint version;
+   - superseded warning when applicable.
+3. Keep detailed checkpoint payloads out of the normal list view. Fetch or show
+   them only inside a detail/history panel.
+4. Add frontend tests or component tests for:
+   - proposal pending;
+   - checkpoint approved;
+   - superseded checkpoint.
+
+Acceptance criteria:
+
+- A user can see whether a step is using a proposal or an approved checkpoint.
+- Previous approved checkpoints remain view-only history.
+- UI does not expose huge raw payloads in the normal workflow view.
+
+### Remaining Phase E: Storage Model Hardening
+
+Purpose:
+
+- Move from compatibility JSON embedding to a cleaner review-state storage
+  model once the flow is stable.
+- Make querying audit history easier.
+
+Current state:
+
+- Mapping checkpoint history is stored inside the existing `confirmed_mapping`
+  JSON payload to avoid a migration in the first slice.
+- This is acceptable for the first implementation, but it is not the clean
+  long-term model.
+
+Options:
+
+1. Add JSONB columns on `pmo.ingestion_sessions`:
+   - `review_proposals`;
+   - `approved_checkpoints`.
+2. Or create a separate review gate table:
+
+   ```text
+   pmo.ingestion_review_events
+     - id
+     - ingestion_session_id
+     - step_id
+     - kind: proposal | checkpoint
+     - version
+     - payload
+     - created_at
+     - created_by
+   ```
+
+Recommended path:
+
+- Use the separate table if audit querying, event history, or cross-domain reuse
+  matters soon.
+- Use JSONB columns if the team wants the smallest schema change first.
+
+Acceptance criteria:
+
+- Review history is stored outside legacy business payload fields.
+- Existing sessions can still be read through a migration/compatibility helper.
+- New sessions write the canonical review state location first.
+
+### Remaining Phase F: Move Generic Code Out Of PMO
+
+Purpose:
+
+- Turn PMO from the owner of the control-plane model into the first adapter that
+  uses it.
+- Reuse proposal/checkpoint contracts for future domains.
+
+Current state:
+
+- Contracts and helpers are intentionally PMO-local:
+  - `packages/pmo/src/backend/ingestion/review-contracts.ts`;
+  - `packages/pmo/src/backend/workflows/ingest-data-v2/checkpoints.ts`.
+
+Steps:
+
+1. Create or extend `packages/ingestion`.
+2. Move domain-neutral code to:
+
+   ```text
+   packages/ingestion/src/review-contracts.ts
+   packages/ingestion/src/checkpoint-store.ts
+   packages/ingestion/src/executor-guards.ts
+   ```
+
+3. Export public APIs from `packages/ingestion/src/index.ts`.
+4. Update PMO imports to use `@seta/ingestion`.
+5. Keep PMO-specific payload types, adapters, and UI text in `packages/pmo`.
+6. Run dependency-cruiser to ensure module boundaries remain valid.
+
+Acceptance criteria:
+
+- Generic review/checkpoint code imports no PMO code.
+- PMO imports generic contracts through the public package surface.
+- Future HR/Finance ingestion can reuse the same control-plane contracts.
+
+### Clean Code End State
+
+If the remaining phases are implemented, the clean end state should be:
+
+```text
+Planner
+  - classifies intent
+  - proposes plan steps
+  - never unlocks gated execution by itself
+
+Executor / state machine
+  - checks allowed next step
+  - creates ToolProposal<T> for reviewable outputs
+  - appends ApprovedCheckpoint<T> only after user/system approval
+  - only approved checkpoints satisfy gated dependencies
+
+Tools / handlers
+  - produce proposals or internal artifacts
+  - do not read unapproved proposals as downstream input
+
+UI
+  - shows intent, plan, current step, proposal version, checkpoint version
+  - previous checkpoints are view-only history
+
+Storage
+  - review history is append-only
+  - approved checkpoints are immutable
+  - compatibility fields are no longer the source of truth
+```
+
+### Code That Can Be Removed After Full Migration
+
+After all PMO sessions and UI paths use proposal/checkpoint state directly, the
+following compatibility code can be removed or narrowed:
+
+1. Legacy dependency on `confirmed_mapping` as the source of truth:
+   - keep only a migration reader for old sessions;
+   - new normalize code should read
+     `ApprovedCheckpoint<MappingResult>`.
+2. Legacy dependency on raw `change_summary` / `staging_result` as publish
+   approval state:
+   - new publish code should read
+     `ApprovedCheckpoint<DbChangeSummaryResult>`.
+3. Compatibility fallback in `normalize_to_staging` that accepts
+   `confirmedMappings` without checkpoint history.
+4. Review gate state embedded inside `confirmed_mapping` once canonical review
+   storage exists.
+5. PMO-local generic helpers after they move to `packages/ingestion`:
+   - PMO-local `review-contracts.ts`;
+   - PMO-local checkpoint helper implementation.
+6. UI assumptions that map approval equals the presence of
+   `confirmed_mapping`.
+7. Any prompt-only enforcement language that duplicates code invariants. Prompt
+   instructions can remain descriptive, but gate enforcement should live in
+   executor guards.
+
+Do not remove these until the compatibility tests prove old sessions can still
+be read or migrated.
+
 ## Suggested Implementation Order
 
 1. Add planner intent mode classification.

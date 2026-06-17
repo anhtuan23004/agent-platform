@@ -53,11 +53,17 @@ function resolvePlanningModel(): string {
 }
 
 function buildIntentPrompt(catalog: PmoPlannerCatalog): string {
+  const examples = catalog.examples.map((example) => ({
+    goal: example.goal,
+    intent_mode: example.intent_mode,
+    allowed_action_ids: example.allowed_action_ids,
+  }));
+
   return `You classify PMO ingestion planning intent from user goal text.
 
 Return exactly one structured object.
 
-Use the intent definitions below. The user may write in any language. Do not translate the user's goal in the output.
+Use the intent definitions, decision rules, and examples below. The user may write in any language. Do not translate the user's goal in the output.
 
 Intent definitions:
 ${JSON.stringify(
@@ -70,10 +76,19 @@ ${JSON.stringify(
   2,
 )}
 
+Examples:
+${JSON.stringify(examples, null, 2)}
+
 Rules:
-- Choose the narrowest intent that satisfies the user's goal.
 - Use the configured intent descriptions as the source of truth.
+- Classify by the deepest outcome the user explicitly asks for, not by every downstream step that could eventually happen.
+- Choose the narrowest intent that satisfies the user's requested outcome.
+- review_only means inspect, summarize, or understand the uploaded workbook only. It must not decide ingestion readiness.
+- mapping_readiness means the user asks whether the file is ready, suitable, valid, aligned, importable, ingestible, or mappable for PMO ingestion, or asks for column mapping.
+- stage_preview means the user asks for a dry run, staging, normalization, transformed rows, or database-impact preview without applying changes.
+- publish_intent means the user explicitly asks to import, ingest, apply, commit, sync, update, write, or publish changes to target PMO data.
 - Do not expand the scope beyond what the user actually asked for.
+- Never choose publish_intent unless the user explicitly asks for a write/apply/import/publish outcome.
 - Use confidence low when the goal is ambiguous or could reasonably fit more than one intent.
 - Low confidence means the user must confirm the intended scope before execution.`;
 }

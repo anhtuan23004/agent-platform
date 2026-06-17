@@ -166,6 +166,10 @@ describe('PMO planner workflow compiler', () => {
     expect(catalog.low_confidence_requires_confirmation).toBe(true);
     expect(catalog.steps.map((step) => step.action_id)).toContain('workbook_profiling');
     expect(catalog.examples.map((example) => example.intent_mode)).toContain('review_only');
+    expect(
+      catalog.examples.find((example) => example.goal.toLowerCase().includes('ready for ingestion'))
+        ?.intent_mode,
+    ).toBe('mapping_readiness');
   });
 
   it('loads the planner catalog from PMO_PLANNER_CATALOG_DIR when cwd is not the repo root', () => {

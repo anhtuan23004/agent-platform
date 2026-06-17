@@ -1,3 +1,4 @@
+import type { ReviewCheckpointState } from '../../../ingestion/review-contracts.ts';
 import {
   buildMappingItemReviewCard,
   buildMappingReviewRows,
@@ -5,8 +6,45 @@ import {
   collectMappingReviewItems,
   type MappingOverride,
 } from '../cards.ts';
+import {
+  appendCheckpoint,
+  appendProposal,
+  approveProposal,
+  createProposal,
+  getLatestProposal,
+} from '../checkpoints.ts';
 import type { PmoDynamicStepHandler } from '../types.ts';
-import type { DetectTableMapping, DynamicHandlerDeps, MappingReviewRow } from './common.ts';
+import type {
+  DetectTableMapping,
+  DynamicHandlerDeps,
+  MappingResult,
+  MappingReviewRow,
+} from './common.ts';
+
+function buildMappingStatePayload(params: {
+  checkpointState: ReviewCheckpointState;
+  result?: MappingResult;
+}): {
+  confirmedMappings?: DetectTableMapping[];
+  mappingReviewRows?: MappingReviewRow[];
+  review_proposals?: ReviewCheckpointState['review_proposals'];
+  approved_checkpoints?: ReviewCheckpointState['approved_checkpoints'];
+} {
+  return {
+    ...(params.result
+      ? {
+          confirmedMappings: params.result.confirmedMappings,
+          mappingReviewRows: params.result.mappingReviewRows,
+        }
+      : { confirmedMappings: [], mappingReviewRows: [] }),
+    ...(params.checkpointState.review_proposals
+      ? { review_proposals: params.checkpointState.review_proposals }
+      : {}),
+    ...(params.checkpointState.approved_checkpoints
+      ? { approved_checkpoints: params.checkpointState.approved_checkpoints }
+      : {}),
+  };
+}
 
 export function createColumnMappingHandler(
   deps: Pick<
@@ -31,6 +69,7 @@ export function createColumnMappingHandler(
         tenantId: input.tenantId,
         step: input.step,
       });
+      const checkpointState: ReviewCheckpointState = input.runtimeContext.confirmed_mapping ?? {};
 
       if (!input.resumeData) {
         if (detected.validationStatus === 'confirmed' || reviewItems.length === 0) {
@@ -43,31 +82,83 @@ export function createColumnMappingHandler(
             currentItemId: null,
             awaitingNextStep: true,
           });
+          const mappingResult: MappingResult = {
+            confirmedMappings: tableMappings,
+            mappingReviewRows,
+          };
+          const proposal = createProposal<MappingResult>({
+            state: checkpointState,
+            stepId: 'column_mapping',
+            proposal: mappingResult,
+            status: 'completed',
+            reviewRequired: false,
+            nextAllowedActions: ['approve'],
+            createdBy: actorUserId || 'system',
+            metadata: {
+              auto_confirmed: true,
+              validation_status: detected.validationStatus,
+            },
+          });
+          const proposalState = appendProposal(checkpointState, proposal);
+          const approvedCheckpoint = approveProposal<MappingResult>({
+            proposal,
+            approvedOutput: mappingResult,
+            approvedBy: actorUserId || 'system',
+            userOverrides: [],
+            metadata: { auto_confirmed: true },
+          });
+          const approvedState = appendCheckpoint(proposalState, approvedCheckpoint);
+          const confirmedMappingPayload = buildMappingStatePayload({
+            checkpointState: approvedState,
+            result: mappingResult,
+          });
 
           return {
             kind: 'completed',
             sessionStatus: 'confirmed',
             runtimeContextPatch: {
-              confirmed_mapping: {
-                confirmedMappings: tableMappings,
-                mappingReviewRows,
-              },
+              confirmed_mapping: confirmedMappingPayload,
             },
             sessionPatch: {
-              confirmed_mapping: {
-                confirmedMappings: tableMappings,
-                mappingReviewRows,
-              },
+              confirmed_mapping: confirmedMappingPayload,
             },
             outputSummary: {
               status: 'auto_confirmed',
               approved_items: reviewItems.length,
+              checkpoint_version: approvedCheckpoint.version,
             },
           };
         }
 
         const firstItem = reviewItems[0];
         if (!firstItem) throw new Error('mapping_review_items_empty');
+        const mappingReviewRows: MappingReviewRow[] = buildMappingReviewRows({
+          displayItems,
+          reviewItems,
+          approvedItemIds: [],
+          approvedByByItemKey: {},
+          fallbackApprovedBy: actorUserId,
+          currentItemId: firstItem.id,
+          awaitingNextStep: false,
+        });
+        const mappingResult: MappingResult = {
+          confirmedMappings: tableMappings,
+          mappingReviewRows,
+        };
+        const proposal = createProposal<MappingResult>({
+          state: checkpointState,
+          stepId: 'column_mapping',
+          proposal: mappingResult,
+          status: 'needs_review',
+          reviewRequired: true,
+          nextAllowedActions: ['approve', 'modify', 'reject'],
+          createdBy: actorUserId || 'agent',
+          metadata: {
+            total_review_items: reviewItems.length,
+            validation_status: detected.validationStatus,
+          },
+        });
+        const proposalState = appendProposal(checkpointState, proposal);
 
         return {
           kind: 'suspend',
@@ -86,9 +177,16 @@ export function createColumnMappingHandler(
             plannerStep,
           }),
           sessionStatus: 'awaiting_confirmation',
+          runtimeContextPatch: {
+            confirmed_mapping: buildMappingStatePayload({
+              checkpointState: proposalState,
+              result: mappingResult,
+            }),
+          },
           outputSummary: {
             status: 'needs_review',
             total_items: reviewItems.length,
+            proposal_version: proposal.version,
           },
         };
       }
@@ -213,25 +311,54 @@ export function createColumnMappingHandler(
         currentItemId: null,
         awaitingNextStep: true,
       });
+      const mappingResult: MappingResult = {
+        confirmedMappings: effectiveMappings,
+        mappingReviewRows,
+      };
+      const proposal =
+        getLatestProposal<MappingResult>(checkpointState, 'column_mapping') ??
+        createProposal<MappingResult>({
+          state: checkpointState,
+          stepId: 'column_mapping',
+          proposal: mappingResult,
+          status: 'needs_review',
+          reviewRequired: true,
+          nextAllowedActions: ['approve', 'modify', 'reject'],
+          createdBy: actorUserId || 'agent',
+          metadata: { created_for_legacy_resume: true },
+        });
+      const stateWithProposal = getLatestProposal(checkpointState, 'column_mapping')
+        ? checkpointState
+        : appendProposal(checkpointState, proposal);
+      const approvedCheckpoint = approveProposal<MappingResult>({
+        proposal,
+        approvedOutput: mappingResult,
+        approvedBy: actorUserId || 'system',
+        userOverrides: mergedOverrides,
+        metadata: {
+          approved_item_count: effectiveReviewItems.length,
+          modified: mergedOverrides.length > 0,
+        },
+      });
+      const approvedState = appendCheckpoint(stateWithProposal, approvedCheckpoint);
+      const confirmedMappingPayload = buildMappingStatePayload({
+        checkpointState: approvedState,
+        result: mappingResult,
+      });
 
       return {
         kind: 'completed',
         sessionStatus: 'confirmed',
         runtimeContextPatch: {
-          confirmed_mapping: {
-            confirmedMappings: effectiveMappings,
-            mappingReviewRows,
-          },
+          confirmed_mapping: confirmedMappingPayload,
         },
         sessionPatch: {
-          confirmed_mapping: {
-            confirmedMappings: effectiveMappings,
-            mappingReviewRows,
-          },
+          confirmed_mapping: confirmedMappingPayload,
         },
         outputSummary: {
           status: 'confirmed',
           approved_items: effectiveReviewItems.length,
+          checkpoint_version: approvedCheckpoint.version,
         },
       };
     },

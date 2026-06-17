@@ -427,6 +427,12 @@ function normalizeRuntimeContextFromSessionRow(params: {
       mappingReviewRows: Array.isArray(params.confirmedMapping.mappingReviewRows)
         ? (params.confirmedMapping.mappingReviewRows as Array<{ k: string; v: string }>)
         : [],
+      ...(isObject(params.confirmedMapping.review_proposals)
+        ? { review_proposals: params.confirmedMapping.review_proposals as never }
+        : {}),
+      ...(isObject(params.confirmedMapping.approved_checkpoints)
+        ? { approved_checkpoints: params.confirmedMapping.approved_checkpoints as never }
+        : {}),
     };
   }
 

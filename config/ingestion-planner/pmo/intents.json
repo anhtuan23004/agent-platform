@@ -6,13 +6,13 @@
     {
       "intent_mode": "review_only",
       "label": "Review only",
-      "description": "The user wants to inspect, review, understand, summarize, or validate the workbook without mapping columns, staging records, comparing database changes, or publishing.",
+      "description": "The user wants to inspect, review, understand, summarize, or validate only the workbook structure/content without deciding whether it is ready for ingestion, mapping columns, staging records, comparing database changes, or publishing.",
       "allowed_action_ids": ["workbook_profiling"]
     },
     {
       "intent_mode": "mapping_readiness",
       "label": "Mapping readiness",
-      "description": "The user wants workbook review plus mapping preparation or column alignment, but does not ask to stage records or publish changes.",
+      "description": "The user wants workbook review plus ingestion readiness, suitability/validity for import, PMO schema fit, mapping preparation, or column alignment, but does not ask to stage records, compare database changes, or publish changes.",
       "allowed_action_ids": ["workbook_profiling", "column_mapping"]
     },
     {

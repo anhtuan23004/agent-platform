@@ -3,17 +3,20 @@ import { pmoDb as getPmoDb } from '../../../db/client.ts';
 import { stagingChanges } from '../../../db/schema.ts';
 import type { IngestionReferenceRule } from '../../../ingestion/domain-config.ts';
 import { normalizeRows } from '../../../ingestion/normalize-rows.ts';
+import type { ReviewCheckpointState } from '../../../ingestion/review-contracts.ts';
 import {
   classifyRows,
   type StagedRow,
   shouldBlockDuplicateInUpload,
 } from '../../../ingestion/stage-changes.ts';
 import { buildNormalizationReviewCard } from '../cards.ts';
+import { getLatestApprovedCheckpoint } from '../checkpoints.ts';
 import type { PmoDynamicStepHandler } from '../types.ts';
 import type {
   BlockingIssue,
   DetectTableMapping,
   DynamicHandlerDeps,
+  MappingResult,
   StagingChangeSummary,
 } from './common.ts';
 
@@ -49,6 +52,37 @@ interface ReferenceLookup {
   rule: IngestionReferenceRule;
   uploadedTargetIds: Set<string>;
   dbTargetIds: Set<string>;
+}
+
+function resolveApprovedMappingResult(
+  confirmedMapping:
+    | (ReviewCheckpointState & {
+        confirmedMappings?: unknown[];
+        mappingReviewRows?: Array<{ k: string; v: string }>;
+      })
+    | undefined,
+): MappingResult {
+  const checkpoint = getLatestApprovedCheckpoint<MappingResult>(confirmedMapping, 'column_mapping');
+  if (checkpoint) {
+    return checkpoint.approved_output;
+  }
+
+  const hasExplicitProposal = Boolean(confirmedMapping?.review_proposals?.column_mapping?.length);
+  if (hasExplicitProposal) {
+    throw new Error('approved_checkpoint_missing:column_mapping');
+  }
+
+  const legacyConfirmedMappings = confirmedMapping?.confirmedMappings;
+  if (Array.isArray(legacyConfirmedMappings) && legacyConfirmedMappings.length > 0) {
+    return {
+      confirmedMappings: legacyConfirmedMappings as DetectTableMapping[],
+      mappingReviewRows: Array.isArray(confirmedMapping?.mappingReviewRows)
+        ? confirmedMapping.mappingReviewRows
+        : [],
+    };
+  }
+
+  throw new Error('approved_checkpoint_missing:column_mapping');
 }
 
 async function buildReferenceLookups(params: {
@@ -87,10 +121,10 @@ export function createNormalizeToStagingHandler(
     actionId: 'normalize_to_staging',
     execute: async (input) => {
       if (!input.runtimeContext.confirmed_mapping) {
-        throw new Error('v2_confirmed_mapping_missing');
+        throw new Error('approved_checkpoint_missing:column_mapping');
       }
 
-      const confirmed = input.runtimeContext.confirmed_mapping;
+      const confirmed = resolveApprovedMappingResult(input.runtimeContext.confirmed_mapping);
       const plannerStep = await deps.readPlannerStepMeta({
         ingestionSessionId: input.ingestionSessionId,
         tenantId: input.tenantId,

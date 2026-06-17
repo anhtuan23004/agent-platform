@@ -165,6 +165,40 @@ describe('createNormalizeToStagingHandler', () => {
     ]);
   });
 
+  it('does not normalize when mapping has a proposal but no approved checkpoint', async () => {
+    await expect(
+      createNormalizeToStagingHandler(deps).execute(
+        makeInput({
+          runtimeContext: {
+            confirmed_mapping: {
+              confirmedMappings: makeInput().runtimeContext.confirmed_mapping?.confirmedMappings,
+              mappingReviewRows: [],
+              review_proposals: {
+                column_mapping: [
+                  {
+                    proposal_id: 'proposal-1',
+                    step_id: 'column_mapping',
+                    version: 1,
+                    status: 'needs_review',
+                    proposal: {
+                      confirmedMappings:
+                        makeInput().runtimeContext.confirmed_mapping?.confirmedMappings ?? [],
+                      mappingReviewRows: [],
+                    },
+                    review_required: true,
+                    next_allowed_actions: ['approve'],
+                    created_at: '2026-06-17T00:00:00.000Z',
+                    created_by: 'agent',
+                  },
+                ],
+              },
+            },
+          },
+        }),
+      ),
+    ).rejects.toThrow('approved_checkpoint_missing:column_mapping');
+  });
+
   it('allows normalization approval when RA member_id is present in uploaded member master', async () => {
     const result = await createNormalizeToStagingHandler({
       ...deps,

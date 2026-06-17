@@ -13,6 +13,11 @@ export type MappingReviewRow = z.infer<typeof ConfirmOutputSchema>['mappingRevie
 export type BlockingIssue = z.infer<typeof StagingOutputSchema>['blockingIssues'][number];
 export type StagingChangeSummary = z.infer<typeof StagingOutputSchema>['changeSummary'];
 
+export interface MappingResult {
+  confirmedMappings: DetectTableMapping[];
+  mappingReviewRows: MappingReviewRow[];
+}
+
 export interface DynamicHandlerDeps {
   domainConfig: IngestionDomainConfig;
   domainAdapter: IngestionDomainAdapter;
