@@ -127,13 +127,60 @@ function readJsonFile(filePath: string): unknown {
   return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
 }
 
+function catalogDirHasRequiredFiles(dir: string): boolean {
+  return (
+    fs.existsSync(path.join(dir, 'steps.json')) &&
+    fs.existsSync(path.join(dir, 'intents.json')) &&
+    fs.existsSync(path.join(dir, 'examples.json'))
+  );
+}
+
+function uniquePaths(paths: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const candidate of paths) {
+    const normalized = path.resolve(candidate);
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    result.push(normalized);
+  }
+
+  return result;
+}
+
+function resolvePmoPlannerCatalogDir(): string {
+  const configuredDir = process.env.PMO_PLANNER_CATALOG_DIR?.trim();
+  const repoRoot = findRepoRoot(process.cwd());
+  const appHome = process.env.APP_HOME?.trim();
+
+  const candidates = uniquePaths(
+    [
+      configuredDir,
+      path.join(repoRoot, 'config', 'ingestion-planner', 'pmo'),
+      appHome ? path.join(appHome, 'config', 'ingestion-planner', 'pmo') : null,
+      path.resolve(process.cwd(), '..', '..', 'config', 'ingestion-planner', 'pmo'),
+    ].filter((value): value is string => Boolean(value)),
+  );
+
+  for (const candidate of candidates) {
+    if (catalogDirHasRequiredFiles(candidate)) {
+      return candidate;
+    }
+  }
+
+  throw new Error(
+    `PMO planner catalog not found. Tried: ${candidates.join(', ')}. ` +
+      'Set PMO_PLANNER_CATALOG_DIR to a directory containing steps.json, intents.json, and examples.json.',
+  );
+}
+
 let cachedCatalog: PmoPlannerCatalog | null = null;
 
 export function loadPmoPlannerCatalog(): PmoPlannerCatalog {
   if (cachedCatalog) return cachedCatalog;
 
-  const root = findRepoRoot(process.cwd());
-  const baseDir = path.join(root, 'config', 'ingestion-planner', 'pmo');
+  const baseDir = resolvePmoPlannerCatalogDir();
   const stepsFile = StepsFileSchema.parse(readJsonFile(path.join(baseDir, 'steps.json')));
   const intentsFile = IntentsFileSchema.parse(readJsonFile(path.join(baseDir, 'intents.json')));
   const examplesFile = ExamplesFileSchema.parse(readJsonFile(path.join(baseDir, 'examples.json')));

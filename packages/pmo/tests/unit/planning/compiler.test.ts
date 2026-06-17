@@ -1,6 +1,24 @@
-import { describe, expect, it } from 'vitest';
-import { loadPmoPlannerCatalog } from '../../../src/backend/planning/catalog.ts';
+import * as path from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import {
+  loadPmoPlannerCatalog,
+  resetPmoPlannerCatalogCacheForTests,
+} from '../../../src/backend/planning/catalog.ts';
 import { compilePmoWorkflowSteps } from '../../../src/backend/planning/compiler.ts';
+
+const originalCwd = process.cwd();
+const originalCatalogDir = process.env.PMO_PLANNER_CATALOG_DIR;
+const repoRoot = path.resolve(import.meta.dirname, '../../../../..');
+
+afterEach(() => {
+  resetPmoPlannerCatalogCacheForTests();
+  process.chdir(originalCwd);
+  if (originalCatalogDir === undefined) {
+    delete process.env.PMO_PLANNER_CATALOG_DIR;
+  } else {
+    process.env.PMO_PLANNER_CATALOG_DIR = originalCatalogDir;
+  }
+});
 
 describe('PMO planner workflow compiler', () => {
   it('compiles Review this file intent to workbook profiling only', () => {
@@ -148,5 +166,14 @@ describe('PMO planner workflow compiler', () => {
     expect(catalog.low_confidence_requires_confirmation).toBe(true);
     expect(catalog.steps.map((step) => step.action_id)).toContain('workbook_profiling');
     expect(catalog.examples.map((example) => example.intent_mode)).toContain('review_only');
+  });
+
+  it('loads the planner catalog from PMO_PLANNER_CATALOG_DIR when cwd is not the repo root', () => {
+    process.chdir('/tmp');
+    process.env.PMO_PLANNER_CATALOG_DIR = path.join(repoRoot, 'config', 'ingestion-planner', 'pmo');
+
+    const catalog = loadPmoPlannerCatalog();
+
+    expect(catalog.steps.map((step) => step.action_id)).toContain('workbook_profiling');
   });
 });
