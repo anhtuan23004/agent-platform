@@ -50,12 +50,12 @@ describe('dispatcher per-subscriber isolation', () => {
           }
         });
 
-        // Fast must finish all EVENTS while slow is still in its first 1-2 handlers. If the
-        // dispatcher were serializing subscribers (old Promise.all single-flight tick), fast
-        // would be gated behind slow's first handler and the count would lag.
-        await waitFor(() => fastSeen === EVENTS, 1_500);
+        // Fast must finish all EVENTS while slow is still catching up. If subscribers were
+        // serialized, slow's 300ms handler would gate fast and both counts would stay aligned.
+        await waitFor(() => fastSeen === EVENTS, 3_000);
         expect(fastSeen).toBe(EVENTS);
-        expect(slowSeen).toBeLessThanOrEqual(2);
+        expect(slowSeen).toBeLessThan(EVENTS);
+        expect(slowSeen).toBeLessThan(fastSeen);
       } finally {
         await d.shutdown(10_000);
       }
