@@ -52,7 +52,7 @@ COPY apps/server/  apps/server/
 COPY apps/cli/     apps/cli/
 COPY apps/worker/  apps/worker/
 COPY config/       config/
-COPY hackathon/data/ data/
+COPY hackathon/data/ hackathon/data/
 
 # Typecheck-only — fail the image build if the TS doesn't pass.
 RUN pnpm --filter=@seta/server exec tsc --noEmit \
@@ -85,7 +85,7 @@ RUN cp -R apps/server/src /out/apps/server/src \
  && cp -R apps/worker/src /out/apps/worker/src \
  && cp -R config         /out/config \
  && mkdir -p /out/apps/cli/hackathon \
- && cp -R data            /out/apps/cli/hackathon/data
+ && cp -R hackathon/data /out/apps/cli/hackathon/data
 
 # ============================================================================
 # Stage 5 — runtime
@@ -94,7 +94,7 @@ RUN cp -R apps/server/src /out/apps/server/src \
 # ============================================================================
 FROM node:24-alpine AS runtime
 
-RUN apk add --no-cache tini \
+RUN apk add --no-cache tini sqlite \
  && addgroup -g 10001 seta \
  && adduser -D -u 10001 -G seta seta
 

@@ -150,6 +150,9 @@ export async function fetchDemoAnalytics(): Promise<DemoAnalyticsResult> {
   const res = await fetch('/api/pmo/v1/demo-analytics', { credentials: 'include' });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
+    if (res.status === 404 && body.error === 'no_data') {
+      throw new Error(body.message ?? 'No PMO canonical data for this tenant.');
+    }
     throw new Error(body.message ?? body.error ?? `Request failed (${res.status})`);
   }
   return res.json() as Promise<DemoAnalyticsResult>;

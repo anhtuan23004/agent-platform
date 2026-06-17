@@ -405,7 +405,10 @@ export function DemoCalculationPage() {
     ];
   }, [data]);
 
-  const noData = isError && error instanceof Error && error.message.includes('No PMO canonical');
+  const noData =
+    isError &&
+    error instanceof Error &&
+    (error.message.includes('No PMO canonical') || error.message.includes('insert-demo-fixture'));
 
   const members = useMemo(() => {
     const rows = data?.canonical.members ?? [];
@@ -536,7 +539,7 @@ export function DemoCalculationPage() {
         <EmptyState
           icon={<Database className="size-6" />}
           title="No PMO data for this tenant"
-          description="Seed demo data (or ingest a workbook), then reload this page."
+          description="Load PMO_02 into Postgres for your tenant, then reload: run insert-mock.ts, then TENANT_ID=<uuid> DATABASE_URL=... insert-mock-to-tenant.ts (or insert-demo-fixture-to-tenant.ts)."
         />
       ) : null}
 

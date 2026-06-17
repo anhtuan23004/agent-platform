@@ -9,8 +9,33 @@ import type {
   TimesheetRow,
   WeekRow,
 } from '../../src/backend/analytics/types.ts';
+import type {
+  MemberCapacity,
+  MemberSkillsProfile,
+  MemberTaskHistoryEntry,
+} from './mock-member-skills-history.ts';
+import { buildMemberCapacities } from './mock-member-skills-history.ts';
 
 export const DEFAULT_MOCK_DB_PATH = resolve(import.meta.dirname, '../../../../mock-data.db');
+
+export interface MockMemberSkillsRow {
+  member_id: string;
+  skill: string;
+  is_primary: boolean;
+}
+
+export interface MockMemberTaskHistoryRow {
+  history_id: string;
+  member_id: string;
+  project_id: string;
+  project_name: string;
+  project_type: string | null;
+  allocation_role: string;
+  task_title: string;
+  task_summary: string | null;
+  total_logged_hours: number;
+  skill_tags: string[];
+}
 
 export interface MockCanonicalInputs {
   members: MemberRow[];
@@ -144,4 +169,173 @@ export function loadCanonicalFromSqlite(
       effective_date: r.effective_date ? parseDate(r.effective_date) : null,
     })),
   };
+}
+
+export function loadMemberSkillsFromSqlite(
+  dbPath: string = DEFAULT_MOCK_DB_PATH,
+): MockMemberSkillsRow[] {
+  return queryJson<{
+    member_id: string;
+    skill: string;
+    is_primary: number;
+  }>(
+    dbPath,
+    `SELECT member_id, skill, is_primary FROM pmo_member_skills ORDER BY member_id, is_primary DESC, skill`,
+  ).map((r) => ({
+    member_id: r.member_id,
+    skill: r.skill,
+    is_primary: r.is_primary !== 0,
+  }));
+}
+
+export function loadMemberTaskHistoryFromSqlite(
+  dbPath: string = DEFAULT_MOCK_DB_PATH,
+): MockMemberTaskHistoryRow[] {
+  return queryJson<{
+    history_id: string;
+    member_id: string;
+    project_id: string;
+    project_name: string;
+    project_type: string | null;
+    allocation_role: string;
+    task_title: string;
+    task_summary: string | null;
+    total_logged_hours: number;
+    skill_tags: string;
+  }>(
+    dbPath,
+    `SELECT history_id, member_id, project_id, project_name, project_type, allocation_role,
+            task_title, task_summary, total_logged_hours, skill_tags
+     FROM pmo_member_task_history
+     ORDER BY member_id, total_logged_hours DESC`,
+  ).map((r) => ({
+    ...r,
+    skill_tags: JSON.parse(r.skill_tags) as string[],
+  }));
+}
+
+/** Aggregate flat skill rows into profiles (for suggest helpers). */
+export function loadMemberSkillsProfilesFromSqlite(
+  dbPath: string = DEFAULT_MOCK_DB_PATH,
+): MemberSkillsProfile[] {
+  const members = queryJson<{
+    member_id: string;
+    full_name: string;
+    department: string | null;
+    role_title: string | null;
+    level: string | null;
+  }>(
+    dbPath,
+    `SELECT member_id, full_name, department, role_title, level FROM pmo_member_master WHERE is_active = 1`,
+  );
+  const skillRows = loadMemberSkillsFromSqlite(dbPath);
+  const allocRoles = queryJson<{ member_id: string; role: string | null }>(
+    dbPath,
+    `SELECT member_id, role FROM pmo_resource_allocations WHERE is_active = 1`,
+  );
+
+  const rolesByMember = new Map<string, Set<string>>();
+  for (const a of allocRoles) {
+    if (!a.role) continue;
+    if (!rolesByMember.has(a.member_id)) rolesByMember.set(a.member_id, new Set());
+    rolesByMember.get(a.member_id)!.add(a.role);
+  }
+
+  const skillsByMember = new Map<string, { skills: string[]; primary: string[] }>();
+  for (const s of skillRows) {
+    if (!skillsByMember.has(s.member_id)) {
+      skillsByMember.set(s.member_id, { skills: [], primary: [] });
+    }
+    const bucket = skillsByMember.get(s.member_id)!;
+    bucket.skills.push(s.skill);
+    if (s.is_primary) bucket.primary.push(s.skill);
+  }
+
+  return members.map((m) => {
+    const bucket = skillsByMember.get(m.member_id) ?? { skills: [], primary: [] };
+    return {
+      member_id: m.member_id,
+      full_name: m.full_name,
+      department: m.department ?? '',
+      role_title: m.role_title ?? '',
+      level: m.level ?? '',
+      allocation_roles: [...(rolesByMember.get(m.member_id) ?? [])].sort(),
+      skills: bucket.skills,
+      primary_skills: bucket.primary.length > 0 ? bucket.primary : bucket.skills.slice(0, 6),
+    };
+  });
+}
+
+export function loadMemberTaskHistoryEntriesFromSqlite(
+  dbPath: string = DEFAULT_MOCK_DB_PATH,
+): MemberTaskHistoryEntry[] {
+  return loadMemberTaskHistoryFromSqlite(dbPath).map((r) => ({
+    history_id: r.history_id,
+    member_id: r.member_id,
+    project_id: r.project_id,
+    project_name: r.project_name,
+    project_type: r.project_type ?? '',
+    allocation_role: r.allocation_role,
+    task_title: r.task_title,
+    task_summary: r.task_summary ?? '',
+    total_logged_hours: r.total_logged_hours,
+    skill_tags: r.skill_tags,
+  }));
+}
+
+export interface MockAllocationWithProject {
+  member_id: string;
+  project_id: string;
+  project_name: string;
+  project_type: string;
+  role: string | null;
+  weekly_planned_hours: number | null;
+}
+
+export function loadAllocationsWithProjectsFromSqlite(
+  dbPath: string = DEFAULT_MOCK_DB_PATH,
+): MockAllocationWithProject[] {
+  return queryJson<{
+    member_id: string;
+    project_id: string;
+    project_name: string;
+    project_type: string | null;
+    role: string | null;
+    weekly_planned_hours: number | null;
+  }>(
+    dbPath,
+    `SELECT a.member_id, a.project_id, p.project_name, p.project_type, a.role, a.weekly_planned_hours
+     FROM pmo_resource_allocations a
+     JOIN pmo_project_master p ON p.project_id = a.project_id AND p.is_active = 1
+     WHERE a.is_active = 1`,
+  ).map((r) => ({
+    member_id: r.member_id,
+    project_id: r.project_id,
+    project_name: r.project_name,
+    project_type: r.project_type ?? '',
+    role: r.role,
+    weekly_planned_hours: r.weekly_planned_hours,
+  }));
+}
+
+export function loadMemberCapacitiesFromSqlite(
+  dbPath: string = DEFAULT_MOCK_DB_PATH,
+  overbookThreshold = 1.1,
+): MemberCapacity[] {
+  const members = queryJson<{
+    member_id: string;
+    full_name: string;
+    std_hours_week: number | null;
+  }>(
+    dbPath,
+    `SELECT member_id, full_name, std_hours_week FROM pmo_member_master WHERE is_active = 1`,
+  );
+  const allocations = queryJson<{
+    member_id: string;
+    weekly_planned_hours: number | null;
+  }>(
+    dbPath,
+    `SELECT member_id, weekly_planned_hours FROM pmo_resource_allocations WHERE is_active = 1`,
+  );
+  return buildMemberCapacities({ members, allocations, overbookThreshold });
 }

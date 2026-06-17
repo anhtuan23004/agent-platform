@@ -1889,6 +1889,21 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
     });
   });
 
+  // GET /api/pmo/v1/demo-analytics
+  // Runs the utilization pipeline on canonical tenant data for the calculation demo UI.
+  app.get('/api/pmo/v1/demo-analytics', async (c) => {
+    const session = c.get('user');
+    try {
+      const result = await runDemoAnalytics(session.tenant_id);
+      return c.json(result);
+    } catch (err) {
+      if (err instanceof DemoAnalyticsNoDataError) {
+        return c.json({ error: 'no_data', message: err.message }, 404);
+      }
+      throw err;
+    }
+  });
+
   return app;
 }
 

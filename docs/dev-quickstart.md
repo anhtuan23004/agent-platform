@@ -55,7 +55,7 @@ A fresh database has **zero tenants and zero users**, and there is no self-signu
 pnpm db:seed
 ```
 
-Creates the `hackathon` tenant + admin, then loads `hackathon/data/*.csv` (≈300 users, plans, buckets, tasks, timesheet availability). Re-runs skip existing rows.
+Creates the `hackathon` tenant + admin, then loads `hackathon/data/*.csv` and (locally) **PMO_02** from `mock-data.db`. On production/EC2 images, PMO mock data is **not** baked in — use the hackathon DB reset workflow (builds `mock-data.db` in CI and mounts it at seed time) or set `PMO_SEED_ENABLED=false` / `--only users,planner,availability` to skip PMO.
 
 Sign in as the admin `admin@hackathon.com` (or any CSV user) with password `ChangeMe@2026`.
 

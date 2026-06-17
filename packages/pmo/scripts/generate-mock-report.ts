@@ -2,7 +2,7 @@
  * Run PMO analytics against repo-root `mock-data.db` (SQLite) and write
  * `packages/pmo/reports/pmo_02_mock_report.md`.
  *
- * Assumes canonical rows are already clean (post-ingestion dedup / aggregate).
+ * Compares raw workbook rows vs cleaned canonical DB, then runs analytics.
  *
  * Usage:
  *   node --experimental-strip-types packages/pmo/scripts/generate-mock-report.ts
@@ -18,6 +18,11 @@ import {
 import { buildMemberWeekFacts } from '../src/backend/analytics/member-week-facts.ts';
 import { resolveThresholds } from '../src/backend/analytics/thresholds.ts';
 import type { Finding, SuppressionReason } from '../src/backend/analytics/types.ts';
+import {
+  computeCleaningSummary,
+  describeAnswerKeyOutcome,
+  loadRawNormalizedTables,
+} from './lib/mock-cleaning-outcomes.ts';
 import {
   DEFAULT_MOCK_DB_PATH,
   loadCanonicalFromSqlite,
@@ -39,6 +44,8 @@ const ANSWER_KEY: Record<string, string> = {
   'EMP-009': 'Edge_onboard_missing',
   'EMP-010': 'Data_duplicate',
 };
+
+const ANALYTICS_EXPECTED = new Set(['Overbook', 'Idle', 'Mismatch_underlog', 'Mismatch_overlog']);
 
 function findingLabel(f: Finding): string {
   switch (f.issueType) {
@@ -79,7 +86,17 @@ function countExcludedWeeks(analyses: ReturnType<typeof analyzeMembers>) {
   return counts;
 }
 
-function main() {
+function answerKeyMatch(expected: string, analyticsFinding: string): string {
+  if (ANALYTICS_EXPECTED.has(expected)) {
+    return analyticsFinding === expected ? 'pass' : 'fail';
+  }
+  return analyticsFinding === '' ? 'pass' : 'fail';
+}
+
+async function main() {
+  const rawTables = await loadRawNormalizedTables();
+  const cleaning = computeCleaningSummary(rawTables);
+
   const inputs = loadCanonicalFromSqlite(DEFAULT_MOCK_DB_PATH);
   const thresholds = resolveThresholds(inputs.configRows);
 
@@ -94,6 +111,7 @@ function main() {
     a.memberId.localeCompare(b.memberId),
   );
   const analyses = analyzeMembers(facts, ctx);
+  const analysisByMember = new Map(analyses.map((a) => [a.memberId, a]));
   const excludedCounts = countExcludedWeeks(analyses);
   const byType = countByIssueType(findings);
 
@@ -104,19 +122,46 @@ function main() {
     findingsByMember.set(f.memberId, list);
   }
 
+  const factsByMember = new Map<string, typeof facts>();
+  for (const fact of facts) {
+    const list = factsByMember.get(fact.memberId) ?? [];
+    list.push(fact);
+    factsByMember.set(fact.memberId, list);
+  }
+
   const topFindings = [...findings]
     .sort((a, b) => (b.busyRate ?? 0) - (a.busyRate ?? 0))
     .slice(0, 30);
 
   const db = DEFAULT_MOCK_DB_PATH;
+  const { resourceAllocation: ra, timesheet: ts, raDuplicates } = cleaning;
+
   const lines: string[] = [
-    '## PMO_02 mock-data.db report (clean canonical input → analytics)',
+    '## PMO_02 mock-data.db report (raw → clean → analytics)',
     '',
     `- Source workbook: \`hackathon/data/PMO_02_RA_Timesheet_Monitoring.xlsx\``,
     `- SQLite DB: \`mock-data.db\``,
-    `- Contract: ingestion has already deduped RA + aggregated timesheets; analytics reads active canonical rows only.`,
     '',
-    '### Inputs',
+    '### Cleaning summary (raw workbook → canonical DB)',
+    `- resource_allocation: **${ra.rawRows}** raw → **${ra.cleanRows}** clean (${ra.duplicatesRemoved} duplicate row(s) removed)`,
+    `- timesheet: **${ts.rawRows}** raw → **${ts.cleanRows}** clean (${ts.rowsAggregated} row(s) aggregated)`,
+    '',
+  ];
+
+  if (raDuplicates.length > 0) {
+    lines.push(
+      '#### RA duplicates removed',
+      'member_id | project_id | raw_count | removed | planned_h/row',
+      '---|---|---:|---:|---:',
+      ...raDuplicates.map(
+        (d) => `${d.memberId}|${d.projectId}|${d.rawCount}|${d.removed}|${d.plannedHoursPerRow}`,
+      ),
+      '',
+    );
+  }
+
+  lines.push(
+    '### Canonical inputs (post-clean DB)',
     `- weeks: **${queryScalar(db, 'SELECT count(*) FROM pmo_calendar_weeks')}**`,
     `- members: **${queryScalar(db, 'SELECT count(*) FROM pmo_member_master')}**`,
     `- allocs: **${queryScalar(db, 'SELECT count(*) FROM pmo_resource_allocations')}**`,
@@ -129,13 +174,13 @@ function main() {
     `- idle_threshold: **${thresholds.idleThreshold}**`,
     `- mismatch_pct_threshold: **${thresholds.mismatchPctThreshold}**`,
     '',
-    '### Finding counts',
+    '### Analytics finding counts',
     `- Idle: **${byType.idle}**`,
     `- Mismatch_overlog: **${byType.mismatch_over}**`,
     `- Mismatch_underlog: **${byType.mismatch_under}**`,
     `- Overbook: **${byType.overbook}**`,
     '',
-    '### Top findings (first 30)',
+    '### Top analytics findings (first 30)',
     'member_id | issue | rag | busyRate | effortConsumption',
     '---|---|---:|---:|---:',
     ...topFindings.map(
@@ -143,30 +188,40 @@ function main() {
         `${f.memberId}|${findingLabel(f)}|${f.ragColor}|${formatRate(f.busyRate)}|${formatRate(f.effortConsumption)}`,
     ),
     '',
-    '### Excluded weeks (member-level)',
+    '### Excluded weeks (member-level, analytics)',
     `- approved_leave: **${excludedCounts.approved_leave ?? 0}**`,
     `- approved_ot: **${excludedCounts.approved_ot ?? 0}**`,
     `- holiday_week: **${excludedCounts.holiday_week ?? 0}**`,
     `- training: **${excludedCounts.training ?? 0}**`,
     '',
     '### Answer Key comparison (member-level)',
-    'member_id | expected_issue_type(s) | found_issue(s)',
-    '---|---|---',
+    'member_id | expected | cleaning_outcome | analytics_finding | match',
+    '---|---|---|---|---',
     ...Object.keys(ANSWER_KEY)
       .sort()
       .map((memberId) => {
         const expected = ANSWER_KEY[memberId] ?? '';
-        const found = (findingsByMember.get(memberId) ?? []).map(findingLabel).join(', ');
-        return `${memberId}|${expected}|${found}`;
+        const memberFindings = findingsByMember.get(memberId) ?? [];
+        const analyticsFinding = memberFindings.map(findingLabel).join(', ');
+        const cleaningOutcome = describeAnswerKeyOutcome(memberId, expected, {
+          analysis: analysisByMember.get(memberId),
+          memberFacts: factsByMember.get(memberId) ?? [],
+          memberFindings,
+          cleaning,
+        });
+        return `${memberId}|${expected}|${cleaningOutcome}|${analyticsFinding || '(none)'}|${answerKeyMatch(expected, analyticsFinding)}`;
       }),
     '',
-  ];
+  );
 
   writeFileSync(REPORT_PATH, lines.join('\n'));
   console.log(`Wrote ${REPORT_PATH}`);
   console.log(
-    `findings: overbook=${byType.overbook} idle=${byType.idle} mismatch_over=${byType.mismatch_over} mismatch_under=${byType.mismatch_under}`,
+    `cleaning: RA ${ra.rawRows}→${ra.cleanRows} (-${ra.duplicatesRemoved} dup); findings: overbook=${byType.overbook} idle=${byType.idle}`,
   );
 }
 
-main();
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

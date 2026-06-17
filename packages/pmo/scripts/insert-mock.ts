@@ -24,6 +24,12 @@ import {
   computeNaturalKeyHash,
   computeSourceRowHash,
 } from '../src/backend/ingestion/stage-changes.ts';
+import { exportMockSkillsCsv } from './lib/export-mock-skills-csv.ts';
+import {
+  buildMemberSkillsAndHistory,
+  type MemberSkillsProfile,
+  type MemberTaskHistoryEntry,
+} from './lib/mock-member-skills-history.ts';
 
 type CanonicalTableId =
   | 'resource_allocation'
@@ -107,6 +113,8 @@ DROP TABLE IF EXISTS pmo_resource_allocations;
 DROP TABLE IF EXISTS pmo_timesheets;
 DROP TABLE IF EXISTS pmo_leave_records;
 DROP TABLE IF EXISTS pmo_kpi_norms;
+DROP TABLE IF EXISTS pmo_member_skills;
+DROP TABLE IF EXISTS pmo_member_task_history;
 
 CREATE TABLE pmo_ingestion_sessions (
   id TEXT PRIMARY KEY,
@@ -256,7 +264,98 @@ CREATE TABLE pmo_kpi_norms (
   used_for TEXT,
   source_row INTEGER
 );
+
+CREATE TABLE pmo_member_skills (
+  tenant_id TEXT NOT NULL,
+  member_id TEXT NOT NULL,
+  skill TEXT NOT NULL,
+  is_primary INTEGER NOT NULL DEFAULT 0,
+  source TEXT NOT NULL,
+  PRIMARY KEY (tenant_id, member_id, skill)
+);
+
+CREATE TABLE pmo_member_task_history (
+  tenant_id TEXT NOT NULL,
+  history_id TEXT NOT NULL,
+  member_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  project_name TEXT NOT NULL,
+  project_type TEXT,
+  allocation_role TEXT NOT NULL,
+  task_title TEXT NOT NULL,
+  task_summary TEXT,
+  total_logged_hours REAL NOT NULL,
+  skill_tags TEXT NOT NULL,
+  PRIMARY KEY (tenant_id, history_id)
+);
 `.trim();
+}
+
+function rowStr(v: unknown): string {
+  return v === null || v === undefined ? '' : String(v);
+}
+
+function rowNum(v: unknown): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function deriveSkillsAndHistory(perTable: Partial<Record<CanonicalTableId, NormalizedRow[]>>) {
+  const members = (perTable.member_master ?? []).map((r) => ({
+    member_id: rowStr(r.values.member_id),
+    full_name: rowStr(r.values.full_name),
+    department: r.values.department ? rowStr(r.values.department) : null,
+    role_title: r.values.role_title ? rowStr(r.values.role_title) : null,
+    level: r.values.level ? rowStr(r.values.level) : null,
+  }));
+  const allocations = (perTable.resource_allocation ?? []).map((r) => ({
+    member_id: rowStr(r.values.member_id),
+    project_id: rowStr(r.values.project_id),
+    role: r.values.role ? rowStr(r.values.role) : null,
+    allocation_pct: r.values.allocation_pct != null ? rowNum(r.values.allocation_pct) : null,
+  }));
+  const projects = (perTable.project_master ?? []).map((r) => ({
+    project_id: rowStr(r.values.project_id),
+    project_name: rowStr(r.values.project_name),
+    project_type: r.values.project_type ? rowStr(r.values.project_type) : null,
+  }));
+  const timesheets = (perTable.timesheet ?? []).map((r) => ({
+    member_id: rowStr(r.values.member_id),
+    project_id: r.values.project_id ? rowStr(r.values.project_id) : null,
+    logged_hours: rowNum(r.values.logged_hours),
+    log_category: r.values.log_category ? rowStr(r.values.log_category) : null,
+  }));
+  return buildMemberSkillsAndHistory({ members, allocations, projects, timesheets });
+}
+
+function buildMemberSkillsInserts(profiles: MemberSkillsProfile[]): string[] {
+  const stmts: string[] = [];
+  for (const p of profiles) {
+    const primary = new Set(p.primary_skills.map((s) => s.toLowerCase()));
+    for (const skill of p.skills) {
+      stmts.push(
+        `INSERT INTO pmo_member_skills (tenant_id,member_id,skill,is_primary,source) VALUES (${sqlString(
+          TENANT_ID,
+        )},${sqlString(p.member_id)},${sqlString(skill)},${primary.has(skill.toLowerCase()) ? '1' : '0'},${sqlString(
+          'derived_pmo02',
+        )});`,
+      );
+    }
+  }
+  return stmts;
+}
+
+function buildTaskHistoryInserts(history: MemberTaskHistoryEntry[]): string[] {
+  return history.map(
+    (h) =>
+      `INSERT INTO pmo_member_task_history (tenant_id,history_id,member_id,project_id,project_name,project_type,allocation_role,task_title,task_summary,total_logged_hours,skill_tags) VALUES (${sqlString(
+        TENANT_ID,
+      )},${sqlString(h.history_id)},${sqlString(h.member_id)},${sqlString(h.project_id)},${sqlString(
+        h.project_name,
+      )},${sqlString(h.project_type)},${sqlString(h.allocation_role)},${sqlString(h.task_title)},${sqlString(
+        h.task_summary,
+      )},${sqlString(h.total_logged_hours)},${sqlString(JSON.stringify(h.skill_tags))});`,
+  );
 }
 
 function buildInsertStatements(tableId: CanonicalTableId, rows: NormalizedRow[]): string[] {
@@ -535,6 +634,12 @@ async function main() {
     sql.push(`-- ${tid}: ${rows.length} row(s)`);
     sql.push(...buildInsertStatements(tid, rows));
   }
+
+  const { profiles, history } = deriveSkillsAndHistory(perTable);
+  sql.push(`-- member_skills: ${profiles.reduce((n, p) => n + p.skills.length, 0)} row(s)`);
+  sql.push(...buildMemberSkillsInserts(profiles));
+  sql.push(`-- member_task_history: ${history.length} row(s)`);
+  sql.push(...buildTaskHistoryInserts(history));
   sql.push('COMMIT;');
 
   const proc = spawnSync('sqlite3', [DB_PATH], { input: sql.join('\n') + '\n', encoding: 'utf8' });
@@ -550,11 +655,18 @@ async function main() {
         "SELECT 'allocs',count(*) FROM pmo_resource_allocations; " +
         "SELECT 'timesheets',count(*) FROM pmo_timesheets; " +
         "SELECT 'leaves',count(*) FROM pmo_leave_records; " +
-        "SELECT 'kpi_norms',count(*) FROM pmo_kpi_norms;",
+        "SELECT 'kpi_norms',count(*) FROM pmo_kpi_norms; " +
+        "SELECT 'member_skills',count(*) FROM pmo_member_skills; " +
+        "SELECT 'task_history',count(*) FROM pmo_member_task_history;",
     ],
     { encoding: 'utf8' },
   );
   console.log(countProc.stdout.trim());
+
+  const csv = exportMockSkillsCsv({ dbPath: DB_PATH });
+  console.log(
+    `csv: skills=${csv.memberSkillRows} history=${csv.taskHistoryRows} profiles=${csv.memberProfileRows} swaps=${csv.rebalanceSwapRows}`,
+  );
 }
 
 main().catch((err) => {
