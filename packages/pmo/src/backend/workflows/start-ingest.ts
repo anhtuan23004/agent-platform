@@ -10,25 +10,28 @@ interface StartIngestWorkflowInput {
 }
 
 /**
- * Starts the pmo.ingestData workflow with proper requestContext.
+ * Starts PMO ingest workflow with proper requestContext.
  * Fire-and-forget: workflow handles detect → confirm → normalize → publish.
  */
 export async function startIngestWorkflow(input: StartIngestWorkflowInput): Promise<string | null> {
   const { ingestionSessionId, fileKey, tenantId, userId, mastra } = input;
 
-  const workflow = (mastra.getWorkflow('pmo.ingestData') ?? mastra.getWorkflow('ingestData')) as
+  const workflow = (mastra.getWorkflow('pmo.ingestData.v2') ??
+    mastra.getWorkflow('ingestDataV2')) as
     | { createRun(): Promise<{ runId: string; start(opts: unknown): Promise<unknown> }> }
     | undefined;
 
   if (!workflow) {
-    console.warn('[pmo] pmo.ingestData workflow not found on Mastra instance');
+    console.warn('[pmo] PMO ingest workflow not found on Mastra instance', {
+      workflowId: 'pmo.ingestData.v2',
+    });
     return null;
   }
 
   const run = await workflow.createRun();
 
   // Build requestContext with file store + actor info
-  const bucket = process.env.S3_BUCKET ?? 'seta-uploads';
+  const bucket = process.env.S3_BUCKET ?? 'hackathon-team-2-assets-033484686020';
   const requestContext = new RequestContext();
   requestContext.set('pmoFileStore', createS3FileStore(bucket));
   requestContext.set('fileKey', fileKey);

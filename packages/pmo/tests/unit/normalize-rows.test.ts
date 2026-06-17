@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { IngestionDomainConfig } from '../../src/backend/ingestion/domain-config.ts';
 import type { TableMapping } from '../../src/backend/ingestion/map-columns.ts';
 import { normalizeRows } from '../../src/backend/ingestion/normalize-rows.ts';
 import type { ParsedSheet } from '../../src/backend/ingestion/parse-workbook.ts';
@@ -54,6 +55,7 @@ function makeMapping(
         dataType: 0.9,
         sheetContext: 0.9,
         crossSheet: 0.5,
+        llmSemantic: 0.5,
       },
     })),
     unmappedRequired: [],
@@ -64,6 +66,69 @@ function makeMapping(
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe('normalizeRows', () => {
+  it('uses a provided domain config for field data types', () => {
+    const hrDomain: IngestionDomainConfig = {
+      domainId: 'hr',
+      version: 'test',
+      label: 'HR',
+      tables: [
+        {
+          id: 'attendance',
+          label: 'Attendance',
+          description: 'Attendance records.',
+          synonyms: ['attendance'],
+          naturalKey: ['employee_id', 'work_date'],
+          duplicatePolicy: 'block',
+          fields: [
+            {
+              name: 'employee_id',
+              label: 'Employee ID',
+              description: 'Employee identifier.',
+              dataType: 'string',
+              required: true,
+              synonyms: ['emp id'],
+            },
+            {
+              name: 'work_date',
+              label: 'Work Date',
+              description: 'Work date.',
+              dataType: 'date',
+              required: true,
+              synonyms: ['date'],
+            },
+            {
+              name: 'hours',
+              label: 'Hours',
+              description: 'Logged hours.',
+              dataType: 'number',
+              required: true,
+              synonyms: ['hours'],
+            },
+          ],
+        },
+      ],
+      referenceRules: [],
+      validationRules: [],
+      publishPolicy: { requireApproval: true, allowDirectPublish: false, mode: 'staged' },
+    };
+    const sheet = makeSheet(
+      'Attendance',
+      ['Emp ID', 'Date', 'Hours'],
+      [['E001', '2026-06-01', '8.5']],
+    );
+    const mapping = makeMapping('attendance', 'Attendance', [
+      ['Emp ID', 'employee_id'],
+      ['Date', 'work_date'],
+      ['Hours', 'hours'],
+    ]);
+
+    const result = normalizeRows([sheet], [mapping], hrDomain);
+
+    expect(result.errorCount).toBe(0);
+    expect(result.tables.attendance?.[0]?.values.hours).toBe(8.5);
+    expect(result.tables.attendance?.[0]?.values.work_date).toContain('2026-06-01');
+  });
+
   it('normalizes standard RA rows with percentage conversion', () => {
     const sheet = makeSheet(
       'DS01',

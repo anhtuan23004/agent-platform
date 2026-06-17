@@ -1,0 +1,70 @@
+{
+  "version": "1.0.0",
+  "steps": [
+    {
+      "action_id": "workbook_profiling",
+      "step_name": "Workbook profiling",
+      "review_type": "profiling",
+      "objective": "Inspect workbook structure, sheet roles, schema hints, document fit, and review readiness.",
+      "agent_responsibility": "Profile the uploaded workbook and produce a reviewable summary of structure and readiness.",
+      "user_responsibility": "Review profiling results and decide whether to stop, upload more, or continue with a broader workflow.",
+      "default_requires_user_review": false,
+      "allowed_intent_modes": [
+        "review_only",
+        "mapping_readiness",
+        "stage_preview",
+        "publish_intent"
+      ],
+      "requires_prior_checkpoint": [],
+      "produces": ["profiling_proposal"]
+    },
+    {
+      "action_id": "column_mapping",
+      "step_name": "Column mapping",
+      "review_type": "mapping",
+      "objective": "Propose mappings from workbook sheets and columns to PMO canonical tables and fields.",
+      "agent_responsibility": "Generate a mapping proposal with confidence markers and ambiguous fields called out.",
+      "user_responsibility": "Approve, modify, or reject proposed mappings before any downstream staging step.",
+      "default_requires_user_review": true,
+      "allowed_intent_modes": ["mapping_readiness", "stage_preview", "publish_intent"],
+      "requires_prior_checkpoint": ["workbook_profiling"],
+      "produces": ["mapping_proposal"]
+    },
+    {
+      "action_id": "normalize_to_staging",
+      "step_name": "Normalize to staging",
+      "review_type": "normalization",
+      "objective": "Normalize approved mappings into staging artifacts and prepare records for comparison.",
+      "agent_responsibility": "Normalize data from approved mappings into staging artifacts without publishing changes.",
+      "user_responsibility": "Review normalization warnings only when the workflow presents a review gate.",
+      "default_requires_user_review": false,
+      "allowed_intent_modes": ["stage_preview", "publish_intent"],
+      "requires_prior_checkpoint": ["column_mapping"],
+      "produces": ["staging_artifact"]
+    },
+    {
+      "action_id": "database_change_summary",
+      "step_name": "Database change summary",
+      "review_type": "publish",
+      "objective": "Compare staged data with existing PMO data and summarize inserts, updates, duplicates, and blocking issues.",
+      "agent_responsibility": "Produce a database change summary from staged data and flag blocking issues.",
+      "user_responsibility": "Review database changes and decide whether the run may proceed toward publication.",
+      "default_requires_user_review": true,
+      "allowed_intent_modes": ["stage_preview", "publish_intent"],
+      "requires_prior_checkpoint": ["normalize_to_staging"],
+      "produces": ["db_change_summary_proposal"]
+    },
+    {
+      "action_id": "publish_after_approval",
+      "step_name": "Publish after approval",
+      "review_type": "publish",
+      "objective": "Apply approved changes to PMO canonical tables only after explicit publish approval.",
+      "agent_responsibility": "Publish approved changes to PMO canonical tables after the publish gate is approved.",
+      "user_responsibility": "Give explicit final approval or reject publication.",
+      "default_requires_user_review": true,
+      "allowed_intent_modes": ["publish_intent"],
+      "requires_prior_checkpoint": ["database_change_summary"],
+      "produces": ["publish_result"]
+    }
+  ]
+}

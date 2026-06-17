@@ -6,5 +6,6 @@ export function usePendingApprovals() {
   return useQuery({
     queryKey: workflowsQueryKeys.pendingApprovals(),
     queryFn: () => workflowsApi.listMyPendingApprovals(),
+    refetchInterval: 5000,
   });
 }

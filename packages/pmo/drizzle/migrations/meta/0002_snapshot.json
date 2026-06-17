@@ -1,6 +1,6 @@
 {
-  "id": "129fd5d6-949e-42e7-a0bd-c0aec562bac1",
-  "prevId": "01f9c09b-64ea-4475-b0d0-9410026718df",
+  "id": "93224cf3-a016-4c79-8550-12ed50f847a0",
+  "prevId": "c8723314-2db1-416c-99de-db68c0e90f72",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -190,6 +190,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "source_file_size_bytes": {
+          "name": "source_file_size_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
         "mime_type": {
           "name": "mime_type",
           "type": "text",
@@ -235,6 +241,85 @@
         "change_summary": {
           "name": "change_summary",
           "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "planning_goal": {
+          "name": "planning_goal",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "planning_plan": {
+          "name": "planning_plan",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "planning_plan_version": {
+          "name": "planning_plan_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "planning_feedback_history": {
+          "name": "planning_feedback_history",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "planning_last_generated_at": {
+          "name": "planning_last_generated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "planning_approved_at": {
+          "name": "planning_approved_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "workflow_execution_state": {
+          "name": "workflow_execution_state",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "profiling_documents": {
+          "name": "profiling_documents",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "profiling_summary": {
+          "name": "profiling_summary",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "workflow_current_step": {
+          "name": "workflow_current_step",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "workflow_step_status": {
+          "name": "workflow_step_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "workflow_started_at": {
+          "name": "workflow_started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "workflow_updated_at": {
+          "name": "workflow_updated_at",
+          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },
@@ -846,218 +931,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "pmo.member_week_facts": {
-      "name": "member_week_facts",
-      "schema": "pmo",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "last_ingestion_session_id": {
-          "name": "last_ingestion_session_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "member_id": {
-          "name": "member_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "week_id": {
-          "name": "week_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "scope_status": {
-          "name": "scope_status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "available_hours": {
-          "name": "available_hours",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "planned_hours": {
-          "name": "planned_hours",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "logged_hours": {
-          "name": "logged_hours",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "expected_logged_hours": {
-          "name": "expected_logged_hours",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "billable_hours": {
-          "name": "billable_hours",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "bench_hours": {
-          "name": "bench_hours",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "overtime_hours": {
-          "name": "overtime_hours",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "training_hours": {
-          "name": "training_hours",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "busy_rate": {
-          "name": "busy_rate",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "utilization": {
-          "name": "utilization",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "billable_rate": {
-          "name": "billable_rate",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "bench_rate": {
-          "name": "bench_rate",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "overtime_ratio": {
-          "name": "overtime_ratio",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "effort_consumption": {
-          "name": "effort_consumption",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "training_compliance": {
-          "name": "training_compliance",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "rag_color": {
-          "name": "rag_color",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "issue_type": {
-          "name": "issue_type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "computed_at": {
-          "name": "computed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "mwf_member_week_unique": {
-          "name": "mwf_member_week_unique",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "member_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "week_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "mwf_tenant_issue": {
-          "name": "mwf_tenant_issue",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "issue_type",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "pmo.overbook_idle_config": {
       "name": "overbook_idle_config",
       "schema": "pmo",
@@ -1138,12 +1011,6 @@
         },
         "ot_max_hours_per_week": {
           "name": "ot_max_hours_per_week",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "required_training_hours": {
-          "name": "required_training_hours",
           "type": "real",
           "primaryKey": false,
           "notNull": false

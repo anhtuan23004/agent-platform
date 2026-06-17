@@ -148,7 +148,8 @@ export function HitlApprovalCard({
   const disabled = !canAct || pending || expired;
 
   const isDirty = !setsEqual(selected, primarySet);
-  const canApprove = selected.size > 0;
+  const hasAssigneeSelection = candidates.length > 0 && primaryIds.length > 0;
+  const canApprove = hasAssigneeSelection ? selected.size > 0 : true;
 
   function toggle(id: string) {
     setSelected((s) => {
@@ -161,7 +162,7 @@ export function HitlApprovalCard({
 
   function submitApprove() {
     if (!canApprove || disabled) return;
-    if (isDirty) {
+    if (hasAssigneeSelection && isDirty) {
       onDecide({ decision: 'modify', overrideUserIds: [...selected], note: '' });
     } else {
       onDecide({ decision: 'approve' });
@@ -462,7 +463,7 @@ export function HitlApprovalCard({
               className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-body-sm font-semibold text-on-primary shadow-sm transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Check className="size-3.5" aria-hidden />
-              {pending ? 'Approving…' : 'Approve'}
+              {pending ? 'Approving…' : (card?.primary?.label ?? 'Approve')}
               {selected.size > 1 ? (
                 <span className="rounded-full bg-canvas/25 px-1.5 py-px font-mono text-[10px] tabular-nums">
                   {selected.size}

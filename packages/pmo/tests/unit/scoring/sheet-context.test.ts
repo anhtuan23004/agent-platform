@@ -69,14 +69,14 @@ describe('scoreSheetContext', () => {
     expect(score).toBeCloseTo(0.9, 1);
   });
 
-  it('unknown field in role matrix → moderate score (default 0.5)', () => {
-    // A field not listed in the compatibility matrix for this role
+  it('cross-table field in role matrix → low score', () => {
+    // allocation_pct belongs to resource_allocation, not calendar_weeks → penalized
     const score = scoreSheetContext(
       makeRole('calendar_weeks', 0.9),
       getField('resource_allocation', 'allocation_pct'),
     );
-    // Not in calendar_weeks matrix → default 0.5 × 0.9 = 0.45
-    expect(score).toBeCloseTo(0.45, 1);
+    // Field from another table → 0.1 × 0.9 = 0.09
+    expect(score).toBeLessThanOrEqual(0.15);
   });
 
   it('leave sheet + leave_type → high score', () => {

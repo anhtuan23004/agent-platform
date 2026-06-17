@@ -63,6 +63,9 @@ export const ApprovalCardSchema = z.object({
     userId: z.string(),
     agentPath: z.array(z.string()),
     toolId: z.string(),
+    plannerStepId: z.string().optional(),
+    actionId: z.string().optional(),
+    reviewType: z.string().optional(),
     ts: z.string(),
   }),
 });

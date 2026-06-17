@@ -199,6 +199,7 @@ jobs:
             OPENAI_API_KEY=$OPENAI_API_KEY
             CRYPTO_KEY_PROVIDER=env
             CRYPTO_LOCAL_MASTER_KEY=$CRYPTO_LOCAL_MASTER_KEY
+            PMO_PLANNER_CATALOG_DIR=/app/config/ingestion-planner/pmo
             EVENTS_RETENTION_DAYS=30
             DLQ_ALERT_THRESHOLD=100
             KNOWLEDGE_AV_REQUIRED=false

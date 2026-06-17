@@ -1,5 +1,5 @@
 {
-  "id": "01f9c09b-64ea-4475-b0d0-9410026718df",
+  "id": "c8723314-2db1-416c-99de-db68c0e90f72",
   "prevId": "550d881e-b6c7-48c4-8747-4f873a6cc033",
   "version": "7",
   "dialect": "postgresql",
@@ -190,6 +190,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "source_file_size_bytes": {
+          "name": "source_file_size_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
         "mime_type": {
           "name": "mime_type",
           "type": "text",
@@ -235,6 +241,43 @@
         "change_summary": {
           "name": "change_summary",
           "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "planning_goal": {
+          "name": "planning_goal",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "planning_plan": {
+          "name": "planning_plan",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "planning_plan_version": {
+          "name": "planning_plan_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "planning_feedback_history": {
+          "name": "planning_feedback_history",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "planning_last_generated_at": {
+          "name": "planning_last_generated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "planning_approved_at": {
+          "name": "planning_approved_at",
+          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },
@@ -828,166 +871,6 @@
             },
             {
               "expression": "is_active",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "pmo.member_week_facts": {
-      "name": "member_week_facts",
-      "schema": "pmo",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "last_ingestion_session_id": {
-          "name": "last_ingestion_session_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "member_id": {
-          "name": "member_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "week_id": {
-          "name": "week_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "scope_status": {
-          "name": "scope_status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "available_hours": {
-          "name": "available_hours",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "planned_hours": {
-          "name": "planned_hours",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "logged_hours": {
-          "name": "logged_hours",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "expected_logged_hours": {
-          "name": "expected_logged_hours",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "busy_rate": {
-          "name": "busy_rate",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "effort_consumption": {
-          "name": "effort_consumption",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "utilization": {
-          "name": "utilization",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "rag_color": {
-          "name": "rag_color",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "issue_type": {
-          "name": "issue_type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "computed_at": {
-          "name": "computed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "mwf_member_week_unique": {
-          "name": "mwf_member_week_unique",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "member_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "week_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "mwf_tenant_issue": {
-          "name": "mwf_tenant_issue",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "issue_type",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

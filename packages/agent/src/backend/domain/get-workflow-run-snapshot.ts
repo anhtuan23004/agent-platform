@@ -1,4 +1,5 @@
 import type { Mastra } from '@mastra/core';
+import { AgentRegistry } from '@seta/agent-sdk';
 import type { SessionLike } from '../types.ts';
 import { getWorkflowRun } from './get-workflow-run.ts';
 
@@ -82,6 +83,45 @@ function enrichSnapshotDescriptions(
   return { ...snapshot, serializedStepGraph: overlayDescs(stepGraph) };
 }
 
+interface SnapshotProjection {
+  runId: string;
+  workflowId: string;
+  tenantId: string;
+  inputSummary: unknown;
+  status: string;
+}
+
+async function applySnapshotDecorators(
+  snapshot: Record<string, unknown>,
+  projection: SnapshotProjection,
+): Promise<Record<string, unknown>> {
+  const decorators = AgentRegistry.listWorkflowSnapshotDecorators(projection.workflowId);
+  if (decorators.length === 0) return snapshot;
+
+  let nextSnapshot = snapshot;
+  for (const decorator of decorators) {
+    try {
+      nextSnapshot = await decorator.decorate({
+        runId: projection.runId,
+        workflowId: projection.workflowId,
+        tenantId: projection.tenantId,
+        inputSummary: projection.inputSummary,
+        runStatus: projection.status,
+        snapshot: nextSnapshot,
+      });
+    } catch (error) {
+      console.warn('[agent.workflow.snapshot] decorator failed', {
+        decoratorId: decorator.id,
+        workflowId: projection.workflowId,
+        runId: projection.runId,
+        error,
+      });
+    }
+  }
+
+  return nextSnapshot;
+}
+
 export async function getWorkflowRunSnapshot(
   opts: GetWorkflowRunSnapshotOpts,
 ): Promise<unknown | null> {
@@ -102,9 +142,17 @@ export async function getWorkflowRunSnapshot(
   });
   if (!snapshot) return null;
 
-  return enrichSnapshotDescriptions(
+  const enrichedSnapshot = enrichSnapshotDescriptions(
     snapshot as unknown as Record<string, unknown>,
     opts.mastra,
     projection.workflowId,
   );
+
+  return applySnapshotDecorators(enrichedSnapshot, {
+    runId: projection.runId,
+    workflowId: projection.workflowId,
+    tenantId: projection.tenantId,
+    inputSummary: projection.inputSummary,
+    status: projection.status,
+  });
 }

@@ -1,5 +1,7 @@
+import type { IngestionDomainConfig } from './domain-config.ts';
 import type { TableMapping } from './map-columns.ts';
 import type { ParsedSheet } from './parse-workbook.ts';
+import { PMO_DOMAIN_CONFIG } from './pmo-domain-config.ts';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -121,6 +123,7 @@ function parseValue(raw: string, field: FieldMeta): { value: unknown; error: str
 export function normalizeRows(
   parsedSheets: ParsedSheet[],
   confirmedMappings: TableMapping[],
+  domainConfig: IngestionDomainConfig = PMO_DOMAIN_CONFIG,
 ): NormalizationResult {
   const tables: Record<string, NormalizedRow[]> = {};
   let errorCount = 0;
@@ -149,7 +152,7 @@ export function normalizeRows(
         const raw = srcRow[colMapping.sourceColumn] ?? '';
         const fieldMeta: FieldMeta = {
           name: colMapping.canonicalField,
-          dataType: getFieldDataType(mapping.tableId, colMapping.canonicalField),
+          dataType: getFieldDataType(domainConfig, mapping.tableId, colMapping.canonicalField),
         };
 
         const { value, error } = parseValue(raw, fieldMeta);
@@ -183,10 +186,12 @@ export function normalizeRows(
 // ── Helper: get data type for a field from canonical schema ──────────────────
 // Inline lookup to avoid circular dependency with canonical-schema.ts at runtime
 
-import { PMO_CANONICAL_SCHEMA } from './canonical-schema.ts';
-
-function getFieldDataType(tableId: string, fieldName: string): string {
-  const table = PMO_CANONICAL_SCHEMA.tables.find((t) => t.id === tableId);
+function getFieldDataType(
+  domainConfig: IngestionDomainConfig,
+  tableId: string,
+  fieldName: string,
+): string {
+  const table = domainConfig.tables.find((t) => t.id === tableId);
   const field = table?.fields.find((f) => f.name === fieldName);
   return field?.dataType ?? 'string';
 }
