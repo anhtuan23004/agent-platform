@@ -36,6 +36,7 @@ export interface NormalizationResult extends DbChangeSummaryResult {
   rowCountsByTable: Record<string, number>;
   duplicateInUploadRows: Array<{
     tableId: string;
+    sourceSheet?: string;
     naturalKey: Record<string, string>;
     sourceRow: number;
     policy: 'allow' | 'skip' | 'block';

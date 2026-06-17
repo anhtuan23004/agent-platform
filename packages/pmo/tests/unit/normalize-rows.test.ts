@@ -285,4 +285,37 @@ describe('normalizeRows', () => {
     expect(rows?.[1]?.sourceRow).toBe(4);
     expect(rows?.[2]?.sourceRow).toBe(5);
   });
+
+  it('appends rows when multiple mappings target the same table', () => {
+    const firstSheet = makeSheet(
+      'RA_Current',
+      ['Member_ID', 'Project_ID', 'Allocation', 'Start', 'End'],
+      [['EMP-010', 'PRJ-002', '60%', '2026-06-29', '2026-08-07']],
+    );
+    const secondSheet = makeSheet(
+      'RA_Extra',
+      ['Member_ID', 'Project_ID', 'Allocation', 'Start', 'End'],
+      [['EMP-010', 'PRJ-002', '40%', '2026-06-29', '2026-08-07']],
+    );
+    const fields: Array<[string, string]> = [
+      ['Member_ID', 'member_id'],
+      ['Project_ID', 'project_id'],
+      ['Allocation', 'allocation_pct'],
+      ['Start', 'start_date'],
+      ['End', 'end_date'],
+    ];
+
+    const result = normalizeRows(
+      [firstSheet, secondSheet],
+      [
+        makeMapping('resource_allocation', 'RA_Current', fields),
+        makeMapping('resource_allocation', 'RA_Extra', fields),
+      ],
+    );
+
+    expect(result.rowCounts.resource_allocation).toBe(2);
+    expect(result.tables.resource_allocation?.map((row) => row.values.allocation_pct)).toEqual([
+      0.6, 0.4,
+    ]);
+  });
 });

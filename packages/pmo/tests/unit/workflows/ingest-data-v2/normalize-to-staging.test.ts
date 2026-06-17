@@ -405,4 +405,94 @@ describe('createNormalizeToStagingHandler', () => {
     expect(result.outputSummary).toMatchObject({ status: 'needs_review' });
     expect(result.card.primary.label).toBe('Reject blocked normalization');
   });
+
+  it('captures duplicate natural keys across sheets mapped to the same table', async () => {
+    const raMapping = (sourceSheet: string) => ({
+      tableId: 'resource_allocation',
+      sourceSheet,
+      headerRow: 1,
+      tableConfidence: 1,
+      mappings: [
+        { sourceColumn: 'Member_ID', canonicalField: 'member_id', confidence: 1 },
+        { sourceColumn: 'Project_ID', canonicalField: 'project_id', confidence: 1 },
+        { sourceColumn: 'Allocation', canonicalField: 'allocation_pct', confidence: 1 },
+        { sourceColumn: 'Start', canonicalField: 'start_date', confidence: 1 },
+        { sourceColumn: 'End', canonicalField: 'end_date', confidence: 1 },
+      ],
+      unmappedRequired: [],
+      ambiguous: [],
+    });
+    const result = await createNormalizeToStagingHandler({
+      ...deps,
+      getWorkbookParseResult: async () => ({
+        sheets: [
+          sheet('RA Current', [
+            {
+              Member_ID: 'M-001',
+              Project_ID: 'P-001',
+              Allocation: '60%',
+              Start: '2026-06-29',
+              End: '2026-08-07',
+            },
+          ]),
+          sheet('RA Extra', [
+            {
+              Member_ID: 'M-001',
+              Project_ID: 'P-001',
+              Allocation: '40%',
+              Start: '2026-06-29',
+              End: '2026-08-07',
+            },
+          ]),
+          sheet('Members', [{ Member_ID: 'M-001', Full_Name: 'An Nguyen' }]),
+        ],
+        excludedSheets: [],
+        parseErrors: [],
+      }),
+    }).execute(
+      makeInput({
+        runtimeContext: {
+          confirmed_mapping: {
+            mappingReviewRows: [],
+            confirmedMappings: [
+              raMapping('RA Current'),
+              raMapping('RA Extra'),
+              {
+                tableId: 'member_master',
+                sourceSheet: 'Members',
+                headerRow: 1,
+                tableConfidence: 1,
+                mappings: [
+                  { sourceColumn: 'Member_ID', canonicalField: 'member_id', confidence: 1 },
+                  { sourceColumn: 'Full_Name', canonicalField: 'full_name', confidence: 1 },
+                ],
+                unmappedRequired: [],
+                ambiguous: [],
+              },
+            ],
+          },
+        },
+      }),
+    );
+
+    expect(result.kind).toBe('suspend');
+    if (result.kind !== 'suspend') throw new Error('expected suspend');
+    const proposal = result.runtimeContextPatch?.staging_result?.review_proposals
+      ?.normalize_to_staging?.[0]?.proposal as {
+      duplicateInUploadRows?: unknown[];
+      reviewRows?: unknown[];
+    };
+    expect(proposal.duplicateInUploadRows).toEqual([
+      expect.objectContaining({
+        tableId: 'resource_allocation',
+        policy: 'block',
+      }),
+    ]);
+    expect(proposal.reviewRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ sourceSheet: 'RA Current', status: 'duplicate' }),
+        expect.objectContaining({ sourceSheet: 'RA Extra', status: 'duplicate' }),
+      ]),
+    );
+  });
 });

@@ -172,7 +172,7 @@ function buildTableReviewContexts(params: {
       rawRowBySourceRow.set(mapping.headerRow + rowIndex + 1, row);
     }
 
-    contexts.set(mapping.tableId, {
+    contexts.set(tableReviewContextKey(mapping.tableId, mapping.sourceSheet), {
       tableId: mapping.tableId,
       sourceSheet: mapping.sourceSheet,
       headerRow: mapping.headerRow,
@@ -183,6 +183,21 @@ function buildTableReviewContexts(params: {
   }
 
   return contexts;
+}
+
+function tableReviewContextKey(tableId: string, sourceSheet: string | undefined): string {
+  return `${tableId}:${sourceSheet ?? ''}`;
+}
+
+function getReviewContext(
+  contexts: Map<string, TableReviewContext>,
+  tableId: string,
+  sourceSheet: string | undefined,
+): TableReviewContext | undefined {
+  return (
+    contexts.get(tableReviewContextKey(tableId, sourceSheet)) ??
+    [...contexts.values()].find((context) => context.tableId === tableId)
+  );
 }
 
 function valueRecordForReviewRow(
@@ -206,8 +221,12 @@ function problemColumns(context: TableReviewContext | undefined, fields: string[
   return fields.map((field) => context.sourceColumnByField.get(field) ?? field);
 }
 
-function reviewRowId(tableId: string, sourceRow: number): string {
-  return `${tableId}:${sourceRow}`;
+function reviewRowId(tableId: string, sourceRow: number, sourceSheet?: string): string {
+  return `${tableId}:${sourceSheet ?? 'sheet'}:${sourceRow}`;
+}
+
+function reviewRowLabel(sourceRow: number, sourceSheet?: string): string {
+  return sourceSheet ? `${sourceSheet} row ${sourceRow}` : `row ${sourceRow}`;
 }
 
 function issueTypeForBlockingReason(reason: string): NormalizationReviewRow['issueType'] {
@@ -292,7 +311,7 @@ export function createNormalizeToStagingHandler(
 
       const blockingIssueMap = new Map<string, BlockingIssue>();
       const addBlockingIssue = (issue: BlockingIssue): void => {
-        const key = `${issue.tableId}|${issue.sourceRow}|${issue.field}|${issue.reason}`;
+        const key = `${issue.tableId}|${issue.sourceSheet ?? ''}|${issue.sourceRow}|${issue.field}|${issue.reason}`;
         if (blockingIssueMap.has(key)) return;
         if (blockingIssueMap.size >= 200) return;
         blockingIssueMap.set(key, issue);
@@ -320,12 +339,12 @@ export function createNormalizeToStagingHandler(
 
       for (const [tableId, rows] of Object.entries(normResult.tables)) {
         rowCountsByTable[tableId] = rows.length;
-        const context = reviewContexts.get(tableId);
         const requiredFields = deps.requiredFieldsByTable.get(tableId) ?? [];
         for (const row of rows) {
           for (const parseError of row.parseErrors) {
             addBlockingIssue({
               tableId,
+              sourceSheet: row.sourceSheet,
               sourceRow: row.sourceRow,
               field: parseError.field,
               reason: parseError.error,
@@ -335,6 +354,7 @@ export function createNormalizeToStagingHandler(
             if (!isMissingRequiredValue(row.values[field])) continue;
             addBlockingIssue({
               tableId,
+              sourceSheet: row.sourceSheet,
               sourceRow: row.sourceRow,
               field,
               reason: 'required value missing after normalization',
@@ -352,6 +372,7 @@ export function createNormalizeToStagingHandler(
             if (lookup.uploadedTargetIds.has(id) || lookup.dbTargetIds.has(id)) continue;
             addBlockingIssue({
               tableId,
+              sourceSheet: row.sourceSheet,
               sourceRow: row.sourceRow,
               field: rule.sourceField,
               reason:
@@ -384,38 +405,50 @@ export function createNormalizeToStagingHandler(
           if (stagedRow.changeType !== 'duplicate_in_upload') continue;
           const firstRow = firstRowByNaturalKey.get(stagedRow.naturalKeyHash);
           const duplicateGroupKey = `${tableId}:${stagedRow.naturalKeyHash}`;
-          const firstRowId = firstRow ? reviewRowId(tableId, firstRow.sourceRow) : undefined;
+          const firstRowId = firstRow
+            ? reviewRowId(tableId, firstRow.sourceRow, firstRow.sourceSheet)
+            : undefined;
           duplicateInUploadRows.push({
             tableId,
+            ...(stagedRow.sourceSheet ? { sourceSheet: stagedRow.sourceSheet } : {}),
             naturalKey: stagedRow.naturalKeyDisplay,
             sourceRow: stagedRow.sourceRow,
             policy: shouldBlockDuplicateInUpload(tableId, deps.domainConfig) ? 'block' : 'skip',
           });
           for (const rowForReview of [firstRow, stagedRow]) {
             if (!rowForReview) continue;
-            const key = `${tableId}:${rowForReview.sourceRow}:duplicate_in_upload`;
+            const context = getReviewContext(reviewContexts, tableId, rowForReview.sourceSheet);
+            const isFirstDuplicateRow = rowForReview === firstRow;
+            const key = `${reviewRowId(
+              tableId,
+              rowForReview.sourceRow,
+              rowForReview.sourceSheet,
+            )}:duplicate_in_upload`;
             if (reviewRowKeys.has(key)) continue;
             reviewRowKeys.add(key);
             reviewRows.push({
-              id: reviewRowId(tableId, rowForReview.sourceRow),
+              id: reviewRowId(tableId, rowForReview.sourceRow, rowForReview.sourceSheet),
               groupId: duplicateGroupKey,
               groupLabel: 'Duplicates',
               tableId,
-              ...(context?.sourceSheet ? { sourceSheet: context.sourceSheet } : {}),
+              ...(rowForReview.sourceSheet ? { sourceSheet: rowForReview.sourceSheet } : {}),
               sourceRow: rowForReview.sourceRow,
               status: 'duplicate',
               issueType: 'duplicate_in_upload',
               issueLabel: 'Duplicate',
-              issueDetail:
-                firstRowId && rowForReview.sourceRow !== firstRow?.sourceRow
-                  ? `Duplicate of row ${firstRowId}`
-                  : 'Duplicate group source row',
+              issueDetail: isFirstDuplicateRow
+                ? 'Duplicate group source row'
+                : `Duplicate of ${firstRow ? reviewRowLabel(firstRow.sourceRow, firstRow.sourceSheet) : 'another uploaded row'}`,
               values: valueRecordForReviewRow(context, rowForReview.sourceRow, rowForReview.values),
               columns: context?.columns ?? [],
               problemFields: problemColumns(context, Object.keys(rowForReview.naturalKeyDisplay)),
               duplicateGroupKey,
-              ...(firstRowId && rowForReview.sourceRow !== firstRow?.sourceRow
-                ? { duplicateOfRowId: firstRowId }
+              ...(firstRowId && !isFirstDuplicateRow
+                ? {
+                    duplicateOfRowId: firstRow
+                      ? reviewRowLabel(firstRow.sourceRow, firstRow.sourceSheet)
+                      : firstRowId,
+                  }
                 : {}),
               decision: shouldBlockDuplicateInUpload(tableId, deps.domainConfig)
                 ? 'keep_row'
@@ -439,15 +472,20 @@ export function createNormalizeToStagingHandler(
 
         for (const stagedRow of staged) {
           if (stagedRow.changeType !== 'exact_duplicate') continue;
-          const key = `${tableId}:${stagedRow.sourceRow}:exact_duplicate`;
+          const context = getReviewContext(reviewContexts, tableId, stagedRow.sourceSheet);
+          const key = `${reviewRowId(
+            tableId,
+            stagedRow.sourceRow,
+            stagedRow.sourceSheet,
+          )}:exact_duplicate`;
           if (reviewRowKeys.has(key)) continue;
           reviewRowKeys.add(key);
           reviewRows.push({
-            id: reviewRowId(tableId, stagedRow.sourceRow),
+            id: reviewRowId(tableId, stagedRow.sourceRow, stagedRow.sourceSheet),
             groupId: `${tableId}:exact_duplicate`,
             groupLabel: 'Rows to skip',
             tableId,
-            ...(context?.sourceSheet ? { sourceSheet: context.sourceSheet } : {}),
+            ...(stagedRow.sourceSheet ? { sourceSheet: stagedRow.sourceSheet } : {}),
             sourceRow: stagedRow.sourceRow,
             status: 'skipped',
             issueType: 'exact_duplicate',
@@ -479,15 +517,16 @@ export function createNormalizeToStagingHandler(
       const blockingIssues = [...blockingIssueMap.values()];
       const blockingIssuesByRow = new Map<string, BlockingIssue[]>();
       for (const issue of blockingIssues) {
-        const key = `${issue.tableId}:${issue.sourceRow}`;
+        const key = `${issue.tableId}:${issue.sourceSheet ?? ''}:${issue.sourceRow}`;
         blockingIssuesByRow.set(key, [...(blockingIssuesByRow.get(key) ?? []), issue]);
       }
       for (const [key, issues] of blockingIssuesByRow.entries()) {
-        const [tableId = '', sourceRowRaw = '0'] = key.split(':');
+        const [tableId = '', sourceSheet = '', sourceRowRaw = '0'] = key.split(':');
         const sourceRow = Number(sourceRowRaw);
-        const context = reviewContexts.get(tableId);
+        const context = getReviewContext(reviewContexts, tableId, sourceSheet || undefined);
         const normalizedRow = normResult.tables[tableId]?.find(
-          (row) => row.sourceRow === sourceRow,
+          (row) =>
+            row.sourceRow === sourceRow && (sourceSheet ? row.sourceSheet === sourceSheet : true),
         );
         const issueTypes = new Set(issues.map((issue) => issueTypeForBlockingReason(issue.reason)));
         const issueType =
@@ -495,15 +534,15 @@ export function createNormalizeToStagingHandler(
         const problemFieldNames = issues.map((issue) => issue.field);
         const problemFieldLabels = problemColumns(context, problemFieldNames);
         const detail = issues.map((issue) => issue.reason).join('; ');
-        const reviewKey = `${tableId}:${sourceRow}:blocking`;
+        const reviewKey = `${reviewRowId(tableId, sourceRow, sourceSheet || undefined)}:blocking`;
         if (reviewRowKeys.has(reviewKey)) continue;
         reviewRowKeys.add(reviewKey);
         reviewRows.push({
-          id: reviewRowId(tableId, sourceRow),
+          id: reviewRowId(tableId, sourceRow, sourceSheet || undefined),
           groupId: `${tableId}:${issueType}`,
           groupLabel: issueTypes.size > 1 ? 'Multiple issues' : groupLabelForType(issueType),
           tableId,
-          ...(context?.sourceSheet ? { sourceSheet: context.sourceSheet } : {}),
+          ...(sourceSheet ? { sourceSheet } : {}),
           sourceRow,
           status: 'blocked',
           issueType,

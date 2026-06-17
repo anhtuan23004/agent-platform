@@ -70,6 +70,7 @@ export type ChangeType =
 
 export interface StagedRow {
   tableId: string;
+  sourceSheet?: string;
   naturalKeyHash: string;
   sourceRowHash: string;
   changeType: ChangeType;
@@ -111,6 +112,7 @@ export function classifyRows(
     if (seenInUpload.has(naturalKeyHash)) {
       staged.push({
         tableId,
+        sourceSheet: row.sourceSheet,
         naturalKeyHash,
         sourceRowHash,
         changeType: 'duplicate_in_upload',
@@ -128,6 +130,7 @@ export function classifyRows(
       // Not in DB → new record
       staged.push({
         tableId,
+        sourceSheet: row.sourceSheet,
         naturalKeyHash,
         sourceRowHash,
         changeType: 'new_record',
@@ -139,6 +142,7 @@ export function classifyRows(
       // Same values → exact duplicate
       staged.push({
         tableId,
+        sourceSheet: row.sourceSheet,
         naturalKeyHash,
         sourceRowHash,
         changeType: 'exact_duplicate',
@@ -150,6 +154,7 @@ export function classifyRows(
       // Different values → updated record
       staged.push({
         tableId,
+        sourceSheet: row.sourceSheet,
         naturalKeyHash,
         sourceRowHash,
         changeType: 'updated_record',
@@ -182,7 +187,13 @@ export function aggregateRows(
   const { tableId, sumField, mergeTextField } = options;
   const groups = new Map<
     string,
-    { sum: number; mergeText: string; sourceRow: number; values: Record<string, unknown> }
+    {
+      sum: number;
+      mergeText: string;
+      sourceSheet?: string;
+      sourceRow: number;
+      values: Record<string, unknown>;
+    }
   >();
 
   for (const row of rows) {
@@ -194,6 +205,7 @@ export function aggregateRows(
       groups.set(hash, {
         sum: numVal,
         mergeText: mergeTextField ? ((row.values[mergeTextField] as string) ?? '') : '',
+        sourceSheet: row.sourceSheet,
         sourceRow: row.sourceRow,
         values: { ...row.values },
       });
@@ -215,6 +227,7 @@ export function aggregateRows(
     }
     return {
       tableId,
+      sourceSheet: g.sourceSheet,
       sourceRow: g.sourceRow,
       values,
       parseErrors: [],
