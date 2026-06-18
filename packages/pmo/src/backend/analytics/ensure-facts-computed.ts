@@ -5,7 +5,6 @@ import { loadCanonicalInputs } from './load-canonical.ts';
 import { type ComputeFactsResult, computeAndPersistFacts } from './persist-facts.ts';
 import { splitPmoPopulations } from './populations.ts';
 import { resolveThresholds } from './thresholds.ts';
-import type { Thresholds } from './types.ts';
 
 export interface EnsureFactsComputedResult extends ComputeFactsResult {
   computedAt: Date;
