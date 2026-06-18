@@ -1,6 +1,6 @@
 import { defineAgentTool } from '@seta/agent-sdk';
 import { z } from 'zod';
-import { computeAndPersistFacts } from '../analytics/persist-facts.ts';
+import { ensureFactsComputed } from '../analytics/ensure-facts-computed.ts';
 import { tenantIdFromContext } from './context.ts';
 
 const outputSchema = z.object({
@@ -30,6 +30,12 @@ export const pmoComputeMemberWeekFactsTool = defineAgentTool({
   rbac: 'pmo.data.read',
   execute: async (_input, ctx) => {
     const tenantId = tenantIdFromContext(ctx);
-    return computeAndPersistFacts(tenantId);
+    const result = await ensureFactsComputed(tenantId, { force: true });
+    return {
+      factCount: result.factCount,
+      memberCount: result.memberCount,
+      weekIds: result.weekIds,
+      thresholds: result.thresholds,
+    };
   },
 });

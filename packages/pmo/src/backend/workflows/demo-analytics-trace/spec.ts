@@ -6,12 +6,13 @@ import {
   buildDemoAnalyticsResult,
   DemoAnalyticsNoDataError,
 } from '../../analytics/demo-analytics.ts';
+import { ensureFactsComputed } from '../../analytics/ensure-facts-computed.ts';
+import type { FindingsContext } from '../../analytics/findings.ts';
 import { analyzeMembers, detectMismatch, detectOverbookIdle } from '../../analytics/findings.ts';
+import { loadFactsAndContext } from '../../analytics/findings-context.ts';
 import type { CanonicalInputs } from '../../analytics/load-canonical.ts';
 import { loadCanonicalInputs } from '../../analytics/load-canonical.ts';
-import { buildMemberWeekFacts } from '../../analytics/member-week-facts.ts';
-import { splitPmoPopulations } from '../../analytics/populations.ts';
-import { resolveThresholds } from '../../analytics/thresholds.ts';
+import type { MemberWeekFact } from '../../analytics/types.ts';
 import { DemoAnalyticsTraceInputSchema, DemoAnalyticsTraceOutputSchema } from './schemas.ts';
 
 function tenantIdFromRequestContext(requestContext: { get: (k: string) => unknown }): string {
@@ -36,54 +37,35 @@ const loadCanonicalStep = createStep({
   },
 });
 
-const buildFactsStep = createStep({
-  id: 'pmo.demoTrace.buildFacts',
-  description: 'Split PM/delivery populations, then compute delivery member×week facts.',
+const computeFactsStep = createStep({
+  id: 'pmo.demoTrace.computeFacts',
+  description: 'Persist member×week facts from canonical (production path).',
   inputSchema: z.custom<CanonicalInputs>(),
-  outputSchema: z.object({
-    canonical: z.custom<CanonicalInputs>(),
-    thresholds: z.unknown(),
-    facts: z.array(z.unknown()),
-  }),
-  execute: async ({ inputData }) => {
-    const canonical = inputData as CanonicalInputs;
-    const thresholds = resolveThresholds(canonical.configRows);
-    const { deliveryMembers } = splitPmoPopulations(canonical.members, canonical.projects);
-    const facts = buildMemberWeekFacts({
-      members: deliveryMembers,
-      allocations: canonical.allocations,
-      timesheets: canonical.timesheets,
-      leaves: canonical.leaves,
-      weeks: canonical.weeks,
-      thresholds,
-    });
-    return { canonical, thresholds, facts };
+  outputSchema: z.custom<CanonicalInputs>(),
+  execute: async ({ inputData, requestContext }) => {
+    const tenantId = tenantIdFromRequestContext(requestContext);
+    await ensureFactsComputed(tenantId, { force: true });
+    return inputData as CanonicalInputs;
   },
 });
 
 const aggregateStep = createStep({
   id: 'pmo.demoTrace.aggregateMembers',
   description:
-    'Aggregate facts to member grain (exclude holiday/leave/approved OT/training weeks).',
-  inputSchema: z.object({
-    canonical: z.custom<CanonicalInputs>(),
-    thresholds: z.unknown(),
-    facts: z.array(z.unknown()),
-  }),
+    'Load persisted facts and aggregate to member grain (exclude holiday/leave/approved OT/training weeks).',
+  inputSchema: z.custom<CanonicalInputs>(),
   outputSchema: z.object({
     canonical: z.custom<CanonicalInputs>(),
-    thresholds: z.unknown(),
     facts: z.array(z.unknown()),
     analyses: z.array(z.unknown()),
+    ctx: z.unknown(),
   }),
-  execute: async ({ inputData }) => {
-    const canonical = inputData.canonical as CanonicalInputs;
-    const facts = inputData.facts as unknown as ReturnType<typeof buildMemberWeekFacts>;
-    const thresholds = resolveThresholds(canonical.configRows);
-    const weeksById = new Map(canonical.weeks.map((w) => [w.week_id, w]));
-    const ctx = { leaves: canonical.leaves, weeksById, thresholds };
+  execute: async ({ inputData, requestContext }) => {
+    const tenantId = tenantIdFromRequestContext(requestContext);
+    const canonical = inputData as CanonicalInputs;
+    const { facts, ctx } = await loadFactsAndContext(tenantId);
     const analyses = analyzeMembers(facts, ctx);
-    return { canonical, thresholds: inputData.thresholds, facts: inputData.facts, analyses };
+    return { canonical, facts, analyses, ctx };
   },
 });
 
@@ -92,59 +74,19 @@ const findingsStep = createStep({
   description: 'Detect overbook/idle and mismatch findings at member grain.',
   inputSchema: z.object({
     canonical: z.custom<CanonicalInputs>(),
-    thresholds: z.unknown(),
     facts: z.array(z.unknown()),
     analyses: z.array(z.unknown()),
-  }),
-  outputSchema: z.object({
-    canonical: z.custom<CanonicalInputs>(),
-    thresholds: z.unknown(),
-    facts: z.array(z.unknown()),
-    analyses: z.array(z.unknown()),
-    overbookIdleFindings: z.array(z.unknown()),
-    mismatchFindings: z.array(z.unknown()),
-  }),
-  execute: async ({ inputData }) => {
-    const canonical = inputData.canonical as CanonicalInputs;
-    const facts = inputData.facts as unknown as ReturnType<typeof buildMemberWeekFacts>;
-    const thresholds = resolveThresholds(canonical.configRows);
-    const weeksById = new Map(canonical.weeks.map((w) => [w.week_id, w]));
-    const ctx = { leaves: canonical.leaves, weeksById, thresholds };
-    return {
-      canonical,
-      thresholds: inputData.thresholds,
-      facts: inputData.facts,
-      analyses: inputData.analyses,
-      overbookIdleFindings: detectOverbookIdle(facts, ctx),
-      mismatchFindings: detectMismatch(facts, ctx),
-    };
-  },
-});
-
-const answerKeyStep = createStep({
-  id: 'pmo.demoTrace.answerKey',
-  description: 'Compare findings to the PMO_02 Answer Key for validation.',
-  inputSchema: z.object({
-    canonical: z.custom<CanonicalInputs>(),
-    thresholds: z.unknown(),
-    facts: z.array(z.unknown()),
-    analyses: z.array(z.unknown()),
-    overbookIdleFindings: z.array(z.unknown()),
-    mismatchFindings: z.array(z.unknown()),
+    ctx: z.unknown(),
   }),
   outputSchema: DemoAnalyticsTraceOutputSchema,
   execute: async ({ inputData }) => {
     const canonical = inputData.canonical as CanonicalInputs;
+    const facts = inputData.facts as MemberWeekFact[];
+    const ctx = inputData.ctx as FindingsContext;
+    detectOverbookIdle(facts, ctx);
+    detectMismatch(facts, ctx);
     return {
-      result: buildDemoAnalyticsResult(
-        canonical.members,
-        canonical.projects,
-        canonical.allocations,
-        canonical.timesheets,
-        canonical.leaves,
-        canonical.weeks,
-        canonical.configRows,
-      ),
+      result: buildDemoAnalyticsResult(canonical, facts),
     };
   },
 });
@@ -152,15 +94,14 @@ const answerKeyStep = createStep({
 export const demoAnalyticsTraceWorkflow = createWorkflow({
   id: 'pmo.demoAnalyticsTrace',
   description:
-    'Traceable PMO utilization analytics (inputs → PM/delivery split → facts → aggregation → findings → answer key).',
+    'Traceable PMO utilization analytics (canonical → persist facts → aggregation → findings).',
   inputSchema: DemoAnalyticsTraceInputSchema,
   outputSchema: DemoAnalyticsTraceOutputSchema,
 })
   .then(loadCanonicalStep)
-  .then(buildFactsStep)
+  .then(computeFactsStep)
   .then(aggregateStep)
   .then(findingsStep)
-  .then(answerKeyStep)
   .commit();
 
 export const demoAnalyticsTraceWorkflowSpec: WorkflowSpec = {

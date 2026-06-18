@@ -7,16 +7,6 @@ export interface DemoThresholds {
   requiredTrainingHours: number;
 }
 
-export interface DemoAnswerKeyRow {
-  memberId: string;
-  expected: string;
-  actual: string;
-  match: boolean;
-  busyRate: number | null;
-  effortConsumption: number | null;
-  excludedWeeks: Array<{ weekId: string; reason: string }>;
-}
-
 export interface DemoFindingRow {
   memberId: string;
   issueType: string;
@@ -141,9 +131,6 @@ export interface DemoAnalyticsResult {
   memberAnalyses: DemoMemberAnalysisRow[];
   overbookIdleFindings: DemoFindingRow[];
   mismatchFindings: DemoFindingRow[];
-  answerKey: DemoAnswerKeyRow[];
-  passCount: number;
-  totalAnswerKey: number;
 }
 
 export async function fetchDemoAnalytics(): Promise<DemoAnalyticsResult> {

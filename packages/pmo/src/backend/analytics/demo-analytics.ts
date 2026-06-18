@@ -1,14 +1,15 @@
-import { PMO_02_ANSWER_KEY } from '../demo/pmo-02.ts';
 import { dateInWeek } from './dates.ts';
+import { ensureFactsComputed } from './ensure-facts-computed.ts';
 import {
   analyzeMembers,
   detectMismatch,
   detectOverbookIdle,
   type MemberAnalysis,
 } from './findings.ts';
+import { loadFactsAndContext } from './findings-context.ts';
 import { LEAVE_TYPE_APPROVED_OT_COMP, LEAVE_TYPE_TRAINING } from './leave-type.ts';
+import type { CanonicalInputs } from './load-canonical.ts';
 import { loadCanonicalInputs } from './load-canonical.ts';
-import { buildMemberWeekFacts } from './member-week-facts.ts';
 import { splitPmoPopulations } from './populations.ts';
 import { buildProjectMemberDependencies, type ProjectMemberDependency } from './project-members.ts';
 import { resolveThresholds } from './thresholds.ts';
@@ -31,16 +32,6 @@ export class DemoAnalyticsNoDataError extends Error {
     );
     this.name = 'DemoAnalyticsNoDataError';
   }
-}
-
-export interface DemoAnswerKeyRow {
-  memberId: string;
-  expected: string;
-  actual: string;
-  match: boolean;
-  busyRate: number | null;
-  effortConsumption: number | null;
-  excludedWeeks: Array<{ weekId: string; reason: string }>;
 }
 
 export interface DemoFindingRow {
@@ -169,9 +160,6 @@ export interface DemoAnalyticsResult {
   memberAnalyses: DemoMemberAnalysisRow[];
   overbookIdleFindings: DemoFindingRow[];
   mismatchFindings: DemoFindingRow[];
-  answerKey: DemoAnswerKeyRow[];
-  passCount: number;
-  totalAnswerKey: number;
 }
 
 function isoDate(d: Date | null | undefined): string | null {
@@ -179,8 +167,7 @@ function isoDate(d: Date | null | undefined): string | null {
   return d.toISOString().slice(0, 10);
 }
 
-function findingLabel(finding: Finding | undefined): string {
-  if (!finding) return '(none)';
+function findingLabel(finding: Finding): string {
   switch (finding.issueType) {
     case 'overbook':
       return 'Overbook';
@@ -193,11 +180,6 @@ function findingLabel(finding: Finding | undefined): string {
     default:
       return finding.issueType;
   }
-}
-
-function compareAnswerKey(expected: string, actual: string): boolean {
-  const norm = (s: string) => (s === '(none)' ? '(none)' : s);
-  return norm(expected) === norm(actual);
 }
 
 function serializeFinding(f: Finding): DemoFindingRow {
@@ -357,37 +339,11 @@ function reportingWindow(weeks: WeekRow[]): { start: string; end: string } {
   };
 }
 
-function buildAnswerKeyRows(
-  analyses: MemberAnalysis[],
-  overbookIdle: Finding[],
-  mismatch: Finding[],
-): DemoAnswerKeyRow[] {
-  const allFindings = [...overbookIdle, ...mismatch];
-  return PMO_02_ANSWER_KEY.map(({ memberId, expected }) => {
-    const finding = allFindings.find((f) => f.memberId === memberId);
-    const analysis = analyses.find((a) => a.memberId === memberId);
-    const actual = findingLabel(finding);
-    return {
-      memberId,
-      expected,
-      actual,
-      match: compareAnswerKey(expected, actual),
-      busyRate: analysis?.busyRate ?? finding?.busyRate ?? null,
-      effortConsumption: analysis?.effortConsumption ?? finding?.effortConsumption ?? null,
-      excludedWeeks: analysis?.excludedWeeks ?? finding?.excludedWeeks ?? [],
-    };
-  });
-}
-
 export function buildDemoAnalyticsResult(
-  members: MemberRow[],
-  projects: ProjectRow[],
-  allocations: AllocationRow[],
-  timesheets: TimesheetRow[],
-  leaves: LeaveRow[],
-  weeks: WeekRow[],
-  configRows: Awaited<ReturnType<typeof loadCanonicalInputs>>['configRows'],
+  canonical: CanonicalInputs,
+  facts: MemberWeekFact[],
 ): DemoAnalyticsResult {
+  const { members, projects, allocations, timesheets, leaves, weeks, configRows } = canonical;
   const thresholds = resolveThresholds(configRows);
   const { deliveryMembers, projectManagers } = splitPmoPopulations(members, projects);
   const projectMemberDependencies = buildProjectMemberDependencies(
@@ -395,21 +351,12 @@ export function buildDemoAnalyticsResult(
     deliveryMembers,
     allocations,
   );
-  const facts = buildMemberWeekFacts({
-    members: deliveryMembers,
-    allocations,
-    timesheets,
-    leaves,
-    weeks,
-    thresholds,
-  });
 
   const weeksById = new Map(weeks.map((w) => [w.week_id, w]));
   const ctx = { leaves, weeksById, thresholds };
   const overbookIdle = detectOverbookIdle(facts, ctx);
   const mismatch = detectMismatch(facts, ctx);
   const analyses = analyzeMembers(facts, ctx);
-  const answerKey = buildAnswerKeyRows(analyses, overbookIdle, mismatch);
 
   const memberIdToLeaves = new Map<string, LeaveRow[]>();
   for (const l of leaves) {
@@ -451,9 +398,6 @@ export function buildDemoAnalyticsResult(
       .sort((a, b) => a.memberId.localeCompare(b.memberId)),
     overbookIdleFindings: overbookIdle.map(serializeFinding),
     mismatchFindings: mismatch.map(serializeFinding),
-    answerKey,
-    passCount: answerKey.filter((r) => r.match).length,
-    totalAnswerKey: answerKey.length,
   };
 }
 
@@ -463,13 +407,12 @@ export async function runDemoAnalytics(tenantId: string): Promise<DemoAnalyticsR
     throw new DemoAnalyticsNoDataError();
   }
 
-  return buildDemoAnalyticsResult(
-    canonical.members,
-    canonical.projects,
-    canonical.allocations,
-    canonical.timesheets,
-    canonical.leaves,
-    canonical.weeks,
-    canonical.configRows,
-  );
+  await ensureFactsComputed(tenantId);
+
+  const { facts } = await loadFactsAndContext(tenantId);
+  if (facts.length === 0) {
+    throw new DemoAnalyticsNoDataError();
+  }
+
+  return buildDemoAnalyticsResult(canonical, facts);
 }

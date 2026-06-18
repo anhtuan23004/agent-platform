@@ -15,7 +15,7 @@ export const pmoNavManifest: NavManifest = {
         {
           id: 'pmo.demo-calculation',
           icon: Calculator,
-          label: 'Calculation demo',
+          label: 'Utilization',
           to: '/pmo/demo-calculation',
         },
       ],
