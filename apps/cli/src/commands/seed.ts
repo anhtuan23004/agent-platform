@@ -13,7 +13,8 @@ import {
   listPlans,
   listTasks,
 } from '@seta/planner';
-import { seedPmo02FromMockDbForTenant } from '@seta/pmo';
+// Mock-data seeding is intentionally disabled for now.
+// import { seedPmo02FromMockDbForTenant } from '@seta/pmo';
 import {
   buildRegistry,
   IMPLICIT_PERMISSIONS,
@@ -587,6 +588,10 @@ export async function seedCommand(opts: SeedOpts): Promise<void> {
       `${JSON.stringify({ phase: 'pmo', skipped: true, reason: 'PMO_SEED_ENABLED=false' })}\n`,
     );
   } else {
+    process.stdout.write(
+      `${JSON.stringify({ phase: 'pmo', skipped: true, reason: 'PMO mock-data seed disabled' })}\n`,
+    );
+    /*
     log.info('phase 9: seeding PMO_02 from mock-data.db');
     const result = await seedPmo02FromMockDbForTenant({
       tenantId,
@@ -601,6 +606,7 @@ export async function seedCommand(opts: SeedOpts): Promise<void> {
         ingestionSessionId: result.ingestionSessionId,
       })}\n`,
     );
+    */
   }
 
   log.info({ tenant_id: tenantId, modules: [...modules] }, 'seed: complete');

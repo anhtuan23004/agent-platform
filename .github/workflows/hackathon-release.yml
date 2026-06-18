@@ -156,8 +156,9 @@ jobs:
             # are generated and the database is re-initialised cleanly.
             SECRETS_FILE=/opt/seta/secrets.env
             sudo mkdir -p /opt/seta
-            sudo mkdir -p /opt/seta/demo-assets
-            sudo chown "$(id -u):$(id -g)" /opt/seta/demo-assets
+            # PMO mock-data assets are disabled.
+            # sudo mkdir -p /opt/seta/demo-assets
+            # sudo chown "$(id -u):$(id -g)" /opt/seta/demo-assets
             if [ ! -f "$SECRETS_FILE" ]; then
               echo "=== First deploy: generating persistent app secrets ==="
               printf 'POSTGRES_PASSWORD=%s\nBETTER_AUTH_SECRET=%s\nCRYPTO_LOCAL_MASTER_KEY=%s\n' \

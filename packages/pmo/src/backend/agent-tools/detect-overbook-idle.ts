@@ -1,8 +1,8 @@
 import { defineAgentTool } from '@seta/agent-sdk';
 import { z } from 'zod';
 import { detectOverbookIdle } from '../analytics/findings.ts';
+import { loadFactsAndContext } from '../analytics/findings-context.ts';
 import { tenantIdFromContext } from './context.ts';
-import { loadFactsAndContext } from './findings-context.ts';
 
 const findingSchema = z.object({
   memberId: z.string(),

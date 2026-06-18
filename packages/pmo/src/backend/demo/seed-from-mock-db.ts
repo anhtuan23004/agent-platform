@@ -108,6 +108,11 @@ function queryJson<T extends Record<string, unknown>>(mockDbPath: string, sqlTex
 export function ensurePmo02MockSqliteDb(mockDbPath: string = DEFAULT_REPO_MOCK_DB_PATH): void {
   if (existsSync(mockDbPath)) return;
 
+  throw new Error(
+    `PMO mock SQLite DB not found at ${mockDbPath}; mock-data generation is disabled.`,
+  );
+
+  /*
   const assetRoot = resolvePmoSeedAssetRoot();
   const workbookPath = DEFAULT_PMO02_WORKBOOK_PATH;
   if (!existsSync(workbookPath)) {
@@ -136,6 +141,7 @@ export function ensurePmo02MockSqliteDb(mockDbPath: string = DEFAULT_REPO_MOCK_D
   if (!existsSync(mockDbPath)) {
     throw new Error(`insert-mock.ts completed but ${mockDbPath} was not created`);
   }
+  */
 }
 
 /**

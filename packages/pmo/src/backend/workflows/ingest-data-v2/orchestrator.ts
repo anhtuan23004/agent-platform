@@ -665,6 +665,7 @@ function buildStatePatch(params: {
         ? asDateOrNull(new Date().toISOString())
         : null,
     ...params.extraPatch,
+    ...(params.status === 'published' ? { publish_reviewed_at: new Date() } : {}),
   };
 }
 

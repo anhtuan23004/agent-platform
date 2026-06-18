@@ -1,5 +1,5 @@
 import { toast } from '@seta/shared-ui';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { WorkflowApprovalRow } from '../api/workflow-runtime';
 import {
   groupNormalizationRows,
@@ -66,6 +66,19 @@ function unresolvedDuplicateGroupCount(rows: NormalizationReviewRow[]): number {
   return unresolved;
 }
 
+function buildMemberAdditionDrafts(
+  view: NormalizationReviewViewModel | null,
+): MemberMasterAdditionDraft[] {
+  return (
+    view?.missingMembers.map((item) => ({
+      member_id: item.memberId,
+      full_name: '',
+      department: '',
+      role_title: '',
+    })) ?? []
+  );
+}
+
 export function usePmoNormalizationReviewActions(
   options: UsePmoNormalizationReviewActionsOptions,
 ): UsePmoNormalizationReviewActionsResult {
@@ -76,34 +89,44 @@ export function usePmoNormalizationReviewActions(
     refreshWorkflowRuntime,
   } = options;
   const submitDecision = useSubmitWorkflowRuntimeDecision();
-  const [memberAdditionDrafts, setMemberAdditionDrafts] = useState<MemberMasterAdditionDraft[]>([]);
-  const [rowDecisions, setRowDecisions] = useState<Record<string, 'keep_row' | 'skip_row'>>({});
-  const [rowOverrides, setRowOverrides] = useState<Record<string, Record<string, unknown>>>({});
 
   const draftScope = `${selectedNormalizationApproval?.approvalId ?? ''}:${selectedNormalizationView?.missingMembers.map((item) => item.memberId).join('|') ?? ''}`;
-  const previousDraftScope = useRef('');
   const reviewScope = selectedNormalizationApproval?.approvalId ?? '';
-  const previousReviewScope = useRef('');
 
-  useEffect(() => {
-    if (previousDraftScope.current === draftScope) return;
-    previousDraftScope.current = draftScope;
-    setMemberAdditionDrafts(
-      selectedNormalizationView?.missingMembers.map((item) => ({
-        member_id: item.memberId,
-        full_name: '',
-        department: '',
-        role_title: '',
-      })) ?? [],
-    );
-  }, [draftScope, selectedNormalizationView]);
+  const [memberAdditionEdits, setMemberAdditionEdits] = useState<
+    Record<
+      string,
+      Partial<Pick<MemberMasterAdditionDraft, 'full_name' | 'department' | 'role_title'>>
+    >
+  >({});
+  const [rowDecisions, setRowDecisions] = useState<Record<string, 'keep_row' | 'skip_row'>>({});
+  const [rowOverrides, setRowOverrides] = useState<Record<string, Record<string, unknown>>>({});
+  const [syncedDraftScope, setSyncedDraftScope] = useState(draftScope);
+  const [syncedReviewScope, setSyncedReviewScope] = useState(reviewScope);
 
-  useEffect(() => {
-    if (previousReviewScope.current === reviewScope) return;
-    previousReviewScope.current = reviewScope;
+  if (draftScope !== syncedDraftScope) {
+    setSyncedDraftScope(draftScope);
+    setMemberAdditionEdits({});
+  }
+
+  if (reviewScope !== syncedReviewScope) {
+    setSyncedReviewScope(reviewScope);
     setRowDecisions({});
     setRowOverrides({});
-  }, [reviewScope]);
+  }
+
+  const defaultMemberAdditionDrafts = useMemo(
+    () => buildMemberAdditionDrafts(selectedNormalizationView),
+    [selectedNormalizationView],
+  );
+  const memberAdditionDrafts = useMemo(
+    () =>
+      defaultMemberAdditionDrafts.map((draft) => ({
+        ...draft,
+        ...(memberAdditionEdits[draft.member_id] ?? {}),
+      })),
+    [defaultMemberAdditionDrafts, memberAdditionEdits],
+  );
 
   const refreshAfterDecision = useCallback(async () => {
     await Promise.all([refreshWorkflowRuntime(), loadSessions(true)]);
@@ -183,11 +206,13 @@ export function usePmoNormalizationReviewActions(
       field: keyof Omit<MemberMasterAdditionDraft, 'member_id'>,
       value: string,
     ) => {
-      setMemberAdditionDrafts((drafts) =>
-        drafts.map((draft) =>
-          draft.member_id === memberId ? { ...draft, [field]: value } : draft,
-        ),
-      );
+      setMemberAdditionEdits((edits) => ({
+        ...edits,
+        [memberId]: {
+          ...(edits[memberId] ?? {}),
+          [field]: value,
+        },
+      }));
     },
     [],
   );

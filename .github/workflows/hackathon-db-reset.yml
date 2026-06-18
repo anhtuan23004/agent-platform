@@ -23,10 +23,12 @@ on:
         description: 'Comma-separated phases to run: users,planner,availability,pmo (default: all)'
         required: false
         default: ''
-      seed_pmo:
-        description: 'Build + upload PMO_02 mock-data.db (demo only; not baked in server image)'
-        required: false
-        default: 'true'
+      # PMO mock-data seeding is disabled. Keep the old input commented so the
+      # CI mock-data path can be restored without reconstructing it from history.
+      # seed_pmo:
+      #   description: 'Build + upload PMO_02 mock-data.db (demo only; not baked in server image)'
+      #   required: false
+      #   default: 'true'
 
 concurrency:
   group: hackathon-db-seed
@@ -52,37 +54,38 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
 
-      - name: Build PMO_02 mock-data.db (CI only — not in production image)
-        if: ${{ github.event.inputs.seed_pmo == 'true' }}
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq sqlite3
-          pnpm install --frozen-lockfile
-          node --experimental-strip-types packages/pmo/scripts/insert-mock.ts
-          ls -lh mock-data.db
-
-      - name: Prepare demo-assets directory on EC2
-        if: ${{ github.event.inputs.seed_pmo == 'true' }}
-        uses: appleboy/ssh-action@v1.2.5
-        with:
-          host: ${{ vars.EC2_HOST }}
-          username: ${{ vars.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-          script: |
-            sudo mkdir -p /opt/seta/demo-assets
-            sudo chown "$(id -u):$(id -g)" /opt/seta/demo-assets
-            chmod 755 /opt/seta/demo-assets
-
-      - name: Upload PMO mock DB to EC2
-        if: ${{ github.event.inputs.seed_pmo == 'true' }}
-        uses: appleboy/scp-action@v1.0.0
-        with:
-          host: ${{ vars.EC2_HOST }}
-          username: ${{ vars.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-          source: mock-data.db
-          target: /opt/seta/demo-assets/
-          overwrite: true
+      # PMO mock-data generation/upload is disabled.
+      # - name: Build PMO_02 mock-data.db (CI only — not in production image)
+      #   if: ${{ github.event.inputs.seed_pmo == 'true' }}
+      #   run: |
+      #     sudo apt-get update -qq
+      #     sudo apt-get install -y -qq sqlite3
+      #     pnpm install --frozen-lockfile
+      #     node --experimental-strip-types packages/pmo/scripts/insert-mock.ts
+      #     ls -lh mock-data.db
+      #
+      # - name: Prepare demo-assets directory on EC2
+      #   if: ${{ github.event.inputs.seed_pmo == 'true' }}
+      #   uses: appleboy/ssh-action@v1.2.5
+      #   with:
+      #     host: ${{ vars.EC2_HOST }}
+      #     username: ${{ vars.EC2_USER }}
+      #     key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+      #     script: |
+      #       sudo mkdir -p /opt/seta/demo-assets
+      #       sudo chown "$(id -u):$(id -g)" /opt/seta/demo-assets
+      #       chmod 755 /opt/seta/demo-assets
+      #
+      # - name: Upload PMO mock DB to EC2
+      #   if: ${{ github.event.inputs.seed_pmo == 'true' }}
+      #   uses: appleboy/scp-action@v1.0.0
+      #   with:
+      #     host: ${{ vars.EC2_HOST }}
+      #     username: ${{ vars.EC2_USER }}
+      #     key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+      #     source: mock-data.db
+      #     target: /opt/seta/demo-assets/
+      #     overwrite: true
 
       - name: SSH reset DB and seed
         uses: appleboy/ssh-action@v1.2.5
@@ -92,12 +95,11 @@ jobs:
           ADMIN_EMAIL: ${{ github.event.inputs.admin_email }}
           SEED_PASSWORD: ${{ github.event.inputs.password }}
           ONLY: ${{ github.event.inputs.only }}
-          SEED_PMO: ${{ github.event.inputs.seed_pmo }}
         with:
           host: ${{ vars.EC2_HOST }}
           username: ${{ vars.EC2_USER }}
           key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-          envs: TENANT,TENANT_NAME,ADMIN_EMAIL,SEED_PASSWORD,ONLY,SEED_PMO
+          envs: TENANT,TENANT_NAME,ADMIN_EMAIL,SEED_PASSWORD,ONLY
           script: |
             set -euo pipefail
             echo "=== Resetting DB and seeding tenant: $TENANT ==="
@@ -117,18 +119,19 @@ jobs:
             echo "--- Running migrations ---"
             docker compose --env-file /opt/seta/.env run --rm migrator
 
-            PMO_ARGS=""
-            if [ "$SEED_PMO" = "true" ] && [ -f /opt/seta/demo-assets/mock-data.db ]; then
-              echo "--- PMO_02: mounting demo mock-data.db (read-only) ---"
-              PMO_ARGS="-v /opt/seta/demo-assets/mock-data.db:/app/apps/cli/mock-data.db:ro"
-              PMO_ARGS="$PMO_ARGS -e PMO_MOCK_DB_PATH=/app/apps/cli/mock-data.db"
-            elif echo "$ARGS $ONLY" | grep -q pmo || [ -z "$ONLY" ]; then
-              echo "WARNING: pmo seed requested but /opt/seta/demo-assets/mock-data.db missing; pmo phase may fail"
-            fi
+            # PMO mock-data mounting is disabled.
+            # PMO_ARGS=""
+            # if [ "$SEED_PMO" = "true" ] && [ -f /opt/seta/demo-assets/mock-data.db ]; then
+            #   echo "--- PMO_02: mounting demo mock-data.db (read-only) ---"
+            #   PMO_ARGS="-v /opt/seta/demo-assets/mock-data.db:/app/apps/cli/mock-data.db:ro"
+            #   PMO_ARGS="$PMO_ARGS -e PMO_MOCK_DB_PATH=/app/apps/cli/mock-data.db"
+            # elif echo "$ARGS $ONLY" | grep -q pmo || [ -z "$ONLY" ]; then
+            #   echo "WARNING: pmo seed requested but /opt/seta/demo-assets/mock-data.db missing; pmo phase may fail"
+            # fi
 
             echo "--- Seeding data ---"
+            # Add "$PMO_ARGS" back here if PMO mock-data mounting is restored.
             docker compose --env-file /opt/seta/.env run --rm \
-              $PMO_ARGS \
               -e DATABASE_URL \
               seeder seed $ARGS
 

@@ -1,7 +1,6 @@
 export type {
   DemoAllocationInput,
   DemoAnalyticsResult,
-  DemoAnswerKeyRow,
   DemoCanonicalInputs,
   DemoFindingRow,
   DemoLeaveInput,
@@ -13,3 +12,8 @@ export type {
   DemoTimesheetInput,
   DemoWeekInput,
 } from './backend/analytics/demo-analytics.ts';
+export {
+  type EnsureFactsComputedOptions,
+  type EnsureFactsComputedResult,
+  ensureFactsComputed,
+} from './backend/analytics/ensure-facts-computed.ts';
