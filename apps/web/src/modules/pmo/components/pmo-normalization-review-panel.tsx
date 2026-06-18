@@ -122,6 +122,7 @@ function issueGroupTone(groupLabel: string): string {
 
 function NormalizationIssueTable(props: {
   group: NormalizationReviewTableGroup;
+  readOnly: boolean;
   isSubmittingNormalizationDecision: boolean;
   updateNormalizationRowDecision: PmoNormalizationReviewPanelProps['updateNormalizationRowDecision'];
   updateNormalizationRowValue: PmoNormalizationReviewPanelProps['updateNormalizationRowValue'];
@@ -129,6 +130,7 @@ function NormalizationIssueTable(props: {
 }) {
   const {
     group,
+    readOnly,
     isSubmittingNormalizationDecision,
     updateNormalizationRowDecision,
     updateNormalizationRowValue,
@@ -201,7 +203,7 @@ function NormalizationIssueTable(props: {
                       const isProblem = row.problemFields.includes(column.key);
                       return (
                         <td key={`${row.id}-${column.key}`} className="px-3 py-2">
-                          {editingRowId === row.id ? (
+                          {editingRowId === row.id && !readOnly ? (
                             <Input
                               value={
                                 row.values[column.key] === null ||
@@ -212,7 +214,7 @@ function NormalizationIssueTable(props: {
                               onChange={(event) =>
                                 updateNormalizationRowValue(row.id, column.key, event.target.value)
                               }
-                              disabled={isSubmittingNormalizationDecision}
+                              disabled={readOnly || isSubmittingNormalizationDecision}
                               className={`h-7 min-w-24 ${
                                 isProblem ? 'border-danger-border bg-danger-tint' : ''
                               }`}
@@ -242,11 +244,11 @@ function NormalizationIssueTable(props: {
                     )}
                   </td>
                   <td className="px-3 py-2">
-                    {row.editable && row.decision !== 'skipped' ? (
+                    {row.editable && row.decision !== 'skipped' && !readOnly ? (
                       <select
                         className="h-8 rounded-md border border-hairline bg-surface-1 px-2 text-caption font-medium text-ink"
                         value={row.decision}
-                        disabled={isSubmittingNormalizationDecision}
+                        disabled={readOnly || isSubmittingNormalizationDecision}
                         onChange={(event) =>
                           updateNormalizationRowDecision(
                             row.id,
@@ -272,14 +274,14 @@ function NormalizationIssueTable(props: {
                     )}
                   </td>
                   <td className="px-3 py-2">
-                    {row.editable ? (
+                    {row.editable && !readOnly ? (
                       editingRowId === row.id ? (
                         <div className="flex items-center gap-1">
                           <Button
                             type="button"
                             size="sm"
                             variant="primary"
-                            disabled={isSubmittingNormalizationDecision}
+                            disabled={readOnly || isSubmittingNormalizationDecision}
                             onClick={() => setEditingRowId(null)}
                           >
                             Save
@@ -288,7 +290,7 @@ function NormalizationIssueTable(props: {
                             type="button"
                             size="sm"
                             variant="secondary"
-                            disabled={isSubmittingNormalizationDecision}
+                            disabled={readOnly || isSubmittingNormalizationDecision}
                             onClick={() => {
                               resetNormalizationRowOverrides(row.id);
                               setEditingRowId(null);
@@ -303,7 +305,7 @@ function NormalizationIssueTable(props: {
                           type="button"
                           size="sm"
                           variant="secondary"
-                          disabled={isSubmittingNormalizationDecision}
+                          disabled={readOnly || isSubmittingNormalizationDecision}
                           onClick={() => setEditingRowId(row.id)}
                         >
                           <Pencil className="size-3.5" aria-hidden />
@@ -330,6 +332,7 @@ function FragmentLike(props: { children: React.ReactNode }) {
 
 function ReviewBySheet(props: {
   groups: NormalizationReviewTableGroup[];
+  readOnly: boolean;
   isSubmittingNormalizationDecision: boolean;
   updateNormalizationRowDecision: PmoNormalizationReviewPanelProps['updateNormalizationRowDecision'];
   updateNormalizationRowValue: PmoNormalizationReviewPanelProps['updateNormalizationRowValue'];
@@ -387,6 +390,7 @@ function ReviewBySheet(props: {
               {isOpen ? (
                 <NormalizationIssueTable
                   group={group}
+                  readOnly={props.readOnly}
                   isSubmittingNormalizationDecision={props.isSubmittingNormalizationDecision}
                   updateNormalizationRowDecision={props.updateNormalizationRowDecision}
                   updateNormalizationRowValue={props.updateNormalizationRowValue}
@@ -419,6 +423,7 @@ function LegacyKvGrid(props: { rows: Array<{ k: string; v: string }>; emptyLabel
 
 function MissingMembersEditor(props: {
   memberAdditionDrafts: MemberMasterAdditionDraft[];
+  readOnly: boolean;
   isSubmittingNormalizationDecision: boolean;
   updateMemberAdditionDraft: PmoNormalizationReviewPanelProps['updateMemberAdditionDraft'];
 }) {
@@ -449,7 +454,7 @@ function MissingMembersEditor(props: {
                 onChange={(event) =>
                   props.updateMemberAdditionDraft(draft.member_id, 'full_name', event.target.value)
                 }
-                disabled={props.isSubmittingNormalizationDecision}
+                disabled={props.readOnly || props.isSubmittingNormalizationDecision}
               />
             </div>
             <div className="space-y-1">
@@ -460,7 +465,7 @@ function MissingMembersEditor(props: {
                 onChange={(event) =>
                   props.updateMemberAdditionDraft(draft.member_id, 'department', event.target.value)
                 }
-                disabled={props.isSubmittingNormalizationDecision}
+                disabled={props.readOnly || props.isSubmittingNormalizationDecision}
               />
             </div>
             <div className="space-y-1">
@@ -471,7 +476,7 @@ function MissingMembersEditor(props: {
                 onChange={(event) =>
                   props.updateMemberAdditionDraft(draft.member_id, 'role_title', event.target.value)
                 }
-                disabled={props.isSubmittingNormalizationDecision}
+                disabled={props.readOnly || props.isSubmittingNormalizationDecision}
               />
             </div>
           </div>
@@ -545,12 +550,14 @@ export function PmoNormalizationReviewPanel(props: PmoNormalizationReviewPanelPr
     );
   }
 
+  const isDecided = selectedNormalizationApproval.status !== 'pending';
+  const isReadOnly = readOnly || isDecided;
   const missingMemberCount = selectedNormalizationView.missingMembers.length;
   const hasStructuredReview = selectedNormalizationView.tableGroups.length > 0;
 
   return (
     <>
-      {readOnly ? (
+      {isReadOnly ? (
         <div className="rounded-lg border border-hairline bg-surface-2/60 px-3 py-2 text-caption text-ink-subtle">
           This normalization review has been completed. Showing historical data (read-only).
         </div>
@@ -630,6 +637,7 @@ export function PmoNormalizationReviewPanel(props: PmoNormalizationReviewPanelPr
         {hasStructuredReview ? (
           <ReviewBySheet
             groups={selectedNormalizationView.tableGroups}
+            readOnly={isReadOnly}
             isSubmittingNormalizationDecision={isSubmittingNormalizationDecision}
             updateNormalizationRowDecision={updateNormalizationRowDecision}
             updateNormalizationRowValue={updateNormalizationRowValue}
@@ -646,11 +654,12 @@ export function PmoNormalizationReviewPanel(props: PmoNormalizationReviewPanelPr
 
         <MissingMembersEditor
           memberAdditionDrafts={memberAdditionDrafts}
+          readOnly={isReadOnly}
           isSubmittingNormalizationDecision={isSubmittingNormalizationDecision}
           updateMemberAdditionDraft={updateMemberAdditionDraft}
         />
 
-        {readOnly ? null : (
+        {isReadOnly ? null : (
           <div className="mt-4 flex flex-wrap items-center justify-end gap-2 rounded-lg border border-hairline bg-canvas p-3">
             <Button
               type="button"
