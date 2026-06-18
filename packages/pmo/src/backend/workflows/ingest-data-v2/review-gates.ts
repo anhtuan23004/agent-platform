@@ -13,5 +13,5 @@ export function hasDuplicateInUpload(changeSummary: ChangeSummary): boolean {
 }
 
 export function shouldBlockPublishApprove(input: PublishGateInput): boolean {
-  return input.hasBlockingIssues || hasDuplicateInUpload(input.changeSummary);
+  return input.hasBlockingIssues;
 }

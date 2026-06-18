@@ -1,8 +1,8 @@
-import type { FindingsContext } from '../analytics/findings.ts';
-import { loadCanonicalInputs } from '../analytics/load-canonical.ts';
-import { loadMemberWeekFacts } from '../analytics/persist-facts.ts';
-import { resolveThresholds } from '../analytics/thresholds.ts';
-import type { MemberWeekFact } from '../analytics/types.ts';
+import type { FindingsContext } from './findings.ts';
+import { loadCanonicalInputs } from './load-canonical.ts';
+import { loadMemberWeekFacts } from './persist-facts.ts';
+import { resolveThresholds } from './thresholds.ts';
+import type { MemberWeekFact } from './types.ts';
 
 /**
  * Load persisted member-week facts plus the context the finding detectors need

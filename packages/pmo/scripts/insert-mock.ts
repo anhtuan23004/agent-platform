@@ -711,7 +711,10 @@ async function main() {
   );
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+// Mock-data generation is intentionally disabled for now.
+// main().catch((err) => {
+//   console.error(err);
+//   process.exit(1);
+// });
+void main;
+console.warn('PMO mock-data.db generation is disabled.');

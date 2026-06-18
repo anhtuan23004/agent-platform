@@ -8,6 +8,7 @@ export const PMO_INTENT_MODES = [
   'mapping_readiness',
   'stage_preview',
   'publish_intent',
+  'publish_report_intent',
 ] as const;
 
 export type PmoIntentMode = (typeof PMO_INTENT_MODES)[number];
@@ -63,11 +64,19 @@ const ActionIdSchema = z.enum([
   'normalize_to_staging',
   'database_change_summary',
   'publish_after_approval',
+  'generate_report',
 ]);
 
 const IntentModeSchema = z.enum(PMO_INTENT_MODES);
 
-const ReviewTypeSchema = z.enum(['none', 'profiling', 'mapping', 'normalization', 'publish']);
+const ReviewTypeSchema = z.enum([
+  'none',
+  'profiling',
+  'mapping',
+  'normalization',
+  'publish',
+  'report',
+]);
 
 const StepDefinitionSchema = z.object({
   action_id: ActionIdSchema,

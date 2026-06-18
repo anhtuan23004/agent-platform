@@ -7,6 +7,7 @@ import {
   type PmoExecutionStepPlanProps,
   type PmoExecutionStepProfilingProps,
   type PmoExecutionStepPublishProps,
+  type PmoExecutionStepReportProps,
   type PmoExecutionStepRuntimeProps,
 } from './pmo-execution-step-card';
 
@@ -17,6 +18,7 @@ interface PmoWorkflowExecutionSectionProps {
   mapping: PmoExecutionStepMappingProps;
   normalization: PmoExecutionStepNormalizationProps;
   publish: PmoExecutionStepPublishProps;
+  report: PmoExecutionStepReportProps;
   profiling: PmoExecutionStepProfilingProps;
   plan: PmoExecutionStepPlanProps;
 }
@@ -29,6 +31,7 @@ export function PmoWorkflowExecutionSection(props: PmoWorkflowExecutionSectionPr
     mapping,
     normalization,
     publish,
+    report,
     profiling,
     plan,
   } = props;
@@ -68,6 +71,7 @@ export function PmoWorkflowExecutionSection(props: PmoWorkflowExecutionSectionPr
                   mapping={mapping}
                   normalization={normalization}
                   publish={publish}
+                  report={report}
                   profiling={profiling}
                   plan={plan}
                 />

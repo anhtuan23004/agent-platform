@@ -170,7 +170,21 @@ describe('PMO planner workflow compiler', () => {
       'column_mapping',
       'normalize_to_staging',
       'database_change_summary',
-      'publish_after_approval',
+    ]);
+  });
+
+  it('compiles publish report intent through report generation', () => {
+    const result = compilePmoWorkflowSteps({
+      intentMode: 'publish_report_intent',
+      candidateSteps: [],
+    });
+
+    expect(result.compiled_workflow.map((step) => step.action_id)).toEqual([
+      'workbook_profiling',
+      'column_mapping',
+      'normalize_to_staging',
+      'database_change_summary',
+      'generate_report',
     ]);
   });
 

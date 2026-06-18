@@ -11,6 +11,9 @@ export interface DynamicRuntimeSessionRow {
   status: string;
   source_file_key: string;
   source_file_name: string;
+  planning_goal: string | null;
+  reporting_period_start: Date | null;
+  reporting_period_end: Date | null;
   planning_plan: unknown;
   workflow_execution_state: unknown;
   detected_schema: unknown;
@@ -26,6 +29,7 @@ export interface DynamicRuntimeSessionPatch {
   workflow_started_at?: Date | null;
   workflow_updated_at?: Date | null;
   finished_at?: Date | null;
+  publish_reviewed_at?: Date | null;
   detected_schema?: unknown;
   confirmed_mapping?: unknown;
   change_summary?: unknown;
@@ -81,6 +85,9 @@ export async function loadDynamicRuntimeSession(params: {
       status: ingestionSessions.status,
       source_file_key: ingestionSessions.source_file_key,
       source_file_name: ingestionSessions.source_file_name,
+      planning_goal: ingestionSessions.planning_goal,
+      reporting_period_start: ingestionSessions.reporting_period_start,
+      reporting_period_end: ingestionSessions.reporting_period_end,
       planning_plan: ingestionSessions.planning_plan,
       workflow_execution_state: ingestionSessions.workflow_execution_state,
       detected_schema: ingestionSessions.detected_schema,

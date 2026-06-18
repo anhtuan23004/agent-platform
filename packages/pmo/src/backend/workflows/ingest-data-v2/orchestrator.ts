@@ -21,6 +21,7 @@ import {
 import { createColumnMappingHandler } from './handlers/column-mapping.ts';
 import type { DynamicHandlerDeps } from './handlers/common.ts';
 import { createDatabaseChangeSummaryHandler } from './handlers/database-change-summary.ts';
+import { createGenerateReportHandler } from './handlers/generate-report.ts';
 import { createGenericReviewHandler } from './handlers/generic-review.ts';
 import { createNormalizeToStagingHandler } from './handlers/normalize-to-staging.ts';
 import { createPublishAfterApprovalHandler } from './handlers/publish-after-approval.ts';
@@ -118,10 +119,10 @@ function readPlannerStepsFromPlan(plan: unknown): PlannerExecutionStepV2[] {
     },
     {
       step_no: 4,
-      planner_step_id: 'pmo.planner.step.4.publish_after_approval',
-      action_id: 'publish_after_approval',
+      planner_step_id: 'pmo.planner.step.4.database_change_summary',
+      action_id: 'database_change_summary',
       review_type: 'publish',
-      step_name: 'Publish after approval',
+      step_name: 'Database change summary',
       status: 'pending',
       review_status: 'pending',
     },
@@ -277,6 +278,23 @@ function readExecutionStateV2(raw: unknown, planningPlan: unknown): PlannerExecu
     profiling_review: isObject(raw.profiling_review)
       ? (raw.profiling_review as unknown as PlannerExecutionStateV2['profiling_review'])
       : null,
+    report_request: isObject(raw.report_request)
+      ? (raw.report_request as PlannerExecutionStateV2['report_request'])
+      : undefined,
+    report_result: isObject(raw.report_result)
+      ? (raw.report_result as PlannerExecutionStateV2['report_result'])
+      : undefined,
+  };
+}
+
+function attachRuntimeContextToState(
+  state: PlannerExecutionStateV2,
+  runtimeContext: DynamicIngestRuntimeContext,
+): PlannerExecutionStateV2 {
+  return {
+    ...state,
+    ...(runtimeContext.report_request ? { report_request: runtimeContext.report_request } : {}),
+    ...(runtimeContext.report_result ? { report_result: runtimeContext.report_result } : {}),
   };
 }
 
@@ -398,6 +416,7 @@ function normalizeRuntimeContextFromSessionRow(params: {
   detectedSchema: unknown;
   confirmedMapping: unknown;
   changeSummary: unknown;
+  workflowExecutionState: unknown;
 }): DynamicIngestRuntimeContext {
   const context: DynamicIngestRuntimeContext = {};
 
@@ -463,6 +482,17 @@ function normalizeRuntimeContextFromSessionRow(params: {
         ? { approved_checkpoints: params.changeSummary.approved_checkpoints as never }
         : {}),
     };
+  }
+
+  if (isObject(params.workflowExecutionState)) {
+    if (isObject(params.workflowExecutionState.report_request)) {
+      context.report_request = params.workflowExecutionState
+        .report_request as DynamicIngestRuntimeContext['report_request'];
+    }
+    if (isObject(params.workflowExecutionState.report_result)) {
+      context.report_result = params.workflowExecutionState
+        .report_result as DynamicIngestRuntimeContext['report_result'];
+    }
   }
 
   return context;
@@ -642,6 +672,7 @@ function statusForAction(actionId: PmoPlanActionId): DynamicRuntimeSessionStatus
   if (actionId === 'normalize_to_staging') return 'normalizing';
   if (actionId === 'database_change_summary') return 'awaiting_publish_review';
   if (actionId === 'publish_after_approval') return 'awaiting_publish_review';
+  if (actionId === 'generate_report') return 'generating_report';
   return 'confirmed';
 }
 
@@ -659,13 +690,19 @@ function buildStatePatch(params: {
     workflow_updated_at: asDateOrNull(params.state.updated_at),
     finished_at:
       params.status === 'published' ||
+      params.status === 'report_generated' ||
       params.status === 'failed' ||
       params.status === 'rejected' ||
       params.status === 'cancelled'
         ? asDateOrNull(new Date().toISOString())
         : null,
     ...params.extraPatch,
+    ...(params.status === 'published' ? { publish_reviewed_at: new Date() } : {}),
   };
+}
+
+function asWorkflowOutputReport(report: unknown): IngestDataV2Output['report'] {
+  return report as IngestDataV2Output['report'];
 }
 
 async function readPlannerStepMeta(params: {
@@ -724,6 +761,7 @@ function buildStepRegistry(deps: DynamicHandlerDeps) {
       getWorkbookParseResult: deps.getWorkbookParseResult,
     }),
     createDatabaseChangeSummaryHandler({
+      domainAdapter: deps.domainAdapter,
       resolveCardIdentity: deps.resolveCardIdentity,
       readPlannerStepMeta: deps.readPlannerStepMeta,
     }),
@@ -731,6 +769,11 @@ function buildStepRegistry(deps: DynamicHandlerDeps) {
       domainAdapter: deps.domainAdapter,
       resolveCardIdentity: deps.resolveCardIdentity,
       readPlannerStepMeta: deps.readPlannerStepMeta,
+    }),
+    createGenerateReportHandler({
+      resolveCardIdentity: deps.resolveCardIdentity,
+      readPlannerStepMeta: deps.readPlannerStepMeta,
+      getWorkbookParseResult: deps.getWorkbookParseResult,
     }),
     createGenericReviewHandler(),
   ]);
@@ -750,6 +793,7 @@ export async function runDynamicIngestOrchestrator(
     detectedSchema: row.detected_schema,
     confirmedMapping: row.confirmed_mapping,
     changeSummary: row.change_summary,
+    workflowExecutionState: row.workflow_execution_state,
   });
 
   // Attach domain identification for reproducibility and future multi-domain support
@@ -810,6 +854,16 @@ export async function runDynamicIngestOrchestrator(
   });
 
   let resumeData = input.resumeData;
+  let lastTerminalOutput:
+    | {
+        status: 'published' | 'rejected' | 'completed';
+        rowsWritten?: Record<string, number>;
+        rowsUpdated?: Record<string, number>;
+        rowsSkipped?: Record<string, number>;
+        reportRunId?: string | null;
+        report?: unknown;
+      }
+    | undefined;
 
   for (let loop = 0; loop < 16; loop++) {
     const activeStep =
@@ -848,6 +902,9 @@ export async function runDynamicIngestOrchestrator(
       tenantId: input.tenantId,
       userId: input.userId,
       runId: input.runId,
+      planningGoal: row.planning_goal,
+      reportingPeriodStart: row.reporting_period_start,
+      reportingPeriodEnd: row.reporting_period_end,
       requestContext: input.requestContext,
       resumeData: decisionForStep as Record<string, unknown> | undefined,
       step: activeStep,
@@ -867,6 +924,7 @@ export async function runDynamicIngestOrchestrator(
 
     if (result.kind === 'suspend') {
       state = markStepsForSuspend(state, activeStep);
+      state = attachRuntimeContextToState(state, runtimeContext);
       await updateDynamicRuntimeSession({
         ingestionSessionId: input.ingestionSessionId,
         tenantId: input.tenantId,
@@ -887,6 +945,7 @@ export async function runDynamicIngestOrchestrator(
 
     if (result.kind === 'rejected') {
       state = markStepRejected(state, activeStep);
+      state = attachRuntimeContextToState(state, runtimeContext);
       await updateDynamicRuntimeSession({
         ingestionSessionId: input.ingestionSessionId,
         tenantId: input.tenantId,
@@ -908,16 +967,18 @@ export async function runDynamicIngestOrchestrator(
           rowsWritten: result.terminalOutput?.rowsWritten ?? {},
           rowsUpdated: result.terminalOutput?.rowsUpdated ?? {},
           rowsSkipped: result.terminalOutput?.rowsSkipped ?? {},
+          reportRunId: result.terminalOutput?.reportRunId ?? null,
+          report: asWorkflowOutputReport(result.terminalOutput?.report),
         },
       };
     }
 
     const advanced = markStepCompleted(state, activeStep, result.outputSummary);
-    state = advanced.state;
+    state = attachRuntimeContextToState(advanced.state, runtimeContext);
 
-    const nextStatus =
-      result.sessionStatus ??
-      (advanced.nextStep ? statusForAction(advanced.nextStep.action_id) : 'published');
+    const nextStatus = advanced.nextStep
+      ? statusForAction(advanced.nextStep.action_id)
+      : (result.sessionStatus ?? 'published');
 
     await updateDynamicRuntimeSession({
       ingestionSessionId: input.ingestionSessionId,
@@ -932,15 +993,24 @@ export async function runDynamicIngestOrchestrator(
       }),
     });
 
-    if (!advanced.nextStep || result.terminalOutput) {
+    if (result.terminalOutput) {
+      lastTerminalOutput = result.terminalOutput;
+    }
+
+    if (!advanced.nextStep) {
       return {
         kind: 'completed',
         output: {
           ingestionSessionId: input.ingestionSessionId,
-          status: result.terminalOutput?.status ?? 'completed',
-          rowsWritten: result.terminalOutput?.rowsWritten ?? {},
-          rowsUpdated: result.terminalOutput?.rowsUpdated ?? {},
-          rowsSkipped: result.terminalOutput?.rowsSkipped ?? {},
+          status: result.terminalOutput?.status ?? lastTerminalOutput?.status ?? 'completed',
+          rowsWritten: result.terminalOutput?.rowsWritten ?? lastTerminalOutput?.rowsWritten ?? {},
+          rowsUpdated: result.terminalOutput?.rowsUpdated ?? lastTerminalOutput?.rowsUpdated ?? {},
+          rowsSkipped: result.terminalOutput?.rowsSkipped ?? lastTerminalOutput?.rowsSkipped ?? {},
+          reportRunId:
+            result.terminalOutput?.reportRunId ?? lastTerminalOutput?.reportRunId ?? null,
+          report: asWorkflowOutputReport(
+            result.terminalOutput?.report ?? lastTerminalOutput?.report,
+          ),
         },
       };
     }

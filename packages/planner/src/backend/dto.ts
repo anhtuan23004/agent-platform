@@ -174,6 +174,7 @@ export interface TaskRow {
   is_deferred: boolean;
   preview_type: TaskPreviewType;
   review_state: 'needs_review' | null;
+  skill_tags: string[];
   start_at: string | null;
   due_at: string | null;
   order_hint: string | null;

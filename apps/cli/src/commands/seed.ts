@@ -3,7 +3,6 @@ import { coreDb } from '@seta/core/db';
 import { createUser, grantRole, listRoleGrants, updateUserProfile } from '@seta/identity';
 import {
   addGroupMember,
-  applyLabelsByName,
   assignTask,
   createBucket,
   createGroup,
@@ -14,7 +13,8 @@ import {
   listPlans,
   listTasks,
 } from '@seta/planner';
-import { seedPmo02FromMockDbForTenant } from '@seta/pmo';
+// Mock-data seeding is intentionally disabled for now.
+// import { seedPmo02FromMockDbForTenant } from '@seta/pmo';
 import {
   buildRegistry,
   IMPLICIT_PERMISSIONS,
@@ -485,7 +485,7 @@ export async function seedCommand(opts: SeedOpts): Promise<void> {
       }
 
       const bucketId = bucketMap.get(row.bucket_id) ?? undefined;
-      const labelNames = splitIds(row.tags);
+      const skill_tags = splitIds(row.tags);
 
       const statusFields = mapStatusFields(row.status);
       const task = await createTask({
@@ -497,14 +497,10 @@ export async function seedCommand(opts: SeedOpts): Promise<void> {
         percent_complete: statusFields.percent_complete,
         is_deferred: statusFields.is_deferred,
         due_at: row.due_date || undefined,
+        skill_tags: skill_tags.length > 0 ? skill_tags : undefined,
         session,
       });
       tasksCreated++;
-
-      // Skills are modeled as labels: find-or-create per plan, then apply.
-      if (labelNames.length > 0) {
-        await applyLabelsByName({ plan_id: planId, task_id: task.id, names: labelNames, session });
-      }
 
       for (const csvId of splitIds(row.assignee_ids)) {
         const userId = idMap.get(csvId);
@@ -592,6 +588,10 @@ export async function seedCommand(opts: SeedOpts): Promise<void> {
       `${JSON.stringify({ phase: 'pmo', skipped: true, reason: 'PMO_SEED_ENABLED=false' })}\n`,
     );
   } else {
+    process.stdout.write(
+      `${JSON.stringify({ phase: 'pmo', skipped: true, reason: 'PMO mock-data seed disabled' })}\n`,
+    );
+    /*
     log.info('phase 9: seeding PMO_02 from mock-data.db');
     const result = await seedPmo02FromMockDbForTenant({
       tenantId,
@@ -606,6 +606,7 @@ export async function seedCommand(opts: SeedOpts): Promise<void> {
         ingestionSessionId: result.ingestionSessionId,
       })}\n`,
     );
+    */
   }
 
   log.info({ tenant_id: tenantId, modules: [...modules] }, 'seed: complete');

@@ -75,6 +75,7 @@ export interface ResumeChatBody {
   decision: 'approve' | 'reject' | 'modify';
   overrideUserIds?: string[];
   alternateIndices?: number[];
+  payloadPatch?: Record<string, unknown>;
   note?: string;
 }
 
@@ -105,6 +106,13 @@ export const workflowRuntimeApi = {
 
   async listMyPendingApprovals(): Promise<WorkflowApprovalRow[]> {
     const res = await fetch('/api/agent/v1/workflows/my-pending-approvals', {
+      credentials: 'include',
+    });
+    return jsonOrThrow<WorkflowApprovalRow[]>(res);
+  },
+
+  async listRunApprovals(runId: string): Promise<WorkflowApprovalRow[]> {
+    const res = await fetch(`/api/agent/v1/workflows/runs/${encodeURIComponent(runId)}/approvals`, {
       credentials: 'include',
     });
     return jsonOrThrow<WorkflowApprovalRow[]>(res);

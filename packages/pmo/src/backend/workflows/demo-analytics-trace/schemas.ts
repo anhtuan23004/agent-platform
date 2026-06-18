@@ -29,12 +29,6 @@ export const FindingsSnapshotSchema = z.object({
   mismatchFindings: z.array(z.unknown()),
 });
 
-export const AnswerKeySnapshotSchema = z.object({
-  answerKey: z.array(z.unknown()),
-  passCount: z.number().int(),
-  totalAnswerKey: z.number().int(),
-});
-
 export const DemoAnalyticsTraceOutputSchema = z.object({
   result: z.unknown(),
 });

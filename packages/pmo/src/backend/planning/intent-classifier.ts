@@ -10,7 +10,13 @@ import {
 import type { PmoPlanActionId } from './step-metadata.ts';
 
 export const PmoIntentClassificationSchema = z.object({
-  intent_mode: z.enum(['review_only', 'mapping_readiness', 'stage_preview', 'publish_intent']),
+  intent_mode: z.enum([
+    'review_only',
+    'mapping_readiness',
+    'stage_preview',
+    'publish_intent',
+    'publish_report_intent',
+  ]),
   confidence: IntentConfidenceSchema,
   rationale: z.string().min(1),
 });

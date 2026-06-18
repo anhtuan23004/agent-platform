@@ -9,5 +9,7 @@ export function useDemoAnalytics() {
   return useQuery<DemoAnalyticsResult>({
     queryKey: pmoDemoQueryKeys.analytics,
     queryFn: fetchDemoAnalytics,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
   });
 }

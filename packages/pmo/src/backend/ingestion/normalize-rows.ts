@@ -119,6 +119,19 @@ function parseValue(raw: string, field: FieldMeta): { value: unknown; error: str
   }
 }
 
+export function normalizeRawFieldValue(
+  domainConfig: IngestionDomainConfig,
+  tableId: string,
+  fieldName: string,
+  rawValue: unknown,
+): { value: unknown; error: string | null } {
+  const raw = rawValue === null || rawValue === undefined ? '' : String(rawValue);
+  return parseValue(raw, {
+    name: fieldName,
+    dataType: getFieldDataType(domainConfig, tableId, fieldName),
+  });
+}
+
 // ── Main function ────────────────────────────────────────────────────────────
 
 export function normalizeRows(
@@ -151,12 +164,12 @@ export function normalizeRows(
 
       for (const colMapping of mapping.mappings) {
         const raw = srcRow[colMapping.sourceColumn] ?? '';
-        const fieldMeta: FieldMeta = {
-          name: colMapping.canonicalField,
-          dataType: getFieldDataType(domainConfig, mapping.tableId, colMapping.canonicalField),
-        };
-
-        const { value, error } = parseValue(raw, fieldMeta);
+        const { value, error } = normalizeRawFieldValue(
+          domainConfig,
+          mapping.tableId,
+          colMapping.canonicalField,
+          raw,
+        );
         values[colMapping.canonicalField] = value;
 
         if (error) {

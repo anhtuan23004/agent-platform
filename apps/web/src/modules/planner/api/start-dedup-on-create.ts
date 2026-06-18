@@ -8,7 +8,7 @@ interface StartResponse {
 export interface StartDedupInput {
   title: string;
   description?: string;
-  labels?: string[];
+  skill_tags?: string[];
   plan_id?: string;
   bucket_id?: string;
 }

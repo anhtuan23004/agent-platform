@@ -206,7 +206,7 @@ describe('plan-push subscribers', () => {
         planId,
         taskId,
         groupId,
-        changedFields: ['is_deferred', 'review_state'],
+        changedFields: ['skill_tags', 'review_state'],
       });
       await db.transaction(async (tx) => taskUpdatedSub.handler(event, { tx: tx as never }));
       const jobs = await getEnqueuedJobs(pool);

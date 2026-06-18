@@ -14,10 +14,16 @@
       "rule": "If the user clearly asks to publish, import into PMO, write to database, update PMO records, or apply changes after approval, classify as publish_intent."
     },
     {
+      "rule": "If the user clearly asks to publish, import into PMO, write to database, update PMO records, or apply changes and also asks to generate a report, utilization report, idle report, overbook report, báo cáo idle, báo cáo overbook, or báo cáo utilization, classify as publish_report_intent."
+    },
+    {
+      "rule": "If a report is requested without an explicit date range, still classify as publish_report_intent; the runtime will ask the user to confirm a date range before generating the report."
+    },
+    {
       "rule": "If the user goal is ambiguous, choose the lowest-risk intent that satisfies the request."
     },
     {
-      "rule": "Do not include publish_after_approval unless the user explicitly asks for publish, import, write, update, or apply changes."
+      "rule": "Do not include generate_report unless the user explicitly asks for a report, utilization report, idle report, or overbook report."
     },
     {
       "rule": "The phrase 'check if ready to import' means stage_preview, not publish_intent."

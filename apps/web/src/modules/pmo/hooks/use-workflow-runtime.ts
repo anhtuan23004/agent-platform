@@ -11,6 +11,8 @@ export const workflowRuntimeQueryKeys = {
   runSnapshot: (runId: string) =>
     [...workflowRuntimeQueryKeys.all, 'run', runId, 'snapshot'] as const,
   pendingApprovals: () => [...workflowRuntimeQueryKeys.all, 'pending-approvals'] as const,
+  runApprovals: (runId: string) =>
+    [...workflowRuntimeQueryKeys.all, 'run', runId, 'approvals'] as const,
 };
 
 export interface UseWorkflowRuntimeRunsOptions {
@@ -87,6 +89,14 @@ export function useWorkflowRuntimeRunSnapshot(runId: string) {
   return useQuery({
     queryKey: workflowRuntimeQueryKeys.runSnapshot(runId),
     queryFn: () => workflowRuntimeApi.getRunSnapshot(runId),
+    enabled: Boolean(runId),
+  });
+}
+
+export function useWorkflowRuntimeRunApprovals(runId: string) {
+  return useQuery({
+    queryKey: workflowRuntimeQueryKeys.runApprovals(runId),
+    queryFn: () => workflowRuntimeApi.listRunApprovals(runId),
     enabled: Boolean(runId),
   });
 }

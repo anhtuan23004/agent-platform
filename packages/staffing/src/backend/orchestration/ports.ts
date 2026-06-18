@@ -6,8 +6,8 @@ export interface TaskInfo {
   title: string;
   description: string | null;
   groupId: string;
-  /** The task's own label names (authoritative skills source for the analyzer). */
-  labels: string[];
+  /** The task's own skill_tags (authoritative skills source for the analyzer). */
+  skillTags: string[];
 }
 
 /** Reads a planner task (adapter wraps planner's public getTask). */
@@ -15,24 +15,24 @@ export interface TaskReaderPort {
   load(taskId: string, ctx: SpecializedAgentRunCtx): Promise<TaskInfo | null>;
 }
 
-/** A task surfaced by a label search (find_tasks intent). */
+/** A task surfaced by a skill-tag search (find_tasks intent). */
 export interface TaskSummary {
   taskId: string;
   title: string;
   status: 'not_started' | 'in_progress' | 'completed';
-  labels: string[];
+  skillTags: string[];
 }
 
-/** Deterministic label-name task search (adapter wraps planner listTasksByLabel). */
+/** Deterministic skill-tag task search (adapter wraps planner listTasksBySkillTag). */
 export interface TaskSearchPort {
-  byLabels(
-    names: string[],
+  bySkillTags(
+    tags: string[],
     limit: number,
     ctx: SpecializedAgentRunCtx,
     completionStatus?: 'open' | 'completed' | 'any',
   ): Promise<TaskSummary[]>;
-  /** All distinct lowercase label names used by non-deleted tasks in the caller's tenant. */
-  listAvailableLabels(ctx: SpecializedAgentRunCtx): Promise<string[]>;
+  /** All distinct lowercase skill tags used by non-deleted tasks in the caller's tenant. */
+  listAvailableTags(ctx: SpecializedAgentRunCtx): Promise<string[]>;
 }
 
 export interface SkillSearchHit {

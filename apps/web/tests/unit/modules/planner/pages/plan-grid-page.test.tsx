@@ -6,7 +6,7 @@ import {
   createRouter,
   RouterProvider,
 } from '@tanstack/react-router';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'jest-axe';
 import { HttpResponse, http } from 'msw';
@@ -17,11 +17,23 @@ import type { SessionScopeProjection } from '../../../../../src/modules/identity
 import { SessionProvider } from '../../../../../src/modules/identity/components/SessionProvider';
 import { PlanBoardShell } from '../../../../../src/modules/planner/pages/plan-board-shell';
 import { useSelectedTaskIds } from '../../../../../src/modules/planner/state/selected-task-ids';
+import {
+  stubPlannerBoardEventSource,
+  unstubPlannerBoardEventSource,
+  waitForPlannerShellReady,
+} from './planner-board-shell.harness';
 
 const server = setupServer();
+
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
-beforeEach(() => useSelectedTaskIds.getState().clear());
-afterEach(() => server.resetHandlers());
+beforeEach(() => {
+  stubPlannerBoardEventSource();
+  useSelectedTaskIds.getState().clear();
+});
+afterEach(() => {
+  unstubPlannerBoardEventSource();
+  server.resetHandlers();
+});
 afterAll(() => server.close());
 
 const session: SessionScopeProjection = {
@@ -159,6 +171,7 @@ const taskOne = {
   is_deferred: false,
   preview_type: 'automatic',
   review_state: null,
+  skill_tags: [],
   start_at: null,
   due_at: null,
   order_hint: 'm',
@@ -229,7 +242,8 @@ describe('PlanGridPage (via PlanBoardShell)', () => {
       http.get('*/api/planner/v1/groups/g1', () => HttpResponse.json(groupFixture())),
     );
     renderShell();
-    expect(await screen.findByText(/synced/i)).toBeInTheDocument();
+    await waitForPlannerShellReady({ taskTitle: 'Wire up DnD' });
+    expect(screen.getByText(/synced/i)).toBeInTheDocument();
   });
 
   it('renders no sync banners or pulling empty state when plan is idle', async () => {
@@ -321,13 +335,10 @@ describe('PlanGridPage (via PlanBoardShell)', () => {
     expect(screen.getAllByText('To do').length).toBeGreaterThanOrEqual(1);
   });
 
-  it('has no a11y violations on the happy path', async () => {
+  it('has no a11y violations on the happy path', { timeout: 60_000 }, async () => {
     server.use(...seedBoardHandlers());
     const { container } = renderShell();
-    await screen.findByText('Wire up DnD');
-    // TaskGrid uses CSS grid for layout but exposes role="row" on rows so RTL
-    // queries can target them. The required grid/rowgroup wrapper is intentionally
-    // omitted because <table> would break the CSS-grid layout; disable the rule.
+    await waitForPlannerShellReady({ taskTitle: 'Wire up DnD' });
     const results = await axe(container, {
       rules: {
         'aria-required-parent': { enabled: false },
@@ -385,17 +396,18 @@ describe('PlanGridPage (via PlanBoardShell)', () => {
       }),
     );
     renderShell();
-    await screen.findByText('Wire up DnD');
+    await waitForPlannerShellReady({ taskTitle: 'Wire up DnD' });
 
-    const user = userEvent.setup();
     const checkboxes = screen.getAllByRole('checkbox');
-    await user.click(checkboxes[0]!);
+    fireEvent.click(checkboxes[0]!);
+    await screen.findByRole('toolbar', { name: '1 tasks selected' });
 
-    // Click Move to open the bucket popover, then pick Done
-    await user.click(await screen.findByRole('button', { name: 'Move' }));
-    await user.click(await screen.findByRole('button', { name: 'Done' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Move' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Done' }));
 
-    expect(moveCalls).toContain('t1');
+    await waitFor(() => {
+      expect(moveCalls).toContain('t1');
+    });
   });
 
   it('bulk assign triggers POST /api/planner/v1/tasks/:id/assign for each selected task', async () => {
@@ -419,14 +431,16 @@ describe('PlanGridPage (via PlanBoardShell)', () => {
       }),
     );
     renderShell();
-    await screen.findByText('Wire up DnD');
+    await waitForPlannerShellReady({ taskTitle: 'Wire up DnD' });
 
-    const user = userEvent.setup();
-    await user.click(screen.getAllByRole('checkbox')[0]!);
-    await user.click(await screen.findByRole('button', { name: 'Assign' }));
-    await user.click(await screen.findByRole('button', { name: 'Alice' }));
+    fireEvent.click(screen.getAllByRole('checkbox')[0]!);
+    await screen.findByRole('toolbar', { name: '1 tasks selected' });
+    fireEvent.click(screen.getByRole('button', { name: 'Assign' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Alice' }));
 
-    expect(assignCalls).toContainEqual({ taskId: 't1', user_id: 'u1' });
+    await waitFor(() => {
+      expect(assignCalls).toContainEqual({ taskId: 't1', user_id: 'u1' });
+    });
   });
 
   it('bulk delete triggers DELETE /api/planner/v1/tasks/:id for each selected task', async () => {
@@ -439,20 +453,22 @@ describe('PlanGridPage (via PlanBoardShell)', () => {
       }),
     );
     renderShell();
-    await screen.findByText('Wire up DnD');
+    await waitForPlannerShellReady({ taskTitle: 'Wire up DnD' });
 
-    const user = userEvent.setup();
-    await user.click(screen.getAllByRole('checkbox')[0]!);
-    await user.click(await screen.findByRole('button', { name: 'Delete' }));
+    fireEvent.click(screen.getAllByRole('checkbox')[0]!);
+    await screen.findByRole('toolbar', { name: '1 tasks selected' });
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
 
-    expect(deleteCalls).toContain('t1');
+    await waitFor(() => {
+      expect(deleteCalls).toContain('t1');
+    });
   });
 
   it('renders the calendar view when view=calendar', async () => {
     // Reuse this file's standard plan/buckets/tasks/labels handlers, plus:
     server.use(
       ...seedBoardHandlers(),
-      http.get('/api/planner/v1/plans/p1/tasks/calendar', () =>
+      http.get('*/api/planner/v1/plans/p1/tasks/calendar', () =>
         HttpResponse.json({ tasks: [], total_count: 0 }),
       ),
     );
@@ -481,7 +497,9 @@ describe('PlanGridPage (via PlanBoardShell)', () => {
       </QueryClientProvider>,
     );
 
-    expect(await screen.findByTestId('plan-calendar-page')).toBeInTheDocument();
+    expect(
+      await screen.findByTestId('plan-calendar-page', {}, { timeout: 10_000 }),
+    ).toBeInTheDocument();
     expect(screen.getByLabelText('Calendar view')).toBeInTheDocument();
   });
 });

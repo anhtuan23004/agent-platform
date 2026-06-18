@@ -15,15 +15,15 @@ export interface EmbedTaskForTestOptions {
   plan_id: string;
   title: string;
   description: string | null;
-  labels: string[];
+  skill_tags: string[];
   provider: EmbeddingProvider;
   pgVector: PgVector;
 }
 
 export async function embedTaskForTest(opts: EmbedTaskForTestOptions): Promise<void> {
-  const { tenant_id, task_id, plan_id, title, description, labels, provider, pgVector } = opts;
+  const { tenant_id, task_id, plan_id, title, description, skill_tags, provider, pgVector } = opts;
 
-  const source = buildTaskSource({ title, description, labels });
+  const source = buildTaskSource({ title, description, skill_tags });
   const hash = sourceHash(source);
 
   await ensurePlannerVectorIndex(pgVector);

@@ -1,3 +1,5 @@
+import { Button, Input, Label } from '@seta/shared-ui';
+import { useMemo, useState } from 'react';
 import type {
   PmoPlan,
   PmoPlanningSession,
@@ -73,6 +75,9 @@ export interface PmoExecutionStepNormalizationProps {
     field: 'full_name' | 'department' | 'role_title',
     value: string,
   ) => void;
+  updateNormalizationRowDecision: (rowId: string, decision: 'keep_row' | 'skip_row') => void;
+  updateNormalizationRowValue: (rowId: string, columnKey: string, value: string) => void;
+  resetNormalizationRowOverrides: (rowId: string) => void;
   approveNormalization: () => void;
   rejectNormalization: () => void;
 }
@@ -84,6 +89,14 @@ export interface PmoExecutionStepPublishProps {
   isSubmittingPublishDecision: boolean;
   approvePublish: () => void;
   rejectPublish: () => void;
+}
+
+export interface PmoExecutionStepReportProps {
+  selectedReportApproval: WorkflowApprovalRow | null;
+  reportApprovalsCount: number;
+  isSubmittingReportDecision: boolean;
+  confirmReportRange: (dateRange: { from: string; to: string }) => void;
+  rejectReportRange: () => void;
 }
 
 export interface PmoExecutionStepProfilingProps {
@@ -125,8 +138,154 @@ interface PmoExecutionStepCardProps {
   mapping: PmoExecutionStepMappingProps;
   normalization: PmoExecutionStepNormalizationProps;
   publish: PmoExecutionStepPublishProps;
+  report: PmoExecutionStepReportProps;
   profiling: PmoExecutionStepProfilingProps;
   plan: PmoExecutionStepPlanProps;
+}
+
+function readReportDateRangeFromApproval(
+  approval: WorkflowApprovalRow | null,
+): { from: string; to: string } | null {
+  const payload = approval?.proposedPayload;
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+  const primary = (payload as { primary?: unknown }).primary;
+  if (!primary || typeof primary !== 'object' || Array.isArray(primary)) return null;
+  const argsPatch = (primary as { argsPatch?: unknown }).argsPatch;
+  if (!argsPatch || typeof argsPatch !== 'object' || Array.isArray(argsPatch)) return null;
+  const dateRange = (argsPatch as { dateRange?: unknown }).dateRange;
+  if (!dateRange || typeof dateRange !== 'object' || Array.isArray(dateRange)) return null;
+  const from = (dateRange as { from?: unknown }).from;
+  const to = (dateRange as { to?: unknown }).to;
+  return typeof from === 'string' && typeof to === 'string' ? { from, to } : null;
+}
+
+function PmoReportRangeForm(props: {
+  stepNo: number;
+  suggestedRange: { from: string; to: string } | null;
+  isSubmittingReportDecision: boolean;
+  confirmReportRange: (dateRange: { from: string; to: string }) => void;
+  rejectReportRange: () => void;
+}) {
+  const {
+    stepNo,
+    suggestedRange,
+    isSubmittingReportDecision,
+    confirmReportRange,
+    rejectReportRange,
+  } = props;
+  const [from, setFrom] = useState(suggestedRange?.from ?? '');
+  const [to, setTo] = useState(suggestedRange?.to ?? '');
+  const canSubmit = Boolean(from && to && from <= to);
+
+  return (
+    <div className="space-y-3 rounded-md border border-hairline bg-surface-1 p-3">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-1">
+          <Label htmlFor={`report-from-${stepNo}`}>From</Label>
+          <Input
+            id={`report-from-${stepNo}`}
+            type="date"
+            value={from}
+            onChange={(event) => setFrom(event.target.value)}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor={`report-to-${stepNo}`}>To</Label>
+          <Input
+            id={`report-to-${stepNo}`}
+            type="date"
+            value={to}
+            onChange={(event) => setTo(event.target.value)}
+          />
+        </div>
+      </div>
+      <div className="flex justify-end gap-2 border-t border-hairline pt-3">
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          onClick={rejectReportRange}
+          disabled={isSubmittingReportDecision}
+        >
+          Skip report
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="primary"
+          onClick={() => confirmReportRange({ from, to })}
+          disabled={!canSubmit || isSubmittingReportDecision}
+        >
+          {isSubmittingReportDecision ? 'Generating...' : 'Generate report'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function PmoReportReviewPanel(props: {
+  step: ExecutionCard;
+  selectedReportApproval: WorkflowApprovalRow | null;
+  reportApprovalsCount: number;
+  isSubmittingReportDecision: boolean;
+  confirmReportRange: (dateRange: { from: string; to: string }) => void;
+  rejectReportRange: () => void;
+}) {
+  const {
+    step,
+    selectedReportApproval,
+    reportApprovalsCount,
+    isSubmittingReportDecision,
+    confirmReportRange,
+    rejectReportRange,
+  } = props;
+  const suggestedRange = useMemo(
+    () => readReportDateRangeFromApproval(selectedReportApproval),
+    [selectedReportApproval],
+  );
+  const outputEntries = Object.entries(step.output_summary ?? {});
+
+  return (
+    <div className="mt-2 space-y-2 rounded-md border border-hairline bg-canvas p-2.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="font-medium text-ink">PMO report</p>
+        <span
+          className={`rounded-full px-2 py-0.5 text-caption font-medium ${workflowStepTone(step.status).badge}`}
+        >
+          {workflowStepTone(step.status).label}
+        </span>
+        {reportApprovalsCount > 0 ? (
+          <span className="rounded-full bg-primary-tint px-2 py-0.5 text-caption font-medium text-primary-ink">
+            {reportApprovalsCount} pending
+          </span>
+        ) : null}
+      </div>
+
+      {selectedReportApproval && !step.output_summary ? (
+        <PmoReportRangeForm
+          key={`${selectedReportApproval.approvalId}-${suggestedRange?.from ?? ''}-${suggestedRange?.to ?? ''}`}
+          stepNo={step.step_no}
+          suggestedRange={suggestedRange}
+          isSubmittingReportDecision={isSubmittingReportDecision}
+          confirmReportRange={confirmReportRange}
+          rejectReportRange={rejectReportRange}
+        />
+      ) : outputEntries.length > 0 ? (
+        <dl className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          {outputEntries.map(([key, value]) => (
+            <div key={key} className="rounded-md border border-hairline bg-surface-1 px-2 py-1.5">
+              <dt className="text-caption uppercase text-ink-subtle">{key.replaceAll('_', ' ')}</dt>
+              <dd className="mt-0.5 font-mono text-body-sm text-ink">{String(value)}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <p className="text-ink-subtle">
+          The report will run after publish once the date range is confirmed.
+        </p>
+      )}
+    </div>
+  );
 }
 
 export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
@@ -137,6 +296,7 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
     mapping,
     normalization,
     publish,
+    report,
     profiling,
     plan: planContext,
   } = props;
@@ -177,6 +337,9 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
     canApproveNormalization,
     isSubmittingNormalizationDecision,
     updateMemberAdditionDraft,
+    updateNormalizationRowDecision,
+    updateNormalizationRowValue,
+    resetNormalizationRowOverrides,
     approveNormalization,
     rejectNormalization,
   } = normalization;
@@ -189,6 +352,14 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
     approvePublish,
     rejectPublish,
   } = publish;
+
+  const {
+    selectedReportApproval,
+    reportApprovalsCount,
+    isSubmittingReportDecision,
+    confirmReportRange,
+    rejectReportRange,
+  } = report;
 
   const {
     profilingReviewState,
@@ -233,21 +404,32 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
     step.action_id === 'publish_after_approval' ||
     step.action_id === 'database_change_summary' ||
     step.review_type === 'publish' ||
-    /publish|final\s*approval|database\s*comparison|change\s*summary|review\s*changes/i.test(
+    /publish|final\s*approval|database\s*change|database\s*comparison|change\s*summary|review\s*changes/i.test(
       step.step_name,
     );
   const isLikelyNormalizationStep =
     step.action_id === 'normalize_to_staging' ||
     step.review_type === 'normalization' ||
     /normaliz|staging|validate|validation|data\s*quality|duplicate|anomal/i.test(step.step_name);
+  const isLikelyReportStep =
+    step.action_id === 'generate_report' ||
+    step.review_type === 'report' ||
+    /report|utili[sz]ation|overbook|idle/i.test(step.step_name);
   const isPlanApprovalStep = /plan\s*approval|approve\s*plan/i.test(step.step_name);
   const shouldRenderProfilingDetails = isWorkbookProfilingStep;
+
+  // Render mapping/normalization/publish panels when:
+  // 1. The step is the current actionable step (pending approval), OR
+  // 2. The step has a decided approval (historical read-only view).
+  const isMappingReadOnly = !isCurrent && Boolean(selectedMappingApproval);
   const shouldRenderMappingDetails =
-    isCurrent && (Boolean(selectedMappingApproval) || isLikelyMappingStep);
+    isLikelyMappingStep && (isCurrent || Boolean(selectedMappingApproval));
+  const isNormalizationReadOnly = !isCurrent && Boolean(selectedNormalizationApproval);
   const shouldRenderNormalizationDetails =
-    isCurrent && Boolean(selectedNormalizationApproval) && isLikelyNormalizationStep;
+    isLikelyNormalizationStep && (isCurrent || Boolean(selectedNormalizationApproval));
+  const isPublishReadOnly = !isCurrent && Boolean(selectedPublishApproval);
   const shouldRenderPublishDetails =
-    isCurrent && Boolean(selectedPublishApproval) && isLikelyPublishStep;
+    isLikelyPublishStep && (isCurrent || Boolean(selectedPublishApproval));
   const hasOpenProfilingReview =
     isWorkbookProfilingStep &&
     selectedSession.planning_state === 'approved_plan' &&
@@ -312,6 +494,7 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
           </div>
 
           <PmoMappingReviewPanel
+            readOnly={isMappingReadOnly}
             selectedMappingApproval={selectedMappingApproval}
             mappingApprovalsCount={mappingApprovalsCount}
             groupedMappingItems={groupedMappingItems}
@@ -343,6 +526,7 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
           </div>
 
           <PmoNormalizationReviewPanel
+            readOnly={isNormalizationReadOnly}
             selectedNormalizationApproval={selectedNormalizationApproval}
             normalizationApprovalsCount={normalizationApprovalsCount}
             selectedNormalizationView={selectedNormalizationView}
@@ -350,6 +534,9 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
             canApproveNormalization={canApproveNormalization}
             isSubmittingNormalizationDecision={isSubmittingNormalizationDecision}
             updateMemberAdditionDraft={updateMemberAdditionDraft}
+            updateNormalizationRowDecision={updateNormalizationRowDecision}
+            updateNormalizationRowValue={updateNormalizationRowValue}
+            resetNormalizationRowOverrides={resetNormalizationRowOverrides}
             approveNormalization={approveNormalization}
             rejectNormalization={rejectNormalization}
           />
@@ -366,6 +553,7 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
           </div>
 
           <PmoPublishReviewPanel
+            readOnly={isPublishReadOnly}
             selectedPublishApproval={selectedPublishApproval}
             publishApprovalsCount={publishApprovalsCount}
             selectedPublishView={selectedPublishView}
@@ -374,6 +562,15 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
             rejectPublish={rejectPublish}
           />
         </div>
+      ) : isLikelyReportStep ? (
+        <PmoReportReviewPanel
+          step={step}
+          selectedReportApproval={selectedReportApproval}
+          reportApprovalsCount={reportApprovalsCount}
+          isSubmittingReportDecision={isSubmittingReportDecision}
+          confirmReportRange={confirmReportRange}
+          rejectReportRange={rejectReportRange}
+        />
       ) : isPlanApprovalStep ? (
         <PmoExecutionPlanSnapshot
           selectedSession={selectedSession}

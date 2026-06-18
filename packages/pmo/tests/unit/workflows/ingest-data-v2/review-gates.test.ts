@@ -32,4 +32,24 @@ describe('shouldBlockPublishApprove', () => {
 
     expect(blocked).toBe(true);
   });
+
+  it('does not block publish for duplicate-in-upload metadata after normalization review', () => {
+    const blocked = shouldBlockPublishApprove({
+      hasBlockingIssues: false,
+      changeSummary: [
+        {
+          tableId: 'resource_allocation',
+          counts: {
+            new_records: 1,
+            updated_records: 0,
+            exact_duplicates: 0,
+            duplicates_in_upload: 1,
+          },
+          sampleChanges: [],
+        },
+      ],
+    });
+
+    expect(blocked).toBe(false);
+  });
 });

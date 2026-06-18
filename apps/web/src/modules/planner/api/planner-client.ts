@@ -501,6 +501,7 @@ async function listTasks(
   if (filters.percent_complete_gte !== undefined)
     q.set('percent_complete_gte', String(filters.percent_complete_gte));
   if (filters.due_before) q.set('due_before', filters.due_before);
+  if (filters.skill_tags?.length) q.set('skill_tags', filters.skill_tags.join(','));
   if (filters.include_deleted) q.set('include_deleted', 'true');
   if (filters.no_date) q.set('no_date', 'true');
   if (filters.limit) q.set('limit', String(filters.limit));
@@ -571,6 +572,7 @@ async function createTask(input: {
   start_at?: string;
   due_at?: string;
   preview_type?: TaskRow['preview_type'];
+  skill_tags?: string[];
   review_state?: 'needs_review';
 }): Promise<TaskRow> {
   return (await request<TaskRow>(`/api/planner/v1/tasks`, {
@@ -593,6 +595,7 @@ async function updateTask(input: {
       | 'preview_type'
       | 'start_at'
       | 'due_at'
+      | 'skill_tags'
       | 'review_state'
     >
   >;

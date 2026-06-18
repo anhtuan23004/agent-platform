@@ -3,6 +3,7 @@ import {
   buildMappingItemReviewCard,
   buildMappingReviewCard,
   buildPublishReviewCard,
+  buildReportRangeCard,
   collectMappingReviewItems,
 } from '../../../../src/backend/workflows/ingest-data-v2/cards.ts';
 
@@ -354,5 +355,54 @@ describe('PMO ingest review cards', () => {
 
     expect(rows.some((row) => row.k === 'Blocking issues' && row.v === '1')).toBe(true);
     expect(rows.some((row) => row.k.includes('resource_allocation row 7 member_id'))).toBe(true);
+  });
+
+  it('describes publish preview as incremental upsert and existing-row skips', () => {
+    const card = buildPublishReviewCard({
+      ingestionSessionId: 'f56e9152-7856-44e9-b2d7-4f21d86cdffd',
+      allowApprove: true,
+      identity: { tenantId: 'tenant-1', userId: 'user-1' },
+      toolCallId: 'workflow:test:pmo_confirmPublish',
+      changeSummary: [
+        {
+          tableId: 'resource_allocation',
+          counts: {
+            new_records: 1,
+            updated_records: 2,
+            exact_duplicates: 3,
+            duplicates_in_upload: 0,
+          },
+          sampleChanges: [],
+        },
+      ],
+      blockingIssues: [],
+    });
+
+    const tables = kvTables(card.details as unknown[]);
+    const rows = tables.flatMap((table) => table.rows);
+
+    expect(card.summary).toContain('Ready to publish 3 change');
+    expect(rows.some((row) => row.k === 'Rows to publish' && row.v === '3')).toBe(true);
+    expect(rows.some((row) => row.k === 'Rows to skip' && row.v === '3')).toBe(true);
+    expect(rows.some((row) => row.k === 'Skip reason')).toBe(true);
+    expect(rows.some((row) => /duplicate-in-upload/i.test(`${row.k} ${row.v}`))).toBe(false);
+  });
+
+  it('builds report range confirmation card with suggested date range payload', () => {
+    const card = buildReportRangeCard({
+      ingestionSessionId: 'f56e9152-7856-44e9-b2d7-4f21d86cdffd',
+      suggestedDateRange: { from: '2026-06-01', to: '2026-06-30' },
+      reportTypes: ['idle_members', 'overbook_members'],
+      identity: { tenantId: 'tenant-1', userId: 'user-1' },
+      toolCallId: 'workflow:test:pmo_confirmReportRange',
+    });
+
+    expect(card.intent).toBe('Confirm PMO report date range');
+    expect(card.primary.argsPatch).toEqual({
+      decision: 'approve',
+      dateRange: { from: '2026-06-01', to: '2026-06-30' },
+    });
+    expect(JSON.stringify(card.details)).toContain('2026-06-01');
+    expect(JSON.stringify(card.details)).toContain('2026-06-30');
   });
 });

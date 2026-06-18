@@ -8,24 +8,26 @@ import {
 } from '../../../../../src/modules/planner/state/url-state';
 
 describe('url-state', () => {
-  it('parseFiltersFromSearch handles assignee + label multi-values', () => {
+  it('parseFiltersFromSearch handles assignee + label + skill multi-values', () => {
     expect(
       parseFiltersFromSearch({
         'filter.assignee': 'u1,u2',
         'filter.label': 'L1',
+        'filter.skill': 'backend,ai',
       }),
     ).toEqual({
       assignee_ids: ['u1', 'u2'],
       label_ids: ['L1'],
+      skill_tags: ['backend', 'ai'],
     });
   });
 
   it('serializeFiltersToSearch is the inverse', () => {
-    const f = { assignee_ids: ['u1'], label_ids: ['L2'] };
+    const f = { assignee_ids: ['u1'], label_ids: [], skill_tags: ['react'] };
     const s = serializeFiltersToSearch(f);
     expect(parseFiltersFromSearch(s)).toMatchObject({
       assignee_ids: ['u1'],
-      label_ids: ['L2'],
+      skill_tags: ['react'],
     });
   });
 

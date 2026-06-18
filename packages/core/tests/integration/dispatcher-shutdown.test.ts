@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { resetCoreDb } from '../../src/db/client.ts';
 import { emit, withEmit } from '../../src/events/index.ts';
 import { startDispatcher } from '../../src/runtime/dispatcher/index.ts';
-import { withCoreTestDb } from '../helpers.ts';
+import { waitFor, withCoreTestDb } from '../helpers.ts';
 
 describe('dispatcher graceful shutdown', () => {
   it('shutdown waits for in-flight handler to complete', async () => {
@@ -23,23 +23,26 @@ describe('dispatcher graceful shutdown', () => {
       };
 
       const handle = await startDispatcher({ pool, subscribers: [sub], pollIntervalMs: 50 });
-
-      await withEmit(undefined, async () => {
-        await emit({
-          tenantId: '00000000-0000-0000-0000-000000000001',
-          aggregateType: 'test.slow',
-          aggregateId: '00000000-0000-0000-0000-000000000002',
-          eventType: 'test.slow.thing',
-          eventVersion: 1,
-          payload: {},
+      try {
+        await withEmit(undefined, async () => {
+          await emit({
+            tenantId: '00000000-0000-0000-0000-000000000001',
+            aggregateType: 'test.slow',
+            aggregateId: '00000000-0000-0000-0000-000000000002',
+            eventType: 'test.slow.thing',
+            eventVersion: 1,
+            payload: {},
+          });
         });
-      });
 
-      await new Promise((r) => setTimeout(r, 300));
-      expect(started).toBe(true);
-      expect(completed).toBe(false);
+        await waitFor(() => started && !completed, 5_000);
+        expect(started).toBe(true);
+        expect(completed).toBe(false);
 
-      await handle.shutdown(5_000);
+        await handle.shutdown(5_000);
+      } finally {
+        await handle.shutdown(5_000);
+      }
       expect(completed).toBe(true);
     });
   });

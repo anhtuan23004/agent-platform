@@ -43,6 +43,7 @@ function isStringActionId(value: unknown): value is PmoPlanActionId {
     value === 'normalize_to_staging' ||
     value === 'database_change_summary' ||
     value === 'publish_after_approval' ||
+    value === 'generate_report' ||
     value === 'generic_review'
   );
 }

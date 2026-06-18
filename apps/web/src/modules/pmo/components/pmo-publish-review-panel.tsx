@@ -3,6 +3,7 @@ import type { WorkflowApprovalRow } from '../api/workflow-runtime';
 import type { PublishReviewViewModel } from '../pages/pmo-page.logic';
 
 interface PmoPublishReviewPanelProps {
+  readOnly?: boolean;
   selectedPublishApproval: WorkflowApprovalRow | null;
   publishApprovalsCount: number;
   selectedPublishView: PublishReviewViewModel | null;
@@ -32,6 +33,7 @@ function KeyValueRows(props: { rows: Array<{ k: string; v: string }>; emptyLabel
 
 export function PmoPublishReviewPanel(props: PmoPublishReviewPanelProps) {
   const {
+    readOnly = false,
     selectedPublishApproval,
     publishApprovalsCount,
     selectedPublishView,
@@ -60,9 +62,15 @@ export function PmoPublishReviewPanel(props: PmoPublishReviewPanelProps) {
 
   return (
     <>
-      <div className="rounded-lg border border-warning-border bg-warning-tint/80 px-3 py-2 text-caption text-warning-ink">
-        Publish review is required. The workflow can publish only after PMO approves this step.
-      </div>
+      {readOnly ? (
+        <div className="rounded-lg border border-hairline bg-surface-2/60 px-3 py-2 text-caption text-ink-subtle">
+          This publish review has been completed. Showing historical data (read-only).
+        </div>
+      ) : (
+        <div className="rounded-lg border border-warning-border bg-warning-tint/80 px-3 py-2 text-caption text-warning-ink">
+          Publish review is required. The workflow can publish only after PMO approves this step.
+        </div>
+      )}
 
       <section className="rounded-lg border border-hairline bg-surface-1 p-3">
         <div className="flex flex-wrap items-start justify-between gap-2">
@@ -141,28 +149,30 @@ export function PmoPublishReviewPanel(props: PmoPublishReviewPanelProps) {
           </ul>
         ) : null}
 
-        <div className="mt-3 flex flex-wrap items-center justify-end gap-2 rounded-lg border border-hairline bg-canvas p-3">
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            disabled={isSubmittingPublishDecision}
-            onClick={rejectPublish}
-          >
-            {isSubmittingPublishDecision
-              ? 'Submitting...'
-              : (selectedPublishView.declineLabel ?? 'Reject publish')}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={selectedPublishView.canApprove ? 'primary' : 'destructive'}
-            disabled={isSubmittingPublishDecision}
-            onClick={selectedPublishView.canApprove ? approvePublish : rejectPublish}
-          >
-            {isSubmittingPublishDecision ? 'Submitting...' : selectedPublishView.primaryLabel}
-          </Button>
-        </div>
+        {readOnly ? null : (
+          <div className="mt-3 flex flex-wrap items-center justify-end gap-2 rounded-lg border border-hairline bg-canvas p-3">
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              disabled={isSubmittingPublishDecision}
+              onClick={rejectPublish}
+            >
+              {isSubmittingPublishDecision
+                ? 'Submitting...'
+                : (selectedPublishView.declineLabel ?? 'Reject publish')}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={selectedPublishView.canApprove ? 'primary' : 'destructive'}
+              disabled={isSubmittingPublishDecision}
+              onClick={selectedPublishView.canApprove ? approvePublish : rejectPublish}
+            >
+              {isSubmittingPublishDecision ? 'Submitting...' : selectedPublishView.primaryLabel}
+            </Button>
+          </div>
+        )}
       </section>
     </>
   );

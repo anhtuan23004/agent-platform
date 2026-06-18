@@ -29,9 +29,9 @@ export function startSubscriberLoop(opts: {
   let shuttingDown = false;
   let inFlight: Promise<void> | null = null;
 
-  async function tick(): Promise<void> {
+  function scheduleTick(): void {
     if (shuttingDown || inFlight) return;
-    inFlight = (async () => {
+    const drain = (async () => {
       const started = Date.now();
       let processed = 0;
       try {
@@ -47,30 +47,35 @@ export function startSubscriberLoop(opts: {
         });
       }
     })();
-    try {
-      await inFlight;
-    } finally {
-      inFlight = null;
-    }
+    inFlight = drain;
+    void drain.finally(() => {
+      if (inFlight === drain) inFlight = null;
+    });
   }
 
   // Independent setInterval per subscriber — fast subscribers keep ticking even
   // while a slow peer is mid-handler.
-  const interval = setInterval(() => {
-    void tick();
-  }, opts.pollIntervalMs);
+  const interval = setInterval(scheduleTick, opts.pollIntervalMs);
   // Kick once immediately so a freshly-started dispatcher drains backlog.
-  void tick();
+  scheduleTick();
 
   return {
     notify() {
-      void tick();
+      scheduleTick();
     },
     async shutdown(timeoutMs = 15_000) {
       shuttingDown = true;
       clearInterval(interval);
+      const deadline = Date.now() + timeoutMs;
+      // Yield so a tick that passed the pre-shuttingDown guard can publish inFlight.
+      while (!inFlight && Date.now() < deadline) {
+        await new Promise<void>((r) => setTimeout(r, 10));
+      }
       if (inFlight) {
-        await Promise.race([inFlight, new Promise<void>((r) => setTimeout(r, timeoutMs))]);
+        await Promise.race([
+          inFlight,
+          new Promise<void>((r) => setTimeout(r, Math.max(0, deadline - Date.now()))),
+        ]);
       }
     },
   };

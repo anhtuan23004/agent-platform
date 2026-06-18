@@ -37,6 +37,8 @@ export interface NormalizationResult extends DbChangeSummaryResult {
   duplicateInUploadRows: Array<{
     tableId: string;
     sourceSheet?: string;
+    rowId?: string;
+    duplicateGroupKey?: string;
     naturalKey: Record<string, string>;
     sourceRow: number;
     policy: 'allow' | 'skip' | 'block';
@@ -71,6 +73,7 @@ export interface NormalizationReviewRow {
   duplicateGroupKey?: string;
   duplicateOfRowId?: string;
   decision: 'keep_row' | 'skip_row' | 'skipped';
+  editable?: boolean;
 }
 
 export interface DynamicHandlerDeps {

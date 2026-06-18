@@ -1,6 +1,6 @@
 # Agent guidance
 
-Contract for coding agents (Claude Code, Codex, any `AGENTS.md`-aware tool) working in this repo. `AGENTS.md` is a symlink to `CLAUDE.md` — edit one, both update.
+Contract for coding agents (Claude Code, Codex, any `AGENTS.md`-aware tool) working in this repo. `AGENTS.md` symlinks to `CLAUDE.md` — edit `CLAUDE.md`, both update.
 
 ## Reference docs
 
@@ -17,7 +17,7 @@ When `docs/architecture.md` and the code disagree, the doc is the bug — fix it
 ## Fixed technical foundations (do not propose alternatives)
 
 - **Runtime / build**: Node 24 LTS, Turborepo + pnpm workspaces, Vite.
-- **Backend**: Hono, Mastra (`@mastra/core@^1.35`), graphile-worker.
+- **Backend**: Hono, Mastra (`@mastra/core`), graphile-worker.
 - **Database**: Postgres + pgvector, Drizzle ORM (`pgSchema` + `schemaFilter`). No other ORM, no raw migration tool.
 - **Event bus**: transactional outbox in `core.events` + `LISTEN/NOTIFY` + 2s fallback poll. No SQS, no Kafka.
 - **Frontend**: React 19, TanStack Router, shadcn/ui, Tailwind 4, AI SDK v6 (`ai@^6` + `@ai-sdk/react@^3`), assistant-ui v6-paired.
@@ -39,13 +39,19 @@ For `@mastra/core` API names, consult the sibling checkout at `../mastra/` inste
 
 **The bus is the outbox.** State change + event row commit in one transaction via `core.emit()` inside `withEmit(session, ...)`. No separate publish path. `LISTEN/NOTIFY` wakes subscribers; the 2s poll covers dropped notifies. Audit lives in `core.events` alongside domain events.
 
-## Module tiers
+## Workspace shape
 
-Enforced by `.dependency-cruiser.cjs`:
+**Apps** (`apps/`):
+- `server` — Hono API (dev: `tsx watch`).
+- `worker` — graphile-worker host + LISTEN/NOTIFY dispatcher. Same module registry as server.
+- `web` — React SPA (Vite + TanStack Router). E2E via Playwright (`pnpm test:e2e`).
+- `cli` — operational CLI: migrations, seed, tenant/user provisioning (`pnpm db:migrate`, `pnpm db:seed`).
+
+**Module tiers** — enforced by `.dependency-cruiser.cjs` (18 rules):
 - **infra** — `packages/shared-*` and `sdks/*`. Leaf packages; may not import from feature/orchestrator modules.
 - **module** — `packages/<name>/`. Cross-module imports go through the public surface only.
 
-Declared via `"setaTier"` in `package.json` (informational, not a separate enforced layer):
+Conceptual tiers (not depcruise-enforced):
 - **foundation** — depended on by every module (`core`, `identity`).
 - **orchestrator** — composes multiple feature modules (`staffing`). Typically schemaless; workflow state lives in `agent.workflow_runs`.
 - **engine** — `agent` only. Composes module-owned agent tools/specs into a Mastra runtime.
@@ -60,10 +66,13 @@ Declared via `"setaTier"` in `package.json` (informational, not a separate enfor
 - **Module shape comes from `pnpm gen module`** — see [`docs/creating-modules.md`](docs/creating-modules.md). Don't invent commands; the `pnpm` scripts in root `package.json` are the contract.
 - **`docs/superpowers/` is gitignored — never `git add -f` or push it.** Specs and plans under that path are local working documents only. Commit design docs there freely; they will not appear in the remote repo.
 - **Onboarding contract**: `clone → install → db:up → db:migrate → bash scripts/tenant-bootstrap.sh → dev` yields a working demo in 5 min on a fresh machine. Don't break it.
+- **Formatter**: Biome — 2-space indent, single quotes, semicolons, trailing commas, 100-char line width. Pre-commit hook auto-formats staged files; pre-push runs typecheck + depcruise + biome CI.
+- **`pnpm lint` is the umbrella** — runs `depcruise`, `lint:styles`, `lint:raw-sql`, `lint:test-layout`, `lint:module-shape`, `lint:boundaries`, `lint:rbac-coverage`, then `biome ci`. CI runs this plus standalone `pnpm typecheck`.
 
 ## Conventions worth knowing
 
 - **Inspect the DB (dev):** `docker exec seta-ap-postgres-dev psql -U seta -d seta -c '<SQL>'`. Postgres is also reachable at `localhost:5542` (mapped by `infra/docker/compose.dev.yml`). Schemas: `agent`, `core`, `identity`, `planner`, `notifications`, `staffing`, etc.
+- **Dev compose also runs**: redis (6489), otel-collector (4428), jaeger (16696), prometheus (9090), grafana (3100).
 - **Debug the agent (dev):** `scripts/trace-thread.sh <threadId>` dumps a chat turn's lifecycle (messages, approvals, snapshot status, spans). App logs persist to `logs/{server,worker}.log` (NDJSON). Per-turn tool-calls/suspends/resumes trace to `agent.mastra_ai_spans`; raise Mastra's logger with `MASTRA_LOG_LEVEL`.
 - **HITL on every write tool.** AI SDK v6 `needsApproval: true` + assistant-ui Interactable confirmation card, wired via `registerToolPermission` from `@seta/agent-sdk`. Read tools execute directly. Native-suspend chat cards resume via `POST /chat/resume`; `/workflows/approvals/:id/decide` only records the decision (no resume).
 - **Subscribers must be idempotent**, keyed on `event_id`. At-least-once delivery; per-aggregate ordering only.

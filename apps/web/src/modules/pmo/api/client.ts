@@ -25,7 +25,12 @@ export interface UploadWorkbookResponse {
 
 export interface PmoPlan {
   intent_analysis?: {
-    intent_mode: 'review_only' | 'mapping_readiness' | 'stage_preview' | 'publish_intent';
+    intent_mode:
+      | 'review_only'
+      | 'mapping_readiness'
+      | 'stage_preview'
+      | 'publish_intent'
+      | 'publish_report_intent';
     confidence: 'low' | 'medium' | 'high';
     rationale: string;
     requires_confirmation: boolean;
@@ -35,6 +40,7 @@ export interface PmoPlan {
       | 'normalize_to_staging'
       | 'database_change_summary'
       | 'publish_after_approval'
+      | 'generate_report'
       | 'generic_review'
     >;
     confirmed_at?: string;
@@ -74,8 +80,16 @@ export interface PmoPlan {
       | 'normalize_to_staging'
       | 'database_change_summary'
       | 'publish_after_approval'
+      | 'generate_report'
       | 'generic_review';
-    review_type?: 'none' | 'profiling' | 'mapping' | 'normalization' | 'publish' | 'generic';
+    review_type?:
+      | 'none'
+      | 'profiling'
+      | 'mapping'
+      | 'normalization'
+      | 'publish'
+      | 'report'
+      | 'generic';
     step_name: string;
     description: string;
     agent_responsibility: string;
@@ -218,6 +232,7 @@ export interface PmoWorkflowExecutionStep {
   review_type?: string;
   step_name: string;
   status: PmoWorkflowExecutionStepStatus;
+  output_summary?: Record<string, unknown>;
 }
 
 export interface PmoWorkbookProfilingSessionSummary {
@@ -248,6 +263,8 @@ export interface PmoWorkflowExecutionState {
   documents: PmoSessionDocumentProfileRecord[];
   profiling_summary: PmoWorkbookProfilingSessionSummary | null;
   profiling_review: PmoProfilingReviewState | null;
+  report_request?: unknown;
+  report_result?: unknown;
 }
 
 export interface PmoPlanningSession {

@@ -12,6 +12,7 @@ import { PmoWorkflowCardsSection } from '../components/pmo-workflow-cards-sectio
 import { usePmoMappingReviewActions } from '../hooks/use-pmo-mapping-review-actions';
 import { usePmoNormalizationReviewActions } from '../hooks/use-pmo-normalization-review-actions';
 import { usePmoPublishReviewActions } from '../hooks/use-pmo-publish-review-actions';
+import { usePmoReportRangeActions } from '../hooks/use-pmo-report-range-actions';
 import { type UploadedWorkbookInfo, usePmoSessionActions } from '../hooks/use-pmo-session-actions';
 import { usePmoWorkflowRuntime } from '../hooks/use-pmo-workflow-runtime';
 import {
@@ -93,6 +94,8 @@ export function PmoPage() {
     publishApprovals,
     selectedPublishApproval,
     selectedPublishView,
+    reportApprovals,
+    selectedReportApproval,
     runtimeActiveStepId,
     hasRuntimeCurrentStepMatch,
   } = usePmoWorkflowRuntime({
@@ -259,11 +262,22 @@ export function PmoPage() {
     },
   );
 
+  const { isSubmittingReportDecision, confirmReportRange, rejectReportRange } =
+    usePmoReportRangeActions({
+      selectedReportApproval,
+      loadSessions,
+      refreshWorkflowRuntime,
+    });
+
   const {
+    normalizationReviewView,
     memberAdditionDrafts,
     canApproveNormalization,
     isSubmittingNormalizationDecision,
     updateMemberAdditionDraft,
+    updateNormalizationRowDecision,
+    updateNormalizationRowValue,
+    resetNormalizationRowOverrides,
     approveNormalization,
     rejectNormalization,
   } = usePmoNormalizationReviewActions({
@@ -367,11 +381,14 @@ export function PmoPage() {
   const executionNormalization = {
     selectedNormalizationApproval,
     normalizationApprovalsCount: normalizationApprovals.length,
-    selectedNormalizationView,
+    selectedNormalizationView: normalizationReviewView,
     memberAdditionDrafts,
     canApproveNormalization,
     isSubmittingNormalizationDecision,
     updateMemberAdditionDraft,
+    updateNormalizationRowDecision,
+    updateNormalizationRowValue,
+    resetNormalizationRowOverrides,
     approveNormalization,
     rejectNormalization,
   };
@@ -383,6 +400,14 @@ export function PmoPage() {
     isSubmittingPublishDecision,
     approvePublish,
     rejectPublish,
+  };
+
+  const executionReport = {
+    selectedReportApproval,
+    reportApprovalsCount: reportApprovals.length,
+    isSubmittingReportDecision,
+    confirmReportRange,
+    rejectReportRange,
   };
 
   const executionProfiling = {
@@ -581,6 +606,7 @@ export function PmoPage() {
                   mapping={executionMapping}
                   normalization={executionNormalization}
                   publish={executionPublish}
+                  report={executionReport}
                   profiling={executionProfiling}
                   planContext={executionPlan}
                 />

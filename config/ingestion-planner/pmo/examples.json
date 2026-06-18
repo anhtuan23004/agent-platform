@@ -156,8 +156,7 @@
         "workbook_profiling",
         "column_mapping",
         "normalize_to_staging",
-        "database_change_summary",
-        "publish_after_approval"
+        "database_change_summary"
       ],
       "expected_title": "Plan to publish PMO workbook after approval",
       "expected_goal_summary": "Run the controlled ingestion chain and publish approved PMO changes only after explicit review."
@@ -169,8 +168,7 @@
         "workbook_profiling",
         "column_mapping",
         "normalize_to_staging",
-        "database_change_summary",
-        "publish_after_approval"
+        "database_change_summary"
       ],
       "expected_title": "Plan to import PMO workbook after validation and approval",
       "expected_goal_summary": "Run the controlled ingestion chain and publish only after validation passes and the user explicitly approves the database changes."
@@ -182,8 +180,7 @@
         "workbook_profiling",
         "column_mapping",
         "normalize_to_staging",
-        "database_change_summary",
-        "publish_after_approval"
+        "database_change_summary"
       ],
       "expected_title": "Plan to write approved PMO workbook changes",
       "expected_goal_summary": "Profile, map, stage, preview database changes, and write to PMO only after explicit approval."
@@ -195,11 +192,36 @@
         "workbook_profiling",
         "column_mapping",
         "normalize_to_staging",
-        "database_change_summary",
-        "publish_after_approval"
+        "database_change_summary"
       ],
       "expected_title": "Plan to update PMO data after approval",
       "expected_goal_summary": "Run the controlled ingestion workflow and update PMO data only after mapping, staging, database change review, and explicit approval."
+    },
+    {
+      "goal": "Publish this workbook and generate an idle/overbook report from 2026-06-01 to 2026-06-30",
+      "intent_mode": "publish_report_intent",
+      "allowed_action_ids": [
+        "workbook_profiling",
+        "column_mapping",
+        "normalize_to_staging",
+        "database_change_summary",
+        "generate_report"
+      ],
+      "expected_title": "Plan to publish PMO workbook and generate report",
+      "expected_goal_summary": "Run controlled ingestion, publish approved PMO changes, then generate an idle and overbook report for the requested date range."
+    },
+    {
+      "goal": "Import file này vào PMO rồi tạo báo cáo idle và overbook",
+      "intent_mode": "publish_report_intent",
+      "allowed_action_ids": [
+        "workbook_profiling",
+        "column_mapping",
+        "normalize_to_staging",
+        "database_change_summary",
+        "generate_report"
+      ],
+      "expected_title": "Plan to import PMO workbook and generate report",
+      "expected_goal_summary": "Run controlled ingestion, publish approved PMO changes, then ask for a report date range before generating idle and overbook findings."
     }
   ]
 }

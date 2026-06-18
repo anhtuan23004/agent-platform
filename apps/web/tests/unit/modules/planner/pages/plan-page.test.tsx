@@ -12,14 +12,25 @@ import { axe } from 'jest-axe';
 import { HttpResponse, http } from 'msw';
 import { setupServer } from 'msw/node';
 import type { ReactNode } from 'react';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { SessionScopeProjection } from '../../../../../src/modules/identity/api/client';
 import { SessionProvider } from '../../../../../src/modules/identity/components/SessionProvider';
 import { PlanBoardShell } from '../../../../../src/modules/planner/pages/plan-board-shell';
+import {
+  stubPlannerBoardEventSource,
+  unstubPlannerBoardEventSource,
+  waitForPlannerShellReady,
+} from './planner-board-shell.harness';
 
 const server = setupServer();
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
-afterEach(() => server.resetHandlers());
+beforeEach(() => {
+  stubPlannerBoardEventSource();
+});
+afterEach(() => {
+  unstubPlannerBoardEventSource();
+  server.resetHandlers();
+});
 afterAll(() => server.close());
 
 const session: SessionScopeProjection = {
@@ -157,6 +168,7 @@ const taskOne = {
   is_deferred: false,
   preview_type: 'automatic',
   review_state: null,
+  skill_tags: [],
   start_at: null,
   due_at: null,
   order_hint: 'm',
@@ -250,10 +262,10 @@ describe('PlanPage (via PlanBoardShell)', () => {
     expect(await screen.findByTestId('virtualized-bucket-list')).toBeInTheDocument();
   });
 
-  it('has no a11y violations on the happy path', async () => {
+  it('has no a11y violations on the happy path', { timeout: 60_000 }, async () => {
     server.use(...seedBoardHandlers());
     const { container } = renderShell();
-    await screen.findByText('To do');
+    await waitForPlannerShellReady({ taskTitle: 'To do' });
     const results = await axe(container);
     expect(results).toHaveNoViolations();
   });

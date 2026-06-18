@@ -29,12 +29,37 @@ export interface CanonicalInputs {
   configRows: ConfigRow[];
 }
 
+export interface CanonicalInputDateRange {
+  from: Date;
+  to: Date;
+}
+
+function overlapsRange(
+  start: Date | null,
+  end: Date | null,
+  range: CanonicalInputDateRange,
+): boolean {
+  const effectiveStart = start ?? new Date(-8640000000000000);
+  const effectiveEnd = end ?? new Date(8640000000000000);
+  return (
+    effectiveStart.getTime() <= range.to.getTime() && effectiveEnd.getTime() >= range.from.getTime()
+  );
+}
+
+function inRange(date: Date, range: CanonicalInputDateRange): boolean {
+  const t = date.getTime();
+  return t >= range.from.getTime() && t <= range.to.getTime();
+}
+
 /**
  * Load the active canonical rows a tenant needs for utilization analytics.
  * Reads only `is_active` rows — the upsert publish step keeps exactly one
  * active row per natural key, so duplicates (F-16) are already collapsed here.
  */
-export async function loadCanonicalInputs(tenantId: string): Promise<CanonicalInputs> {
+export async function loadCanonicalInputs(
+  tenantId: string,
+  options: { dateRange?: CanonicalInputDateRange } = {},
+): Promise<CanonicalInputs> {
   const db = pmoDb();
   const activeFilter = (table: { tenant_id: never; is_active: never }) =>
     and(eq(table.tenant_id, tenantId as never), eq(table.is_active, true as never));
@@ -118,13 +143,29 @@ export async function loadCanonicalInputs(tenantId: string): Promise<CanonicalIn
         .where(activeFilter(overbookIdleConfig as never)),
     ]);
 
+  const range = options.dateRange;
+
   return {
     members: memberRows as MemberRow[],
-    projects: projectRows as ProjectRow[],
-    allocations: allocRows as AllocationRow[],
-    timesheets: tsRows as TimesheetRow[],
-    leaves: leaveRows as LeaveRow[],
-    weeks: weekRows as WeekRow[],
+    projects: range
+      ? (projectRows as ProjectRow[]).filter((row) =>
+          overlapsRange(row.start_date, row.end_date, range),
+        )
+      : (projectRows as ProjectRow[]),
+    allocations: range
+      ? (allocRows as AllocationRow[]).filter((row) =>
+          overlapsRange(row.start_date, row.end_date, range),
+        )
+      : (allocRows as AllocationRow[]),
+    timesheets: range
+      ? (tsRows as TimesheetRow[]).filter((row) => inRange(row.work_date, range))
+      : (tsRows as TimesheetRow[]),
+    leaves: range
+      ? (leaveRows as LeaveRow[]).filter((row) => inRange(row.leave_date, range))
+      : (leaveRows as LeaveRow[]),
+    weeks: range
+      ? (weekRows as WeekRow[]).filter((row) => overlapsRange(row.week_start, row.week_end, range))
+      : (weekRows as WeekRow[]),
     configRows: configRowsRaw as ConfigRow[],
   };
 }
