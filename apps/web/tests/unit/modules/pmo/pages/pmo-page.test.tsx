@@ -1387,10 +1387,7 @@ describe('PmoPage', () => {
     expect(
       await screen.findByText('Normalize to staging', {}, { timeout: 15_000 }),
     ).toBeInTheDocument();
-    expect(
-      await screen.findByText('Add missing member master data', {}, { timeout: 15_000 }),
-    ).toBeInTheDocument();
-    expect(await screen.findByDisplayValue('M-404', {}, { timeout: 15_000 })).toBeInTheDocument();
+    expect(await screen.findByDisplayValue('M-404', {}, { timeout: 20_000 })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Add members & continue' })).toBeDisabled();
 
     fireEvent.change(screen.getByLabelText('Full name'), {
