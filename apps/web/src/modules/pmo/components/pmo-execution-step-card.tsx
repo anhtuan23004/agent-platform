@@ -288,6 +288,22 @@ function PmoReportReviewPanel(props: {
   );
 }
 
+function StepOutputSummary(props: { summary: Record<string, unknown> }) {
+  const entries = Object.entries(props.summary);
+  if (entries.length === 0) return null;
+
+  return (
+    <dl className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+      {entries.map(([key, value]) => (
+        <div key={key} className="rounded-md border border-hairline bg-surface-1 px-2 py-1.5">
+          <dt className="text-caption uppercase text-ink-subtle">{key.replaceAll('_', ' ')}</dt>
+          <dd className="mt-0.5 font-mono text-body-sm text-ink">{String(value)}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
   const {
     selectedSession,
@@ -426,7 +442,8 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
     isLikelyMappingStep && (isCurrent || Boolean(selectedMappingApproval));
   const isNormalizationReadOnly = !isCurrent && Boolean(selectedNormalizationApproval);
   const shouldRenderNormalizationDetails =
-    isLikelyNormalizationStep && (isCurrent || Boolean(selectedNormalizationApproval));
+    isLikelyNormalizationStep &&
+    (isCurrent || Boolean(selectedNormalizationApproval) || Boolean(step.output_summary));
   const isPublishReadOnly = !isCurrent && Boolean(selectedPublishApproval);
   const shouldRenderPublishDetails =
     isLikelyPublishStep && (isCurrent || Boolean(selectedPublishApproval));
@@ -525,21 +542,41 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
             </span>
           </div>
 
-          <PmoNormalizationReviewPanel
-            readOnly={isNormalizationReadOnly}
-            selectedNormalizationApproval={selectedNormalizationApproval}
-            normalizationApprovalsCount={normalizationApprovalsCount}
-            selectedNormalizationView={selectedNormalizationView}
-            memberAdditionDrafts={memberAdditionDrafts}
-            canApproveNormalization={canApproveNormalization}
-            isSubmittingNormalizationDecision={isSubmittingNormalizationDecision}
-            updateMemberAdditionDraft={updateMemberAdditionDraft}
-            updateNormalizationRowDecision={updateNormalizationRowDecision}
-            updateNormalizationRowValue={updateNormalizationRowValue}
-            resetNormalizationRowOverrides={resetNormalizationRowOverrides}
-            approveNormalization={approveNormalization}
-            rejectNormalization={rejectNormalization}
-          />
+          {selectedNormalizationApproval ? (
+            <PmoNormalizationReviewPanel
+              readOnly={isNormalizationReadOnly}
+              selectedNormalizationApproval={selectedNormalizationApproval}
+              normalizationApprovalsCount={normalizationApprovalsCount}
+              selectedNormalizationView={selectedNormalizationView}
+              memberAdditionDrafts={memberAdditionDrafts}
+              canApproveNormalization={canApproveNormalization}
+              isSubmittingNormalizationDecision={isSubmittingNormalizationDecision}
+              updateMemberAdditionDraft={updateMemberAdditionDraft}
+              updateNormalizationRowDecision={updateNormalizationRowDecision}
+              updateNormalizationRowValue={updateNormalizationRowValue}
+              resetNormalizationRowOverrides={resetNormalizationRowOverrides}
+              approveNormalization={approveNormalization}
+              rejectNormalization={rejectNormalization}
+            />
+          ) : step.output_summary ? (
+            <StepOutputSummary summary={step.output_summary} />
+          ) : (
+            <PmoNormalizationReviewPanel
+              readOnly={isNormalizationReadOnly}
+              selectedNormalizationApproval={selectedNormalizationApproval}
+              normalizationApprovalsCount={normalizationApprovalsCount}
+              selectedNormalizationView={selectedNormalizationView}
+              memberAdditionDrafts={memberAdditionDrafts}
+              canApproveNormalization={canApproveNormalization}
+              isSubmittingNormalizationDecision={isSubmittingNormalizationDecision}
+              updateMemberAdditionDraft={updateMemberAdditionDraft}
+              updateNormalizationRowDecision={updateNormalizationRowDecision}
+              updateNormalizationRowValue={updateNormalizationRowValue}
+              resetNormalizationRowOverrides={resetNormalizationRowOverrides}
+              approveNormalization={approveNormalization}
+              rejectNormalization={rejectNormalization}
+            />
+          )}
         </div>
       ) : shouldRenderPublishDetails ? (
         <div className="mt-2 space-y-2 rounded-md border border-hairline bg-canvas p-2.5">

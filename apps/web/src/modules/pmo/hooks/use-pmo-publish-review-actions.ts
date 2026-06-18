@@ -1,5 +1,5 @@
 import { toast } from '@seta/shared-ui';
-import { useCallback } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { WorkflowApprovalRow } from '../api/workflow-runtime';
 import { useSubmitWorkflowRuntimeDecision } from './use-workflow-runtime';
 
@@ -20,13 +20,24 @@ export function usePmoPublishReviewActions(
 ): UsePmoPublishReviewActionsResult {
   const { selectedPublishApproval, loadSessions, refreshWorkflowRuntime } = options;
   const submitDecision = useSubmitWorkflowRuntimeDecision();
+  const [lockedApprovalIds, setLockedApprovalIds] = useState<Set<string>>(() => new Set());
+  const selectedApprovalId = selectedPublishApproval?.approvalId ?? null;
+  const selectedApprovalLocked = selectedApprovalId
+    ? lockedApprovalIds.has(selectedApprovalId)
+    : false;
+  const selectedApprovalPending = selectedPublishApproval?.status === 'pending';
+  const isSubmittingPublishDecision = useMemo(
+    () => submitDecision.isPending || selectedApprovalLocked || !selectedApprovalPending,
+    [selectedApprovalLocked, selectedApprovalPending, submitDecision.isPending],
+  );
 
   const refreshAfterDecision = useCallback(async () => {
     await Promise.all([refreshWorkflowRuntime(), loadSessions(true)]);
   }, [loadSessions, refreshWorkflowRuntime]);
 
   const approvePublish = useCallback(() => {
-    if (!selectedPublishApproval) return;
+    if (selectedPublishApproval?.status !== 'pending') return;
+    setLockedApprovalIds((current) => new Set(current).add(selectedPublishApproval.approvalId));
 
     submitDecision.mutate(
       {
@@ -42,6 +53,11 @@ export function usePmoPublishReviewActions(
           await refreshAfterDecision();
         },
         onError: (err) => {
+          setLockedApprovalIds((current) => {
+            const next = new Set(current);
+            next.delete(selectedPublishApproval.approvalId);
+            return next;
+          });
           toast.error('Failed to approve publish', {
             description: err instanceof Error ? err.message : String(err),
           });
@@ -51,7 +67,8 @@ export function usePmoPublishReviewActions(
   }, [refreshAfterDecision, selectedPublishApproval, submitDecision]);
 
   const rejectPublish = useCallback(() => {
-    if (!selectedPublishApproval) return;
+    if (selectedPublishApproval?.status !== 'pending') return;
+    setLockedApprovalIds((current) => new Set(current).add(selectedPublishApproval.approvalId));
 
     submitDecision.mutate(
       {
@@ -67,6 +84,11 @@ export function usePmoPublishReviewActions(
           await refreshAfterDecision();
         },
         onError: (err) => {
+          setLockedApprovalIds((current) => {
+            const next = new Set(current);
+            next.delete(selectedPublishApproval.approvalId);
+            return next;
+          });
           toast.error('Failed to reject publish', {
             description: err instanceof Error ? err.message : String(err),
           });
@@ -76,7 +98,7 @@ export function usePmoPublishReviewActions(
   }, [refreshAfterDecision, selectedPublishApproval, submitDecision]);
 
   return {
-    isSubmittingPublishDecision: submitDecision.isPending,
+    isSubmittingPublishDecision,
     approvePublish,
     rejectPublish,
   };
