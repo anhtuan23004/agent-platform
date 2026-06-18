@@ -17,6 +17,6 @@ describe('PMO planner intent confirmation policy', () => {
     expect(intent.intent_mode).toBe('publish_intent');
     expect(intent.confidence).toBe('high');
     expect(intent.requires_confirmation).toBe(false);
-    expect(intent.allowed_action_ids).toContain('publish_after_approval');
+    expect(intent.allowed_action_ids).toContain('database_change_summary');
   });
 });

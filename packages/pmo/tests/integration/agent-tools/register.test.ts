@@ -12,7 +12,12 @@ describe('pmo register', () => {
     const { pmoAgentTools } = await import('../../../src/backend/agent-tools/register.ts');
 
     expect(pmoAgentTools.map((tool) => (tool as { id: string }).id).sort()).toEqual(
-      ['pmo_computeMemberWeekFacts', 'pmo_detectMismatch', 'pmo_detectOverbookIdle'].sort(),
+      [
+        'pmo_computeMemberWeekFacts',
+        'pmo_detectMismatch',
+        'pmo_detectOverbookIdle',
+        'pmo_generateReport',
+      ].sort(),
     );
     expect(AgentRegistry.listWorkflows('work').map((workflow) => workflow.id)).toContain(
       'ingestDataV2',
