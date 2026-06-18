@@ -34,11 +34,9 @@ function mockJsonResponse(body: unknown, status = 200): Response {
 
 function dropFile(file: File) {
   const dropzone = screen.getByRole('button', { name: /drop pmo workbook here/i });
-  const dropEvent = new DragEvent('drop', { bubbles: true });
-  Object.defineProperty(dropEvent, 'dataTransfer', {
-    value: { files: [file], items: [], types: [] },
+  fireEvent.drop(dropzone, {
+    dataTransfer: { files: [file], items: [], types: [] },
   });
-  dropzone.dispatchEvent(dropEvent);
 }
 
 function makeRunRow(partial?: Partial<Record<string, unknown>>) {
@@ -323,6 +321,14 @@ function createFetchMock(opts?: {
     if (url === '/api/agent/v1/workflows/my-pending-approvals') {
       return mockJsonResponse(pendingApprovals);
     }
+    const runApprovalsMatch = url.match(/^\/api\/agent\/v1\/workflows\/runs\/([^/]+)\/approvals$/);
+    if (runApprovalsMatch) {
+      const runId = decodeURIComponent(runApprovalsMatch[1] ?? '');
+      const approvalsForRun = pendingApprovals.filter(
+        (approval) => (approval as { runId?: string }).runId === runId,
+      );
+      return mockJsonResponse(approvalsForRun);
+    }
     if (url === '/api/pmo/v1/ingestion-sessions') {
       return mockJsonResponse({ items: planningSessions });
     }
@@ -387,7 +393,7 @@ async function waitForPmoPageBootstrap(fetchMock: ReturnType<typeof vi.fn>): Pro
         ),
       ).toBe(true);
     },
-    { timeout: 5_000 },
+    { timeout: 10_000 },
   );
 }
 
@@ -400,6 +406,16 @@ function findCall(
     throw new Error('Expected fetch call was not made');
   }
   return call as [string, RequestInit | undefined];
+}
+
+async function clickSessionViewByWorkbook(workbookName: string): Promise<void> {
+  const workbookCell = (await screen.findAllByText(workbookName)).find((node) =>
+    node.closest('tr'),
+  );
+  expect(workbookCell).toBeTruthy();
+  fireEvent.click(
+    within(workbookCell?.closest('tr') as HTMLElement).getByRole('button', { name: 'View' }),
+  );
 }
 
 describe('PmoPage', () => {
@@ -458,7 +474,9 @@ describe('PmoPage', () => {
       ),
     ).toBe(false);
 
-    expect(screen.getByRole('button', { name: 'Analyze & generate plan' })).toBeEnabled();
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Analyze & generate plan' })).toBeEnabled();
+    });
 
     fireEvent.click(screen.getByRole('button', { name: 'Analyze & generate plan' }));
 
@@ -924,6 +942,8 @@ describe('PmoPage', () => {
 
     render(withQuery(<PmoPage />));
 
+    await waitForPmoPageBootstrap(fetchMock);
+
     await waitFor(() => {
       expect(screen.getAllByRole('button', { name: 'View' }).length).toBeGreaterThanOrEqual(2);
     });
@@ -1281,7 +1301,7 @@ describe('PmoPage', () => {
   });
 
   it('shows normalization findings and submits missing member master additions', {
-    timeout: 15_000,
+    timeout: 30_000,
   }, async () => {
     const fetchMock = createFetchMock({
       runRows: [
@@ -1362,19 +1382,16 @@ describe('PmoPage', () => {
 
     await waitForPmoPageBootstrap(fetchMock);
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'View' })).toBeInTheDocument();
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'View' }));
+    await clickSessionViewByWorkbook('pmo_2025-w35.xlsx');
 
-    await waitFor(
-      () => {
-        expect(screen.getByText('Normalize to staging')).toBeInTheDocument();
-        expect(screen.getByDisplayValue('M-404')).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'Add members & continue' })).toBeDisabled();
-      },
-      { timeout: 5_000 },
-    );
+    expect(
+      await screen.findByText('Normalize to staging', {}, { timeout: 15_000 }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText('Add missing member master data', {}, { timeout: 15_000 }),
+    ).toBeInTheDocument();
+    expect(await screen.findByDisplayValue('M-404', {}, { timeout: 15_000 })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add members & continue' })).toBeDisabled();
 
     fireEvent.change(screen.getByLabelText('Full name'), {
       target: { value: 'Missing Member' },

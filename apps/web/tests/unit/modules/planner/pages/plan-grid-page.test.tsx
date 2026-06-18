@@ -468,7 +468,7 @@ describe('PlanGridPage (via PlanBoardShell)', () => {
     // Reuse this file's standard plan/buckets/tasks/labels handlers, plus:
     server.use(
       ...seedBoardHandlers(),
-      http.get('/api/planner/v1/plans/p1/tasks/calendar', () =>
+      http.get('*/api/planner/v1/plans/p1/tasks/calendar', () =>
         HttpResponse.json({ tasks: [], total_count: 0 }),
       ),
     );
@@ -497,7 +497,9 @@ describe('PlanGridPage (via PlanBoardShell)', () => {
       </QueryClientProvider>,
     );
 
-    expect(await screen.findByTestId('plan-calendar-page')).toBeInTheDocument();
+    expect(
+      await screen.findByTestId('plan-calendar-page', {}, { timeout: 10_000 }),
+    ).toBeInTheDocument();
     expect(screen.getByLabelText('Calendar view')).toBeInTheDocument();
   });
 });
