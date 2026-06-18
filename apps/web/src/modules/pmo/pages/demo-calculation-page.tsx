@@ -1,14 +1,16 @@
 import { Badge, EmptyState, PageChrome, PageChromeToolbar, Skeleton } from '@seta/shared-ui';
 import { Database } from 'lucide-react';
 import { useState } from 'react';
+import type { DemoAnalyticsSettings } from '../api/demo-analytics.ts';
 import { useDemoAnalytics } from '../hooks/use-demo-analytics.ts';
 import { DemoCalculationFilters } from './demo-calculation/filters.tsx';
 import { DemoCalculationPipeline } from './demo-calculation/pipeline.tsx';
-import { DemoCalculationSummary } from './demo-calculation/summary.tsx';
 import { useFilteredDemoAnalytics } from './demo-calculation/use-filtered-data.ts';
 
 export function DemoCalculationPage() {
-  const { data, isLoading, isError, error, refetch, isFetching } = useDemoAnalytics();
+  const [analyticsSettings, setAnalyticsSettings] = useState<DemoAnalyticsSettings | undefined>();
+  const { data, isLoading, isError, error, refetch, isFetching } =
+    useDemoAnalytics(analyticsSettings);
   const [memberFilter, setMemberFilter] = useState<string | null>(null);
   const [projectFilter, setProjectFilter] = useState<string | null>(null);
 
@@ -35,12 +37,8 @@ export function DemoCalculationPage() {
 
       {isLoading ? (
         <div className="space-y-4 p-6">
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Skeleton className="h-20 w-full" />
-            <Skeleton className="h-20 w-full" />
-            <Skeleton className="h-20 w-full" />
-            <Skeleton className="h-20 w-full" />
-          </div>
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-16 w-full" />
           <Skeleton className="h-64 w-full" />
         </div>
       ) : null}
@@ -61,8 +59,6 @@ export function DemoCalculationPage() {
 
       {filtered ? (
         <div className="space-y-6 bg-surface-1 p-6">
-          <DemoCalculationSummary data={filtered} />
-
           <div className="rounded-lg border border-hairline bg-canvas px-4 py-3 shadow-sm">
             <DemoCalculationFilters
               members={members}
@@ -72,6 +68,11 @@ export function DemoCalculationPage() {
               onMemberFilterChange={setMemberFilter}
               onProjectFilterChange={setProjectFilter}
               getProjectLabel={getProjectLabel}
+              reportingWindow={filtered.reportingWindow}
+              thresholdConfig={filtered.thresholdConfig}
+              thresholds={filtered.thresholds}
+              analyticsSettings={analyticsSettings}
+              onAnalyticsSettingsChange={setAnalyticsSettings}
               onRefresh={() => void refetch()}
               isRefreshing={isFetching}
             />

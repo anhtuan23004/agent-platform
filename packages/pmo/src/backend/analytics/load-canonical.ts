@@ -131,6 +131,8 @@ export async function loadCanonicalInputs(
         .where(activeFilter(calendarWeeks as never)),
       db
         .select({
+          config_id: overbookIdleConfig.config_id,
+          rule_name: overbookIdleConfig.rule_name,
           overbook_threshold: overbookIdleConfig.overbook_threshold,
           overbook_red_threshold: overbookIdleConfig.overbook_red_threshold,
           idle_threshold: overbookIdleConfig.idle_threshold,

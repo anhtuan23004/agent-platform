@@ -1,4 +1,13 @@
 export type {
+  DefaultThresholdConfig,
+  SeedPmoDefaultThresholdConfigsInput,
+  SeedPmoDefaultThresholdConfigsResult,
+} from './backend/demo/default-threshold-config.ts';
+export {
+  loadDefaultThresholdConfigs,
+  seedPmoDefaultThresholdConfigsForTenant,
+} from './backend/demo/default-threshold-config.ts';
+export type {
   SeedPmo02FromMockDbInput,
   SeedPmo02FromMockDbResult,
 } from './backend/demo/seed-from-mock-db.ts';

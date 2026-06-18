@@ -7,6 +7,18 @@ export interface DemoThresholds {
   requiredTrainingHours: number;
 }
 
+export interface DemoAnalyticsSettings {
+  from?: string;
+  to?: string;
+  configEffectiveDate?: string;
+  thresholds?: Partial<
+    Pick<
+      DemoThresholds,
+      'overbookThreshold' | 'overbookRedThreshold' | 'idleThreshold' | 'mismatchPctThreshold'
+    >
+  >;
+}
+
 export interface DemoFindingRow {
   memberId: string;
   issueType: string;
@@ -106,6 +118,11 @@ export interface DemoMemberWeekRow {
 export interface DemoAnalyticsResult {
   reportingWindow: { start: string; end: string };
   thresholds: DemoThresholds;
+  thresholdConfig: {
+    configId: string | null;
+    ruleName: string | null;
+    effectiveDate: string | null;
+  };
   inputCounts: {
     members: number;
     projects: number;
@@ -133,8 +150,38 @@ export interface DemoAnalyticsResult {
   mismatchFindings: DemoFindingRow[];
 }
 
-export async function fetchDemoAnalytics(): Promise<DemoAnalyticsResult> {
-  const res = await fetch('/api/pmo/v1/demo-analytics', { credentials: 'include' });
+function buildQuery(settings?: DemoAnalyticsSettings): string {
+  const params = new URLSearchParams();
+  if (settings?.from && settings.to) {
+    params.set('from', settings.from);
+    params.set('to', settings.to);
+  }
+  if (settings?.configEffectiveDate) {
+    params.set('configEffectiveDate', settings.configEffectiveDate);
+  }
+  const thresholds = settings?.thresholds;
+  if (thresholds?.overbookThreshold !== undefined) {
+    params.set('overbookThreshold', String(thresholds.overbookThreshold));
+  }
+  if (thresholds?.overbookRedThreshold !== undefined) {
+    params.set('overbookRedThreshold', String(thresholds.overbookRedThreshold));
+  }
+  if (thresholds?.idleThreshold !== undefined) {
+    params.set('idleThreshold', String(thresholds.idleThreshold));
+  }
+  if (thresholds?.mismatchPctThreshold !== undefined) {
+    params.set('mismatchPctThreshold', String(thresholds.mismatchPctThreshold));
+  }
+  const query = params.toString();
+  return query ? `?${query}` : '';
+}
+
+export async function fetchDemoAnalytics(
+  settings?: DemoAnalyticsSettings,
+): Promise<DemoAnalyticsResult> {
+  const res = await fetch(`/api/pmo/v1/demo-analytics${buildQuery(settings)}`, {
+    credentials: 'include',
+  });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
     if (res.status === 404 && body.error === 'no_data') {

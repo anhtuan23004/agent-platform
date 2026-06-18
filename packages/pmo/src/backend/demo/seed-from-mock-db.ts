@@ -18,6 +18,7 @@ import {
   timesheets,
 } from '../db/schema.ts';
 import { computeNaturalKeyHash, computeSourceRowHash } from '../ingestion/stage-changes.ts';
+import { loadDefaultThresholdConfigs } from './default-threshold-config.ts';
 
 /** Where seed assets live: repo root (dev) or `apps/cli` (deployed server image). */
 export function resolvePmoSeedAssetRoot(): string {
@@ -191,7 +192,7 @@ export async function seedPmo02FromMockDbForTenant(
      FROM pmo_calendar_weeks WHERE is_active = 1`,
   );
 
-  const configs = queryJson<{
+  const configsFromMock = queryJson<{
     config_id: string;
     rule_name: string;
     overbook_threshold: number;
@@ -208,6 +209,21 @@ export async function seedPmo02FromMockDbForTenant(
             mismatch_pct_threshold, ot_max_hours_per_week, required_training_hours, effective_date, source_row
      FROM pmo_overbook_idle_config WHERE is_active = 1`,
   );
+  const configs =
+    configsFromMock.length > 0
+      ? configsFromMock
+      : loadDefaultThresholdConfigs().map((config, index) => ({
+          config_id: config.config_id,
+          rule_name: config.rule_name,
+          overbook_threshold: config.overbook_threshold,
+          overbook_red_threshold: config.overbook_red_threshold ?? null,
+          idle_threshold: config.idle_threshold,
+          mismatch_pct_threshold: config.mismatch_pct_threshold ?? null,
+          ot_max_hours_per_week: config.ot_max_hours_per_week ?? null,
+          required_training_hours: config.required_training_hours ?? null,
+          effective_date: config.effective_date,
+          source_row: index + 1,
+        }));
 
   const allocations = queryJson<{
     member_id: string;
