@@ -7,6 +7,7 @@ import { decideApproval } from '../domain/decide-approval.ts';
 import { getWorkflowRun } from '../domain/get-workflow-run.ts';
 import { getWorkflowRunSnapshot } from '../domain/get-workflow-run-snapshot.ts';
 import { listMyPendingApprovals } from '../domain/list-my-pending-approvals.ts';
+import { listRunApprovals } from '../domain/list-run-approvals.ts';
 import { listThreadApprovals } from '../domain/list-thread-approvals.ts';
 import { listWorkflowRuns } from '../domain/list-workflow-runs.ts';
 import { replayWorkflowFromStep } from '../domain/replay-workflow-from-step.ts';
@@ -91,6 +92,15 @@ export function mountWorkflowRoutes(app: Hono<AgentRouteEnv>, deps: AgentRouteDe
     const session = c.get('session') as import('../types.ts').SessionLike | undefined;
     if (!session) return c.json({ error: 'unauthorized', message: 'session required' }, 401);
     return c.json(await listMyPendingApprovals({ session }));
+  });
+
+  // All approvals (pending + decided) for one workflow run, addressed to the
+  // caller.  Powers read-only history views of completed workflow steps on the
+  // PMO ingestion canvas (mapping, normalization, publish).
+  app.get('/api/agent/v1/workflows/runs/:runId/approvals', async (c) => {
+    const session = c.get('session') as import('../types.ts').SessionLike | undefined;
+    if (!session) return c.json({ error: 'unauthorized', message: 'session required' }, 401);
+    return c.json(await listRunApprovals({ session, runId: c.req.param('runId') }));
   });
 
   // All approvals (pending + decided) of one chat thread, addressed to the

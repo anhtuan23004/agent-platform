@@ -1,5 +1,5 @@
 import { appendCheckpoint, appendProposal, approveProposal, createProposal } from '@seta/ingestion';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   DbChangeSummaryResult,
   NormalizationResult,
@@ -55,6 +55,16 @@ const baseNormalizationResult: NormalizationResult = {
 };
 
 const deps = {
+  domainAdapter: {
+    domainId: 'pmo',
+    findReferenceValues: vi.fn(async () => new Set<string>()),
+    findActiveRecords: vi.fn(async () => []),
+    publish: vi.fn(async () => ({
+      rowsWritten: { resource_allocation: 1 },
+      rowsUpdated: {},
+      rowsSkipped: {},
+    })),
+  },
   resolveCardIdentity: () => ({
     tenantId: '11111111-1111-1111-1111-111111111111',
     userId: '22222222-2222-2222-2222-222222222222',
@@ -81,6 +91,10 @@ function makeInput(overrides: Partial<PmoDynamicHandlerInput> = {}): PmoDynamicH
 }
 
 describe('createDatabaseChangeSummaryHandler', () => {
+  beforeEach(() => {
+    vi.mocked(deps.domainAdapter.publish).mockClear();
+  });
+
   it('creates a review proposal before suspending for DB change approval', async () => {
     const result = await createDatabaseChangeSummaryHandler(deps).execute(makeInput());
 
@@ -96,7 +110,7 @@ describe('createDatabaseChangeSummaryHandler', () => {
     });
   });
 
-  it('approves the latest DB change proposal into a checkpoint', async () => {
+  it('approves the latest DB change proposal and publishes staged rows', async () => {
     const proposal = createProposal<DbChangeSummaryResult>({
       state: {},
       stepId: 'database_change_summary',
@@ -138,6 +152,21 @@ describe('createDatabaseChangeSummaryHandler', () => {
       step_id: 'database_change_summary',
       version: 1,
       approved_by: '22222222-2222-2222-2222-222222222222',
+    });
+    expect(deps.domainAdapter.publish).toHaveBeenCalledOnce();
+    expect(deps.domainAdapter.publish).toHaveBeenCalledWith({
+      ingestionSessionId: '33333333-3333-3333-3333-333333333333',
+      tenantId: '11111111-1111-1111-1111-111111111111',
+    });
+    expect(result.outputSummary).toMatchObject({
+      status: 'published',
+      rows_written: 1,
+      rows_updated: 0,
+      rows_skipped: 0,
+    });
+    expect(result.terminalOutput).toMatchObject({
+      status: 'published',
+      rowsWritten: { resource_allocation: 1 },
     });
   });
 
@@ -207,6 +236,55 @@ describe('createDatabaseChangeSummaryHandler', () => {
     ).toHaveLength(1);
   });
 
+  it('allows DB change summary after approved duplicate-in-upload resolution', async () => {
+    const normalizationWithResolvedDuplicates: NormalizationResult = {
+      ...baseNormalizationResult,
+      duplicateInUploadRows: [
+        {
+          tableId: 'resource_allocation',
+          rowId: 'resource_allocation:RA:3',
+          duplicateGroupKey: 'resource_allocation:abc',
+          naturalKey: { member_id: 'M-001', project_id: 'P-001' },
+          sourceRow: 3,
+          policy: 'block',
+        },
+      ],
+    };
+    const normalizationProposal = createProposal<NormalizationResult>({
+      state: {},
+      stepId: 'normalize_to_staging',
+      proposal: normalizationWithResolvedDuplicates,
+      status: 'needs_review',
+      reviewRequired: true,
+      nextAllowedActions: ['approve', 'reject'],
+      createdBy: 'agent',
+      proposalId: 'normalization-proposal-1',
+      createdAt: '2026-06-17T00:00:00.000Z',
+    });
+    const normalizationCheckpoint = approveProposal({
+      proposal: normalizationProposal,
+      approvedOutput: normalizationWithResolvedDuplicates,
+      approvedBy: '22222222-2222-2222-2222-222222222222',
+      checkpointId: 'normalization-checkpoint-1',
+      approvedAt: '2026-06-17T00:01:00.000Z',
+    });
+
+    const result = await createDatabaseChangeSummaryHandler(deps).execute(
+      makeInput({
+        runtimeContext: {
+          staging_result: {
+            ...baseStaging,
+            ...appendCheckpoint(appendProposal({}, normalizationProposal), normalizationCheckpoint),
+          },
+        },
+      }),
+    );
+
+    expect(result.kind).toBe('suspend');
+    if (result.kind !== 'suspend') throw new Error('expected suspend');
+    expect(result.card.primary.label).toBe('Approve publish');
+  });
+
   it('does not create a checkpoint for blocked DB change summaries', async () => {
     const result = await createDatabaseChangeSummaryHandler(deps).execute(
       makeInput({
@@ -233,5 +311,6 @@ describe('createDatabaseChangeSummaryHandler', () => {
     expect(
       result.runtimeContextPatch?.staging_result?.approved_checkpoints?.database_change_summary,
     ).toBeUndefined();
+    expect(deps.domainAdapter.publish).not.toHaveBeenCalled();
   });
 });

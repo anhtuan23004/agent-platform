@@ -25,6 +25,7 @@ import {
 } from '../pages/pmo-page.logic';
 import {
   useWorkflowRuntimePendingApprovals,
+  useWorkflowRuntimeRunApprovals,
   useWorkflowRuntimeRunSnapshot,
   useWorkflowRuntimeRuns,
 } from './use-workflow-runtime';
@@ -200,29 +201,71 @@ export function usePmoWorkflowRuntime(
     '';
   const selectedWorkflowRunSnapshot = useWorkflowRuntimeRunSnapshot(selectedWorkflowRunId);
 
+  // Fetch ALL approvals (pending + decided) for the selected run so completed
+  // steps can render their historical approval data in read-only mode.
+  const runApprovals = useWorkflowRuntimeRunApprovals(selectedWorkflowRunId);
+
+  const historicalMappingApproval = useMemo(() => {
+    if (!selectedWorkflowRunId) return null;
+    return (
+      (runApprovals.data ?? []).find(
+        (a) => a.runId === selectedWorkflowRunId && isMappingApprovalRow(a),
+      ) ?? null
+    );
+  }, [runApprovals.data, selectedWorkflowRunId]);
+
+  const historicalNormalizationApproval = useMemo(() => {
+    if (!selectedWorkflowRunId) return null;
+    return (
+      (runApprovals.data ?? []).find(
+        (a) => a.runId === selectedWorkflowRunId && isNormalizationApprovalRow(a),
+      ) ?? null
+    );
+  }, [runApprovals.data, selectedWorkflowRunId]);
+
+  const historicalPublishApproval = useMemo(() => {
+    if (!selectedWorkflowRunId) return null;
+    return (
+      (runApprovals.data ?? []).find(
+        (a) => a.runId === selectedWorkflowRunId && isPublishApprovalRow(a),
+      ) ?? null
+    );
+  }, [runApprovals.data, selectedWorkflowRunId]);
+
+  // Use pending approval when available (actionable), fall back to decided
+  // approval from the run history (read-only).
+  const effectiveMappingApproval = selectedMappingApproval ?? historicalMappingApproval;
+  const effectiveNormalizationApproval =
+    selectedNormalizationApproval ?? historicalNormalizationApproval;
+  const effectivePublishApproval = selectedPublishApproval ?? historicalPublishApproval;
+
   const selectedMappingView = useMemo(
-    () => parseMappingView(selectedMappingApproval),
-    [selectedMappingApproval],
+    () => parseMappingView(effectiveMappingApproval),
+    [effectiveMappingApproval],
   );
 
   const selectedPublishView = useMemo(
-    () => parsePublishReviewView(selectedPublishApproval),
-    [selectedPublishApproval],
+    () => parsePublishReviewView(effectivePublishApproval),
+    [effectivePublishApproval],
   );
 
   const selectedNormalizationView = useMemo(
-    () => parseNormalizationReviewView(selectedNormalizationApproval),
-    [selectedNormalizationApproval],
+    () => parseNormalizationReviewView(effectiveNormalizationApproval),
+    [effectiveNormalizationApproval],
   );
 
   const selectedMappingApprovalForDisplay = useMemo(() => {
-    if (!selectedMappingApproval) return null;
-    const mappingRunId = selectedMappingApproval.runId;
+    const approval = effectiveMappingApproval;
+    if (!approval) return null;
+    // For decided (historical) approvals, always display them — the
+    // "has later pending approval" suppression only applies to pending ones.
+    if (approval.status !== 'pending') return approval;
+    const mappingRunId = approval.runId;
     const hasLaterApprovalForRun =
-      normalizationApprovals.some((approval) => approval.runId === mappingRunId) ||
-      publishApprovals.some((approval) => approval.runId === mappingRunId);
-    return hasLaterApprovalForRun ? null : selectedMappingApproval;
-  }, [normalizationApprovals, publishApprovals, selectedMappingApproval]);
+      normalizationApprovals.some((a) => a.runId === mappingRunId) ||
+      publishApprovals.some((a) => a.runId === mappingRunId);
+    return hasLaterApprovalForRun ? null : approval;
+  }, [normalizationApprovals, publishApprovals, effectiveMappingApproval]);
 
   const groupedMappingItems = useMemo(() => {
     if (!selectedMappingView?.items.length) {
@@ -312,10 +355,10 @@ export function usePmoWorkflowRuntime(
     selectedMappingView,
     groupedMappingItems,
     normalizationApprovals,
-    selectedNormalizationApproval,
+    selectedNormalizationApproval: effectiveNormalizationApproval,
     selectedNormalizationView,
     publishApprovals,
-    selectedPublishApproval,
+    selectedPublishApproval: effectivePublishApproval,
     selectedPublishView,
     runtimeActiveStepId,
     hasRuntimeCurrentStepMatch,

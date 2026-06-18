@@ -56,13 +56,11 @@ function unresolvedDuplicateGroupCount(rows: NormalizationReviewRow[]): number {
 
   let unresolved = 0;
   for (const groupRows of rowsByGroup.values()) {
-    const sourceRows = groupRows.filter((row) => !row.duplicateOfRowId);
-    const duplicateGroupRows = groupRows.filter((row) => row.duplicateOfRowId);
-    const sourceKept = sourceRows.length === 1 && sourceRows[0]?.decision === 'keep_row';
-    const duplicatesSkipped =
-      duplicateGroupRows.length > 0 &&
-      duplicateGroupRows.every((row) => row.decision === 'skip_row');
-    if (!sourceKept || !duplicatesSkipped) unresolved++;
+    const keptCount = groupRows.filter((row) => row.decision === 'keep_row').length;
+    const skippedCount = groupRows.filter((row) => row.decision === 'skip_row').length;
+    if (groupRows.length < 2 || keptCount !== 1 || skippedCount !== groupRows.length - 1) {
+      unresolved++;
+    }
   }
 
   return unresolved;

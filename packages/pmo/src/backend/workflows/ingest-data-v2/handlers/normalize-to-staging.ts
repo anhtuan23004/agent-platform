@@ -35,6 +35,7 @@ import type {
 } from './common.ts';
 
 type StagingResultState = NonNullable<DynamicIngestRuntimeContext['staging_result']>;
+type PublishableChangeType = Exclude<StagedRow['changeType'], 'duplicate_in_upload'>;
 
 function isMissingRequiredValue(value: unknown): boolean {
   if (value === null || value === undefined) return true;
@@ -98,6 +99,23 @@ function buildStagingPayload(params: {
       ? { approved_checkpoints: params.checkpointState.approved_checkpoints }
       : {}),
   };
+}
+
+function isDuplicateGroupResolved(rows: NormalizationReviewRow[]): boolean {
+  const keptCount = rows.filter((row) => row.decision === 'keep_row').length;
+  const skippedCount = rows.filter((row) => row.decision === 'skip_row').length;
+  return rows.length >= 2 && keptCount === 1 && skippedCount === rows.length - 1;
+}
+
+function effectiveChangeTypeForReviewedRow(params: {
+  row: StagedRow;
+  activeSourceHash: string | undefined;
+}): PublishableChangeType {
+  if (params.row.changeType !== 'duplicate_in_upload') return params.row.changeType;
+  if (params.activeSourceHash === undefined) return 'new_record';
+  return params.activeSourceHash === params.row.sourceRowHash
+    ? 'exact_duplicate'
+    : 'updated_record';
 }
 
 function resolveApprovedMappingResult(
@@ -434,6 +452,7 @@ export function createNormalizeToStagingHandler(
       const duplicateInUploadRows: NormalizationResult['duplicateInUploadRows'] = [];
       const reviewRows: NormalizationReviewRow[] = [];
       const reviewRowKeys = new Set<string>();
+      const activeSourceHashByNaturalKey = new Map<string, string>();
       const changeSummary: Array<{
         tableId: string;
         counts: {
@@ -502,6 +521,12 @@ export function createNormalizeToStagingHandler(
           tenantId: input.tenantId,
           tableId,
         });
+        for (const record of activeRecords) {
+          activeSourceHashByNaturalKey.set(
+            `${tableId}:${record.natural_key_hash}`,
+            record.source_row_hash,
+          );
+        }
         const staged = classifyRows(
           tableId,
           input.tenantId,
@@ -706,12 +731,7 @@ export function createNormalizeToStagingHandler(
         const groupRows = reviewRows.filter(
           (row) => row.issueType === 'duplicate_in_upload' && row.duplicateGroupKey === groupKey,
         );
-        const sourceRows = groupRows.filter((row) => !row.duplicateOfRowId);
-        const duplicateRows = groupRows.filter((row) => row.duplicateOfRowId);
-        const sourceKept = sourceRows.length === 1 && sourceRows[0]?.decision === 'keep_row';
-        const duplicatesSkipped =
-          duplicateRows.length > 0 && duplicateRows.every((row) => row.decision === 'skip_row');
-        if (sourceKept && duplicatesSkipped) {
+        if (isDuplicateGroupResolved(groupRows)) {
           unresolvedBlockingDuplicateGroups.delete(groupKey);
         }
       }
@@ -866,15 +886,23 @@ export function createNormalizeToStagingHandler(
         );
         if (stagedForInsert.length > 0) {
           await db.insert(stagingChanges).values(
-            stagedForInsert.map((entry) => ({
-              ingestion_session_id: input.ingestionSessionId,
-              table_id: entry.tableId,
-              natural_key_hash: entry.naturalKeyHash,
-              change_type: entry.changeType,
-              new_values: entry.values,
-              natural_key_display: entry.naturalKeyDisplay,
-              old_values: entry.oldValues ?? null,
-            })),
+            stagedForInsert.map((entry) => {
+              const activeSourceHash = activeSourceHashByNaturalKey.get(
+                `${entry.tableId}:${entry.naturalKeyHash}`,
+              );
+              return {
+                ingestion_session_id: input.ingestionSessionId,
+                table_id: entry.tableId,
+                natural_key_hash: entry.naturalKeyHash,
+                change_type: effectiveChangeTypeForReviewedRow({
+                  row: entry,
+                  activeSourceHash,
+                }),
+                new_values: entry.values,
+                natural_key_display: entry.naturalKeyDisplay,
+                old_values: entry.oldValues ?? null,
+              };
+            }),
           );
         }
       }

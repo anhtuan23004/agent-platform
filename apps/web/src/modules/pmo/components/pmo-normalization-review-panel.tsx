@@ -21,6 +21,7 @@ import type {
 } from '../pages/pmo-page.logic';
 
 interface PmoNormalizationReviewPanelProps {
+  readOnly?: boolean;
   selectedNormalizationApproval: WorkflowApprovalRow | null;
   normalizationApprovalsCount: number;
   selectedNormalizationView: NormalizationReviewViewModel | null;
@@ -482,6 +483,7 @@ function MissingMembersEditor(props: {
 
 export function PmoNormalizationReviewPanel(props: PmoNormalizationReviewPanelProps) {
   const {
+    readOnly = false,
     selectedNormalizationApproval,
     normalizationApprovalsCount,
     selectedNormalizationView,
@@ -548,10 +550,16 @@ export function PmoNormalizationReviewPanel(props: PmoNormalizationReviewPanelPr
 
   return (
     <>
-      <div className="rounded-lg border border-danger-border bg-danger-tint/60 px-3 py-2 text-caption text-danger-ink">
-        Normalization review is required. Review issue rows grouped by table before staging
-        continues.
-      </div>
+      {readOnly ? (
+        <div className="rounded-lg border border-hairline bg-surface-2/60 px-3 py-2 text-caption text-ink-subtle">
+          This normalization review has been completed. Showing historical data (read-only).
+        </div>
+      ) : (
+        <div className="rounded-lg border border-danger-border bg-danger-tint/60 px-3 py-2 text-caption text-danger-ink">
+          Normalization review is required. Review issue rows grouped by table before staging
+          continues.
+        </div>
+      )}
 
       <section className="rounded-lg border border-hairline bg-surface-1 p-3">
         <div className="flex flex-wrap items-start justify-between gap-2">
@@ -642,30 +650,32 @@ export function PmoNormalizationReviewPanel(props: PmoNormalizationReviewPanelPr
           updateMemberAdditionDraft={updateMemberAdditionDraft}
         />
 
-        <div className="mt-4 flex flex-wrap items-center justify-end gap-2 rounded-lg border border-hairline bg-canvas p-3">
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            disabled={isSubmittingNormalizationDecision}
-            onClick={rejectNormalization}
-          >
-            {isSubmittingNormalizationDecision ? 'Submitting...' : 'Reject normalization'}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="primary"
-            disabled={!canApproveNormalization}
-            onClick={approveNormalization}
-          >
-            {isSubmittingNormalizationDecision
-              ? 'Submitting...'
-              : missingMemberCount > 0
-                ? 'Add members & continue'
-                : 'Approve normalization'}
-          </Button>
-        </div>
+        {readOnly ? null : (
+          <div className="mt-4 flex flex-wrap items-center justify-end gap-2 rounded-lg border border-hairline bg-canvas p-3">
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              disabled={isSubmittingNormalizationDecision}
+              onClick={rejectNormalization}
+            >
+              {isSubmittingNormalizationDecision ? 'Submitting...' : 'Reject normalization'}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="primary"
+              disabled={!canApproveNormalization}
+              onClick={approveNormalization}
+            >
+              {isSubmittingNormalizationDecision
+                ? 'Submitting...'
+                : missingMemberCount > 0
+                  ? 'Add members & continue'
+                  : 'Approve normalization'}
+            </Button>
+          </div>
+        )}
       </section>
     </>
   );

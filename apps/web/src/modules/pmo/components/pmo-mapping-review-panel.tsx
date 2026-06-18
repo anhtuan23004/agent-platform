@@ -11,6 +11,7 @@ import {
 } from '../pages/pmo-page.logic';
 
 interface PmoMappingReviewPanelProps {
+  readOnly?: boolean;
   selectedMappingApproval: WorkflowApprovalRow | null;
   mappingApprovalsCount: number;
   groupedMappingItems: GroupedMappingItemsBySheet[];
@@ -32,6 +33,7 @@ interface PmoMappingReviewPanelProps {
 
 export function PmoMappingReviewPanel(props: PmoMappingReviewPanelProps) {
   const {
+    readOnly = false,
     selectedMappingApproval,
     mappingApprovalsCount,
     groupedMappingItems,
@@ -63,10 +65,16 @@ export function PmoMappingReviewPanel(props: PmoMappingReviewPanelProps) {
 
   return (
     <>
-      <div className="rounded-lg border border-warning-border bg-warning-tint/80 px-3 py-2 text-caption text-warning-ink">
-        Mapping review is required. The workflow proceeds only after all mapping items are approved
-        and you click Next step.
-      </div>
+      {readOnly ? (
+        <div className="rounded-lg border border-hairline bg-surface-2/60 px-3 py-2 text-caption text-ink-subtle">
+          This mapping review has been completed. Showing historical data (read-only).
+        </div>
+      ) : (
+        <div className="rounded-lg border border-warning-border bg-warning-tint/80 px-3 py-2 text-caption text-warning-ink">
+          Mapping review is required. The workflow proceeds only after all mapping items are
+          approved and you click Next step.
+        </div>
+      )}
 
       <section className="rounded-lg border border-hairline bg-surface-1 p-3">
         <h4 className="text-body-sm font-semibold text-ink">Review column mappings</h4>
@@ -139,30 +147,34 @@ export function PmoMappingReviewPanel(props: PmoMappingReviewPanelProps) {
                               {item.confidence ?? '-'}
                             </td>
                             <td className="px-2 py-1.5">
-                              <div className="flex items-center gap-1.5">
-                                {item.actionType === 'approve_and_modify' ? (
+                              {readOnly ? (
+                                <span className="text-ink-subtle">-</span>
+                              ) : (
+                                <div className="flex items-center gap-1.5">
+                                  {item.actionType === 'approve_and_modify' ? (
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="secondary"
+                                      disabled={!canApprove}
+                                      onClick={approveCurrentMappingItem}
+                                    >
+                                      {isSubmittingDecision && item.state === 'current'
+                                        ? 'Approving...'
+                                        : 'Approve'}
+                                    </Button>
+                                  ) : null}
                                   <Button
-                                    type="button"
                                     size="sm"
                                     variant="secondary"
-                                    disabled={!canApprove}
-                                    onClick={approveCurrentMappingItem}
+                                    type="button"
+                                    disabled={!canModify}
+                                    onClick={() => openMappingModify(item.key)}
                                   >
-                                    {isSubmittingDecision && item.state === 'current'
-                                      ? 'Approving...'
-                                      : 'Approve'}
+                                    Modify
                                   </Button>
-                                ) : null}
-                                <Button
-                                  size="sm"
-                                  variant="secondary"
-                                  type="button"
-                                  disabled={!canModify}
-                                  onClick={() => openMappingModify(item.key)}
-                                >
-                                  Modify
-                                </Button>
-                              </div>
+                                </div>
+                              )}
                             </td>
                           </tr>
 
@@ -297,16 +309,18 @@ export function PmoMappingReviewPanel(props: PmoMappingReviewPanelProps) {
             {selectedMappingView?.approved ?? 0} of {selectedMappingView?.total ?? 0} mapping review
             items approved.
           </p>
-          <Button
-            type="button"
-            size="sm"
-            variant="primary"
-            className="ml-auto"
-            onClick={proceedToNextWorkflowStep}
-            disabled={!canProceedToNextStep}
-          >
-            {isSubmittingDecision && canProceedToNextStep ? 'Processing...' : 'Next step'}
-          </Button>
+          {readOnly ? null : (
+            <Button
+              type="button"
+              size="sm"
+              variant="primary"
+              className="ml-auto"
+              onClick={proceedToNextWorkflowStep}
+              disabled={!canProceedToNextStep}
+            >
+              {isSubmittingDecision && canProceedToNextStep ? 'Processing...' : 'Next step'}
+            </Button>
+          )}
         </div>
       </section>
     </>

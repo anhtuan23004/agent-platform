@@ -111,6 +111,13 @@ export const workflowRuntimeApi = {
     return jsonOrThrow<WorkflowApprovalRow[]>(res);
   },
 
+  async listRunApprovals(runId: string): Promise<WorkflowApprovalRow[]> {
+    const res = await fetch(`/api/agent/v1/workflows/runs/${encodeURIComponent(runId)}/approvals`, {
+      credentials: 'include',
+    });
+    return jsonOrThrow<WorkflowApprovalRow[]>(res);
+  },
+
   async decideApproval(approvalId: string, body: DecideApprovalBody): Promise<unknown> {
     const res = await fetch(
       `/api/agent/v1/workflows/approvals/${encodeURIComponent(approvalId)}/decide`,

@@ -239,7 +239,7 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
     step.action_id === 'publish_after_approval' ||
     step.action_id === 'database_change_summary' ||
     step.review_type === 'publish' ||
-    /publish|final\s*approval|database\s*comparison|change\s*summary|review\s*changes/i.test(
+    /publish|final\s*approval|database\s*change|database\s*comparison|change\s*summary|review\s*changes/i.test(
       step.step_name,
     );
   const isLikelyNormalizationStep =
@@ -248,12 +248,19 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
     /normaliz|staging|validate|validation|data\s*quality|duplicate|anomal/i.test(step.step_name);
   const isPlanApprovalStep = /plan\s*approval|approve\s*plan/i.test(step.step_name);
   const shouldRenderProfilingDetails = isWorkbookProfilingStep;
+
+  // Render mapping/normalization/publish panels when:
+  // 1. The step is the current actionable step (pending approval), OR
+  // 2. The step has a decided approval (historical read-only view).
+  const isMappingReadOnly = !isCurrent && Boolean(selectedMappingApproval);
   const shouldRenderMappingDetails =
-    isCurrent && (Boolean(selectedMappingApproval) || isLikelyMappingStep);
+    isLikelyMappingStep && (isCurrent || Boolean(selectedMappingApproval));
+  const isNormalizationReadOnly = !isCurrent && Boolean(selectedNormalizationApproval);
   const shouldRenderNormalizationDetails =
-    isCurrent && Boolean(selectedNormalizationApproval) && isLikelyNormalizationStep;
+    isLikelyNormalizationStep && (isCurrent || Boolean(selectedNormalizationApproval));
+  const isPublishReadOnly = !isCurrent && Boolean(selectedPublishApproval);
   const shouldRenderPublishDetails =
-    isCurrent && Boolean(selectedPublishApproval) && isLikelyPublishStep;
+    isLikelyPublishStep && (isCurrent || Boolean(selectedPublishApproval));
   const hasOpenProfilingReview =
     isWorkbookProfilingStep &&
     selectedSession.planning_state === 'approved_plan' &&
@@ -318,6 +325,7 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
           </div>
 
           <PmoMappingReviewPanel
+            readOnly={isMappingReadOnly}
             selectedMappingApproval={selectedMappingApproval}
             mappingApprovalsCount={mappingApprovalsCount}
             groupedMappingItems={groupedMappingItems}
@@ -349,6 +357,7 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
           </div>
 
           <PmoNormalizationReviewPanel
+            readOnly={isNormalizationReadOnly}
             selectedNormalizationApproval={selectedNormalizationApproval}
             normalizationApprovalsCount={normalizationApprovalsCount}
             selectedNormalizationView={selectedNormalizationView}
@@ -375,6 +384,7 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
           </div>
 
           <PmoPublishReviewPanel
+            readOnly={isPublishReadOnly}
             selectedPublishApproval={selectedPublishApproval}
             publishApprovalsCount={publishApprovalsCount}
             selectedPublishView={selectedPublishView}

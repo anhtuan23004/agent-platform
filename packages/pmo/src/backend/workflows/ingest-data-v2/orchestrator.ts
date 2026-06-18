@@ -724,6 +724,7 @@ function buildStepRegistry(deps: DynamicHandlerDeps) {
       getWorkbookParseResult: deps.getWorkbookParseResult,
     }),
     createDatabaseChangeSummaryHandler({
+      domainAdapter: deps.domainAdapter,
       resolveCardIdentity: deps.resolveCardIdentity,
       readPlannerStepMeta: deps.readPlannerStepMeta,
     }),

@@ -62,16 +62,13 @@ function assertApprovedNormalizationCheckpoint(staging: StagingResultState): voi
   if (latestCheckpoint.version < latestProposal.version) {
     throw new Error('approved_checkpoint_superseded:normalize_to_staging');
   }
-  if (
-    latestCheckpoint.approved_output.hasBlockingIssues ||
-    latestCheckpoint.approved_output.duplicateInUploadRows.some((row) => row.policy === 'block')
-  ) {
+  if (latestCheckpoint.approved_output.hasBlockingIssues) {
     throw new Error('approved_checkpoint_blocked:normalize_to_staging');
   }
 }
 
 export function createDatabaseChangeSummaryHandler(
-  deps: Pick<DynamicHandlerDeps, 'resolveCardIdentity' | 'readPlannerStepMeta'>,
+  deps: Pick<DynamicHandlerDeps, 'domainAdapter' | 'resolveCardIdentity' | 'readPlannerStepMeta'>,
 ): PmoDynamicStepHandler {
   return {
     actionId: 'database_change_summary',
@@ -193,10 +190,14 @@ export function createDatabaseChangeSummaryHandler(
         staging,
         checkpointState: approvedState,
       });
+      const publishResult = await deps.domainAdapter.publish({
+        ingestionSessionId: input.ingestionSessionId,
+        tenantId: input.tenantId,
+      });
 
       return {
         kind: 'completed',
-        sessionStatus: 'awaiting_publish_review',
+        sessionStatus: 'published',
         runtimeContextPatch: {
           staging_result: approvedPayload,
         },
@@ -204,8 +205,27 @@ export function createDatabaseChangeSummaryHandler(
           change_summary: approvedPayload,
         },
         outputSummary: {
-          status: 'approved',
+          status: 'published',
           checkpoint_version: checkpoint.version,
+          rows_written: Object.values(publishResult.rowsWritten).reduce(
+            (sum, value) => sum + value,
+            0,
+          ),
+          rows_updated: Object.values(publishResult.rowsUpdated).reduce(
+            (sum, value) => sum + value,
+            0,
+          ),
+          rows_skipped: Object.values(publishResult.rowsSkipped).reduce(
+            (sum, value) => sum + value,
+            0,
+          ),
+        },
+        terminalOutput: {
+          ingestionSessionId: input.ingestionSessionId,
+          status: 'published',
+          rowsWritten: publishResult.rowsWritten,
+          rowsUpdated: publishResult.rowsUpdated,
+          rowsSkipped: publishResult.rowsSkipped,
         },
       };
     },

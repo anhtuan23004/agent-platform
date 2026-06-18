@@ -406,7 +406,7 @@ describe('createNormalizeToStagingHandler', () => {
     expect(result.card.primary.label).toBe('Submit normalization review');
   });
 
-  it('approves duplicate normalization when the user skips duplicate rows', async () => {
+  it('approves duplicate normalization when the user keeps exactly one duplicate row', async () => {
     const duplicateDeps = {
       ...deps,
       getWorkbookParseResult: async () => ({
@@ -489,6 +489,50 @@ describe('createNormalizeToStagingHandler', () => {
         expect.objectContaining({
           table_id: 'resource_allocation',
           new_values: expect.objectContaining({ allocation_pct: 0.4 }),
+        }),
+      ]),
+    );
+
+    dbMock.insertValues.mockClear();
+
+    const approvedReverseResult = await createNormalizeToStagingHandler(duplicateDeps).execute(
+      makeInput({
+        ...input,
+        resumeData: {
+          decision: 'approve',
+          rowDecisions: [
+            { rowId: 'resource_allocation:RA:2', decision: 'skip_row' },
+            { rowId: 'resource_allocation:RA:3', decision: 'keep_row' },
+          ],
+        },
+        runtimeContext: {
+          ...input.runtimeContext,
+          staging_result: proposalResult.runtimeContextPatch?.staging_result,
+        },
+      }),
+    );
+
+    expect(approvedReverseResult.kind).toBe('completed');
+    if (approvedReverseResult.kind !== 'completed') throw new Error('expected completed');
+    expect(dbMock.insertValues).toHaveBeenCalledTimes(1);
+    const reverseInsertCalls = dbMock.insertValues.mock.calls as unknown as Array<
+      [Array<Record<string, unknown>>]
+    >;
+    const reverseInsertedRows = reverseInsertCalls[0]?.[0];
+    expect(reverseInsertedRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          table_id: 'resource_allocation',
+          change_type: 'new_record',
+          new_values: expect.objectContaining({ allocation_pct: 0.4 }),
+        }),
+      ]),
+    );
+    expect(reverseInsertedRows).toEqual(
+      expect.not.arrayContaining([
+        expect.objectContaining({
+          table_id: 'resource_allocation',
+          new_values: expect.objectContaining({ allocation_pct: 0.6 }),
         }),
       ]),
     );
