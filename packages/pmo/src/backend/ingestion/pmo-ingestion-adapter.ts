@@ -1,5 +1,6 @@
 import type { ActiveRecord, IngestionDomainAdapter, IngestionPublishResult } from '@seta/ingestion';
 import { and, eq } from 'drizzle-orm';
+import { ensureFactsComputed } from '../analytics/ensure-facts-computed.ts';
 import { pmoDb } from '../db/client.ts';
 import {
   calendarWeeks,
@@ -148,6 +149,11 @@ export const PMO_INGESTION_ADAPTER: IngestionDomainAdapter = {
   },
 
   async publish(input): Promise<IngestionPublishResult> {
-    return publishUpsert(input.ingestionSessionId, input.tenantId);
+    const result = await publishUpsert(input.ingestionSessionId, input.tenantId);
+    await ensureFactsComputed(input.tenantId, {
+      sessionId: input.ingestionSessionId,
+      force: true,
+    });
+    return result;
   },
 };

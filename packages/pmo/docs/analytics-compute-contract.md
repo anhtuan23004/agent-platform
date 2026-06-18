@@ -18,7 +18,7 @@ GET /api/pmo/v1/demo-analytics
 
 ## Ingest team (after publish)
 
-Call the exported function immediately after a successful publish:
+`PMO_INGESTION_ADAPTER.publish` calls `ensureFactsComputed` with `force: true` immediately after `publishUpsert` succeeds. Manual calls are only needed for backfills or repair:
 
 ```ts
 import { ensureFactsComputed } from '@seta/pmo/contracts';
@@ -52,4 +52,4 @@ This avoids latency on the first `GET /demo-analytics` after publish.
 ## Optional future hook
 
 Event `pmo.ingestion.data_published` is defined in `@seta/pmo/events` but not emitted yet.
-A subscriber may call `ensureFactsComputed` when ingest starts emitting it.
+Publish already triggers compute synchronously; a subscriber would be for cross-module reactions only.
