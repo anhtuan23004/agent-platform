@@ -4,8 +4,13 @@ import { X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { ModelSelector } from '../components/model-selector';
 import { useChatAttachments } from '../hooks/use-chat-attachments';
-import { AGENT_COPY } from '../i18n';
-import { useAgentRuntimeContext, useAgentSelection, usePanelUI } from './agent-provider';
+import { CHAT_AGENT_COPY } from '../i18n';
+import {
+  useAgentRuntimeContext,
+  useAgentSelection,
+  useChatAgent,
+  usePanelUI,
+} from './agent-provider';
 
 interface AgentComposerProps {
   compact?: boolean;
@@ -16,6 +21,7 @@ export function AgentComposer({ compact = false }: AgentComposerProps) {
   const aui = useAui();
   const isRunning = useAuiState((s) => s.thread.isRunning);
   const { selection, actions } = useAgentSelection();
+  const { chatAgent } = useChatAgent();
   const { pendingPrompt, setPendingPrompt } = usePanelUI();
   const { runError, clearRunError } = useAgentRuntimeContext();
   const { attachments, attach, remove, reset, warning } = useChatAttachments(selection.threadId);
@@ -75,7 +81,7 @@ export function AgentComposer({ compact = false }: AgentComposerProps) {
         onChange={setValue}
         onSubmit={submit}
         pending={isRunning}
-        placeholder={AGENT_COPY.composerPlaceholder}
+        placeholder={CHAT_AGENT_COPY[chatAgent].placeholder}
         permissionHint={warning ?? undefined}
         attachments={attachments}
         onAttachFiles={attach}

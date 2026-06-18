@@ -10,7 +10,8 @@ import { Menu, MessageSquare, MoreHorizontal, Pencil, Sparkles, Trash2, X } from
 import { useEffect, useRef, useState } from 'react';
 import { useThreadList } from '../hooks/use-thread-list';
 import { useDeleteThread, useRenameThread } from '../hooks/use-thread-mutations';
-import { useAgentSelection } from './agent-provider';
+import { CHAT_AGENT_COPY } from '../i18n';
+import { useAgentSelection, useChatAgent } from './agent-provider';
 import { AgentThreadSwitcher } from './agent-thread-switcher';
 import { DensityToggle } from './density-toggle';
 
@@ -40,6 +41,8 @@ export function AgentHeader({
   onClose,
 }: AgentHeaderProps) {
   const { selection, actions } = useAgentSelection();
+  const { chatAgent } = useChatAgent();
+  const agentCopy = CHAT_AGENT_COPY[chatAgent];
   const threadId = selection.threadId;
   const title = useTitleFor(threadId);
   const { groups } = useThreadList();
@@ -101,6 +104,13 @@ export function AgentHeader({
         className="inline-flex size-5 flex-none items-center justify-center rounded-md bg-primary-tint text-primary"
       >
         <Sparkles className="size-3" />
+      </span>
+
+      <span
+        className="flex-none rounded-full border border-hairline bg-surface-2 px-2 py-0.5 text-caption font-medium text-ink-muted"
+        title={`You're chatting with the ${agentCopy.label}`}
+      >
+        {agentCopy.label}
       </span>
 
       <div className="flex min-w-0 flex-1 items-center">

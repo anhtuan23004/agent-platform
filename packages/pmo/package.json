@@ -11,6 +11,10 @@
     "./rbac": "./src/rbac.ts",
     "./contracts": "./src/contracts.ts",
     "./register": "./src/register.ts",
+    "./chat": {
+      "types": "./src/backend/chat/pmo-chat-orchestration.ts",
+      "default": "./src/backend/chat/pmo-chat-orchestration.ts"
+    },
     "./agent-tools/register": {
       "types": "./src/backend/agent-tools/register.ts",
       "default": "./src/backend/agent-tools/register.ts"

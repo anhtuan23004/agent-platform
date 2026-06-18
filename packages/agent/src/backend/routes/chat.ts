@@ -15,6 +15,8 @@ import { generateThreadTitle } from '../thread-title.ts';
 import {
   type AgentRouteDeps,
   type AgentRouteEnv,
+  CHAT_AGENT_PERMISSION,
+  type ChatAgent,
   getMemoryStore,
   NO_BUFFER_HEADERS,
 } from './_shared.ts';
@@ -24,6 +26,8 @@ const ChatBody = z.object({
   messages: z.array(z.unknown()).min(1),
   trigger: z.enum(['submit-message', 'regenerate-message']).optional(),
   model: z.string().optional(),
+  /** Which chat runtime drives this turn. Defaults to 'staffing'. */
+  agent: z.enum(['staffing', 'pmo']).optional(),
 });
 
 type PageContextPart = {
@@ -141,6 +145,26 @@ export function mountChatRoute(app: Hono<AgentRouteEnv>, deps: AgentRouteDeps): 
       );
     }
 
+    const chatAgent: ChatAgent = parsed.data.agent ?? 'staffing';
+    // Per-agent gate beyond agent.chat.use (POC: PMO gate disabled).
+    const agentPermission = CHAT_AGENT_PERMISSION[chatAgent];
+    if (agentPermission && !session.effective_permissions.has(agentPermission)) {
+      return c.json(
+        { error: 'forbidden', message: `${agentPermission} required for the ${chatAgent} agent` },
+        403,
+      );
+    }
+    // Pick the runtime for this agent; fall back to the legacy single binding.
+    const orchestrate = parsed.data.agent
+      ? (deps.chatOrchestrations?.[chatAgent] ?? deps.chatOrchestration)
+      : (deps.chatOrchestrations?.staffing ?? deps.chatOrchestration);
+    if (!orchestrate) {
+      return c.json(
+        { error: 'agent_unavailable', message: `no runtime bound for the ${chatAgent} agent` },
+        503,
+      );
+    }
+
     const messages = parsed.data.messages as UIMessage[];
     const effectiveMessages = injectContextPrefix(messages);
     const userText = lastUserText(effectiveMessages);
@@ -182,7 +206,6 @@ export function mountChatRoute(app: Hono<AgentRouteEnv>, deps: AgentRouteDeps): 
     }
 
     const taskId = pageContextTaskId(effectiveMessages);
-    const orchestrate = deps.chatOrchestration;
     const orchThreadId = parsed.data.id;
     const orchStore = getMemoryStore(deps.mastra);
     // Original (un-prefixed) last user message — what the user actually typed,
@@ -252,7 +275,7 @@ export function mountChatRoute(app: Hono<AgentRouteEnv>, deps: AgentRouteDeps): 
             title: deps.userMemory ? '' : orchThreadTitle,
             createdAt: userCreatedAt,
             updatedAt: userCreatedAt,
-            metadata: {},
+            metadata: { chatAgent },
           },
         });
       }

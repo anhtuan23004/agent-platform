@@ -21,6 +21,7 @@ import { registerKnowledgeContributions } from '@seta/knowledge/register';
 import { registerNotificationsContributions } from '@seta/notifications/register';
 import { assignTask } from '@seta/planner';
 import { registerPlannerContributions } from '@seta/planner/register';
+import { buildPmoChatOrchestrationRuntime } from '@seta/pmo/chat';
 import { registerPmoContributions } from '@seta/pmo/register';
 import { createCrypto, createKeyProviderFromEnv, parseCryptoEnv } from '@seta/shared-crypto';
 import { closePools, getPool, initPools } from '@seta/shared-db';
@@ -158,6 +159,13 @@ const staffingOrchestration = buildStaffingOrchestrationRuntime({
     },
   },
 });
+// The PMO Agent: a read-only utilization-analytics chat runtime. Separate from
+// the staffing orchestrator; the chat route selects it when the request asks
+// for agent='pmo'. Uses the same model resolver as staffing.
+const pmoChatOrchestration = buildPmoChatOrchestrationRuntime({
+  resolveModel: () => resolveModel('auto', { tierHint: 'fast' }).model,
+});
+
 SpecializedAgentRegistry.freeze();
 OrchestrationRegistry.freeze();
 
@@ -176,6 +184,11 @@ const agent = registerAgent({
   // orchestration's streaming entrypoint. apps/server is the only layer that
   // can bind the staffing runtime to the engine surface.
   chatOrchestration: staffingOrchestration.runStream,
+  // Per-agent chat runtimes selected by the chat route's `agent` field.
+  chatOrchestrations: {
+    staffing: staffingOrchestration.runStream,
+    pmo: pmoChatOrchestration.runStream,
+  },
   // Native-suspend HITL resume: POST /chat/resume re-enters the suspended
   // proposeAssignment composite via resumeStream. Same composition-root binding.
   resumeOrchestration: staffingOrchestration.runResume,

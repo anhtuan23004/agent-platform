@@ -18,6 +18,11 @@ interface UseAgentRuntimeOpts {
    */
   pageContextRef?: { current: { ctx: PageContext | null; suppressedFor: string | null } };
   /**
+   * Ref to the selected chat agent ('staffing' | 'pmo'), read at send time so
+   * the runtime (created once) always posts the latest mode without remounting.
+   */
+  chatAgentRef?: { current: 'staffing' | 'pmo' };
+  /**
    * Called when a run fails. The AI SDK transport throws `new Error(<response
    * body text>)` on a non-ok response, so `error.message` is the raw JSON body
    * (e.g. the chat 413 `{ "error": "context_overflow", "message": "…" }`).
@@ -31,6 +36,7 @@ export function useAgentRuntime({
   modelKey,
   initialMessages,
   pageContextRef,
+  chatAgentRef,
   onError,
 }: UseAgentRuntimeOpts) {
   const modelRef = useRef(modelKey);
@@ -48,8 +54,9 @@ export function useAgentRuntime({
 
   const readBody = useCallback(() => {
     const m = modelRef.current;
-    return m ? { model: m } : {};
-  }, []);
+    const agent = chatAgentRef?.current ?? 'staffing';
+    return { ...(m ? { model: m } : {}), agent };
+  }, [chatAgentRef]);
 
   const transport = useMemo(() => {
     // eslint-disable-next-line react-hooks/refs -- readBody captures modelRef and is only invoked when the transport sends; safe.

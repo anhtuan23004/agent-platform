@@ -11,6 +11,20 @@ export const NO_BUFFER_HEADERS = {
   'Cache-Control': 'no-cache, no-transform',
 } as const;
 
+/**
+ * Selectable chat runtimes in Agent Studio. Each turn picks one: 'staffing' is
+ * the default agent-of-agents (tasks + people); 'pmo' is the read-only PMO
+ * utilization analytics agent. apps/server binds a runtime per key into
+ * AgentRouteDeps.chatOrchestrations.
+ */
+export type ChatAgent = 'staffing' | 'pmo';
+
+/**
+ * Permission required to use a given chat agent (beyond agent.chat.use).
+ * POC: PMO gate disabled — add `pmo: 'pmo.data.read'` to re-enable.
+ */
+export const CHAT_AGENT_PERMISSION: Partial<Record<ChatAgent, string>> = {};
+
 export type AgentRouteDeps = {
   mastra: unknown;
   drainer: LifecycleDrainer;
@@ -33,10 +47,23 @@ export type AgentRouteDeps = {
    * orchestration. Injected by the composition root (apps/server), the only
    * layer that can bind staffing adapters to the engine.
    */
-  chatOrchestration: (
+  chatOrchestration?: (
     runInput: { userText: string; taskId: string | null },
     ctx: import('@seta/shared-orchestration').RunCtx,
   ) => Promise<import('@seta/shared-orchestration').ChatStreamRun>;
+  /**
+   * Per-agent chat runtimes selected by the chat route's `agent` field. The
+   * legacy single `chatOrchestration` is the fallback when no entry matches.
+   */
+  chatOrchestrations?: Partial<
+    Record<
+      ChatAgent,
+      (
+        runInput: { userText: string; taskId: string | null },
+        ctx: import('@seta/shared-orchestration').RunCtx,
+      ) => Promise<import('@seta/shared-orchestration').ChatStreamRun>
+    >
+  >;
   /**
    * Resumes a suspended native-suspend agentic chat-HITL run. Injected by the
    * composition root (apps/server) as the staffing runtime's `runResume`. The

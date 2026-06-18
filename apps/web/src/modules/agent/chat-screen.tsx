@@ -2,18 +2,32 @@ import { Sheet, SheetContent } from '@seta/shared-ui';
 import { useEffect, useState } from 'react';
 import { AgentComposer } from './chat-experience/agent-composer';
 import { AgentHeader } from './chat-experience/agent-header';
-import { useAgentRuntimeContext, useAgentSelection } from './chat-experience/agent-provider';
+import {
+  type ChatAgentMode,
+  useAgentRuntimeContext,
+  useAgentSelection,
+  useChatAgent,
+} from './chat-experience/agent-provider';
 import { AgentThreadRail } from './chat-experience/agent-thread-rail';
 import { AgentTranscript } from './chat-experience/agent-transcript';
 
 export interface ChatScreenProps {
   threadId?: string;
+  /** Which chat runtime this screen drives. Defaults to staffing. */
+  chatAgent?: ChatAgentMode;
 }
 
-export function ChatScreen({ threadId }: ChatScreenProps) {
+export function ChatScreen({ threadId, chatAgent = 'staffing' }: ChatScreenProps) {
   const { selection, actions } = useAgentSelection();
   const { historyLoading } = useAgentRuntimeContext();
+  const { chatAgent: activeAgent, setChatAgent } = useChatAgent();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  // Route owns the agent mode; sync it into the provider so the runtime body
+  // and the branded UI follow the URL.
+  useEffect(() => {
+    if (chatAgent !== activeAgent) setChatAgent(chatAgent);
+  }, [chatAgent, activeAgent, setChatAgent]);
 
   // Sync route param → provider selection. Provider is the source of truth;
   // /agent/chat keeps a search param for shareable links. The route's

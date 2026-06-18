@@ -101,6 +101,14 @@ interface PageContextValue {
   clearSuppression: () => void;
 }
 
+/** Selectable chat runtimes in Agent Studio. Mirrors the server's ChatAgent. */
+export type ChatAgentMode = 'staffing' | 'pmo';
+
+interface ChatAgentValue {
+  chatAgent: ChatAgentMode;
+  setChatAgent: (next: ChatAgentMode) => void;
+}
+
 interface PanelUIValue {
   panelOpen: boolean;
   setPanelOpen: (next: boolean) => void;
@@ -114,6 +122,7 @@ interface PanelUIValue {
 }
 
 const PageContextContext = createContext<PageContextValue | null>(null);
+const ChatAgentContext = createContext<ChatAgentValue | null>(null);
 const PanelUIContext = createContext<PanelUIValue | null>(null);
 
 function readStored(key: string, fallback: string): string {
@@ -194,6 +203,8 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     storedSuppression && storedSuppression.threadId === threadId
       ? storedSuppression.contextId
       : null;
+  const [chatAgent, setChatAgentState] = useState<ChatAgentMode>('staffing');
+  const setChatAgent = useCallback((next: ChatAgentMode) => setChatAgentState(next), []);
   const [panelOpen, setPanelOpenState] = useState<boolean>(false);
   const [pendingPrompt, setPendingPromptState] = useState<{
     text: string;
@@ -233,6 +244,11 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     [pageContext, setPageContext, suppressedFor, suppressFor, clearSuppression],
   );
 
+  const chatAgentValue = useMemo<ChatAgentValue>(
+    () => ({ chatAgent, setChatAgent }),
+    [chatAgent, setChatAgent],
+  );
+
   const panelUIValue = useMemo<PanelUIValue>(
     () => ({ panelOpen, setPanelOpen, pendingPrompt, setPendingPrompt }),
     [panelOpen, setPanelOpen, pendingPrompt, setPendingPrompt],
@@ -242,9 +258,11 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     <DensityProvider>
       <SelectionContext.Provider value={selectionValue}>
         <PageContextContext.Provider value={pageCtxValue}>
-          <PanelUIContext.Provider value={panelUIValue}>
-            <AgentRuntimeHost>{children}</AgentRuntimeHost>
-          </PanelUIContext.Provider>
+          <ChatAgentContext.Provider value={chatAgentValue}>
+            <PanelUIContext.Provider value={panelUIValue}>
+              <AgentRuntimeHost>{children}</AgentRuntimeHost>
+            </PanelUIContext.Provider>
+          </ChatAgentContext.Provider>
         </PageContextContext.Provider>
       </SelectionContext.Provider>
     </DensityProvider>
@@ -254,6 +272,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
 function AgentRuntimeHost({ children }: { children: React.ReactNode }) {
   const { selection, actions } = useAgentSelection();
   const { pageContext, suppressedFor } = usePageContext();
+  const { chatAgent } = useChatAgent();
   const approvalEvent = useApprovalResolvedEvent();
   const navigate = useNavigate();
   const location = useLocation();
@@ -268,6 +287,13 @@ function AgentRuntimeHost({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     pageContextRef.current = { ctx: pageContext, suppressedFor };
   }, [pageContext, suppressedFor]);
+
+  // Ref read by the runtime's body builder at send time so the selected agent
+  // rides each turn without remounting the runtime.
+  const chatAgentRef = useRef<ChatAgentMode>(chatAgent);
+  useEffect(() => {
+    chatAgentRef.current = chatAgent;
+  }, [chatAgent]);
 
   // Approval-driven thread switch.
   // Pre-lift this lived in chat-screen and always redirected to /agent/chat.
@@ -349,6 +375,7 @@ function AgentRuntimeHost({ children }: { children: React.ReactNode }) {
       initialMessages={initialMessages}
       historyLoading={false}
       pageContextRef={pageContextRef}
+      chatAgentRef={chatAgentRef}
     >
       {children}
     </AgentRuntimeHostInner>
@@ -361,6 +388,7 @@ function AgentRuntimeHostInner({
   initialMessages,
   historyLoading,
   pageContextRef,
+  chatAgentRef,
   children,
 }: {
   threadId: string;
@@ -371,6 +399,7 @@ function AgentRuntimeHostInner({
     ctx: PageContext | null;
     suppressedFor: string | null;
   }>;
+  chatAgentRef: React.MutableRefObject<ChatAgentMode>;
   children: React.ReactNode;
 }) {
   const [runError, setRunError] = useState<string | null>(null);
@@ -382,6 +411,7 @@ function AgentRuntimeHostInner({
     modelKey,
     initialMessages,
     pageContextRef,
+    chatAgentRef,
     onError: handleError,
   });
 
@@ -412,6 +442,12 @@ export function useAgentRuntimeContext(): RuntimeContextValue {
 export function usePageContext(): PageContextValue {
   const ctx = useContext(PageContextContext);
   if (!ctx) throw new Error('usePageContext must be used within <AgentProvider>');
+  return ctx;
+}
+
+export function useChatAgent(): ChatAgentValue {
+  const ctx = useContext(ChatAgentContext);
+  if (!ctx) throw new Error('useChatAgent must be used within <AgentProvider>');
   return ctx;
 }
 
