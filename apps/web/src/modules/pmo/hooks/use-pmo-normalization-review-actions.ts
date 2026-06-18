@@ -93,9 +93,12 @@ export function usePmoNormalizationReviewActions(
   const draftScope = `${selectedNormalizationApproval?.approvalId ?? ''}:${selectedNormalizationView?.missingMembers.map((item) => item.memberId).join('|') ?? ''}`;
   const reviewScope = selectedNormalizationApproval?.approvalId ?? '';
 
-  const [memberAdditionDrafts, setMemberAdditionDrafts] = useState<MemberMasterAdditionDraft[]>(
-    () => buildMemberAdditionDrafts(selectedNormalizationView),
-  );
+  const [memberAdditionEdits, setMemberAdditionEdits] = useState<
+    Record<
+      string,
+      Partial<Pick<MemberMasterAdditionDraft, 'full_name' | 'department' | 'role_title'>>
+    >
+  >({});
   const [rowDecisions, setRowDecisions] = useState<Record<string, 'keep_row' | 'skip_row'>>({});
   const [rowOverrides, setRowOverrides] = useState<Record<string, Record<string, unknown>>>({});
   const [syncedDraftScope, setSyncedDraftScope] = useState(draftScope);
@@ -103,7 +106,7 @@ export function usePmoNormalizationReviewActions(
 
   if (draftScope !== syncedDraftScope) {
     setSyncedDraftScope(draftScope);
-    setMemberAdditionDrafts(buildMemberAdditionDrafts(selectedNormalizationView));
+    setMemberAdditionEdits({});
   }
 
   if (reviewScope !== syncedReviewScope) {
@@ -111,6 +114,19 @@ export function usePmoNormalizationReviewActions(
     setRowDecisions({});
     setRowOverrides({});
   }
+
+  const defaultMemberAdditionDrafts = useMemo(
+    () => buildMemberAdditionDrafts(selectedNormalizationView),
+    [selectedNormalizationView],
+  );
+  const memberAdditionDrafts = useMemo(
+    () =>
+      defaultMemberAdditionDrafts.map((draft) => ({
+        ...draft,
+        ...(memberAdditionEdits[draft.member_id] ?? {}),
+      })),
+    [defaultMemberAdditionDrafts, memberAdditionEdits],
+  );
 
   const refreshAfterDecision = useCallback(async () => {
     await Promise.all([refreshWorkflowRuntime(), loadSessions(true)]);
@@ -190,11 +206,13 @@ export function usePmoNormalizationReviewActions(
       field: keyof Omit<MemberMasterAdditionDraft, 'member_id'>,
       value: string,
     ) => {
-      setMemberAdditionDrafts((drafts) =>
-        drafts.map((draft) =>
-          draft.member_id === memberId ? { ...draft, [field]: value } : draft,
-        ),
-      );
+      setMemberAdditionEdits((edits) => ({
+        ...edits,
+        [memberId]: {
+          ...(edits[memberId] ?? {}),
+          [field]: value,
+        },
+      }));
     },
     [],
   );
