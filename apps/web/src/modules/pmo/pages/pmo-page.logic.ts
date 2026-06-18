@@ -872,7 +872,9 @@ export function parsePublishReviewView(
       .slice()
       .reverse()
       .find((table) =>
-        table.some((row) => /issue|severity|blocking|error/i.test(`${row.k} ${row.v}`)),
+        table.some((row) =>
+          /\brow\s+\d+\b|severity|error|required|missing|unresolved/i.test(`${row.k} ${row.v}`),
+        ),
       ) ?? [];
 
   const summary = typeof payload.summary === 'string' ? payload.summary : 'Review publish changes.';

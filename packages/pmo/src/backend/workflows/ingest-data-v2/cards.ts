@@ -627,11 +627,10 @@ export function buildMappingItemReviewCard(input: MappingItemCardInput): Approva
 function publishRows(changeSummary: ChangeSummaryTable[]): Array<{ k: string; v: string }> {
   return changeSummary.map((t) => {
     const c = t.counts;
-    const upsertRows = c.new_records + c.updated_records;
-    const skippedRows = c.exact_duplicates + c.duplicates_in_upload;
+    const publishRowsCount = c.new_records + c.updated_records;
     return {
       k: t.tableId,
-      v: `upsert=${upsertRows} | skip=${skippedRows} | new=${c.new_records} | updated=${c.updated_records} | exact_dup=${c.exact_duplicates} | dup_in_upload=${c.duplicates_in_upload}`,
+      v: `publish=${publishRowsCount} | skip_existing=${c.exact_duplicates} | new=${c.new_records} | overwrite=${c.updated_records}`,
     };
   });
 }
@@ -784,25 +783,20 @@ export function buildPublishReviewCard(input: PublishCardInput): ApprovalCard {
       acc.newRecords += t.counts.new_records;
       acc.updatedRecords += t.counts.updated_records;
       acc.exactDuplicates += t.counts.exact_duplicates;
-      acc.duplicatesInUpload += t.counts.duplicates_in_upload;
       return acc;
     },
     {
       newRecords: 0,
       updatedRecords: 0,
       exactDuplicates: 0,
-      duplicatesInUpload: 0,
     },
   );
 
   const summary = input.allowApprove
-    ? `Ready to publish ${totals.newRecords + totals.updatedRecords} effective change(s).`
+    ? `Ready to publish ${totals.newRecords + totals.updatedRecords} change(s). ${totals.exactDuplicates} unchanged row(s) will be skipped.`
     : [
         input.blockingIssues.length > 0
           ? `Found ${input.blockingIssues.length} blocking data issue(s).`
-          : null,
-        totals.duplicatesInUpload > 0
-          ? `Found ${totals.duplicatesInUpload} duplicate-in-upload row(s).`
           : null,
         'Publish approval is disabled until issues are resolved.',
       ]
@@ -811,14 +805,13 @@ export function buildPublishReviewCard(input: PublishCardInput): ApprovalCard {
 
   const checklist = input.allowApprove
     ? [
-        'Updated rows are expected and reviewed.',
-        'No conflicting duplicate-in-upload rows remain for blocked tables.',
-        'Proceed with publish upsert.',
+        'New rows will be inserted.',
+        'Updated rows will overwrite existing PMO records with the same business key.',
+        'Unchanged rows already present in PMO data will be skipped.',
       ]
     : [
-        'Duplicate rows within this upload violate table duplicate policy.',
         'Rows with parse/required errors must be corrected in the workbook.',
-        'Reject this run and fix duplicate rows before retrying.',
+        'Reject this run and fix blocking rows before retrying.',
       ];
   const sampleRows = publishSampleRows(input.changeSummary);
   const issueRows = blockingIssueRows(input.blockingIssues);
@@ -834,12 +827,11 @@ export function buildPublishReviewCard(input: PublishCardInput): ApprovalCard {
         kind: 'kvTable',
         rows: [
           { k: 'Ingestion session', v: input.ingestionSessionId },
-          { k: 'Rows to upsert', v: String(totals.newRecords + totals.updatedRecords) },
-          { k: 'Rows to skip', v: String(totals.exactDuplicates + totals.duplicatesInUpload) },
+          { k: 'Rows to publish', v: String(totals.newRecords + totals.updatedRecords) },
+          { k: 'Rows to skip', v: String(totals.exactDuplicates) },
           { k: 'New rows', v: String(totals.newRecords) },
-          { k: 'Updated rows', v: String(totals.updatedRecords) },
-          { k: 'Exact duplicates', v: String(totals.exactDuplicates) },
-          { k: 'Duplicates in upload', v: String(totals.duplicatesInUpload) },
+          { k: 'Rows to overwrite', v: String(totals.updatedRecords) },
+          { k: 'Skip reason', v: 'Already exists with no changes' },
           { k: 'Blocking issues', v: String(input.blockingIssues.length) },
         ],
       },

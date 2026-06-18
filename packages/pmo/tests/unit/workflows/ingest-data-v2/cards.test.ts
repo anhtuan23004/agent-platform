@@ -355,4 +355,35 @@ describe('PMO ingest review cards', () => {
     expect(rows.some((row) => row.k === 'Blocking issues' && row.v === '1')).toBe(true);
     expect(rows.some((row) => row.k.includes('resource_allocation row 7 member_id'))).toBe(true);
   });
+
+  it('describes publish preview as incremental upsert and existing-row skips', () => {
+    const card = buildPublishReviewCard({
+      ingestionSessionId: 'f56e9152-7856-44e9-b2d7-4f21d86cdffd',
+      allowApprove: true,
+      identity: { tenantId: 'tenant-1', userId: 'user-1' },
+      toolCallId: 'workflow:test:pmo_confirmPublish',
+      changeSummary: [
+        {
+          tableId: 'resource_allocation',
+          counts: {
+            new_records: 1,
+            updated_records: 2,
+            exact_duplicates: 3,
+            duplicates_in_upload: 0,
+          },
+          sampleChanges: [],
+        },
+      ],
+      blockingIssues: [],
+    });
+
+    const tables = kvTables(card.details as unknown[]);
+    const rows = tables.flatMap((table) => table.rows);
+
+    expect(card.summary).toContain('Ready to publish 3 change');
+    expect(rows.some((row) => row.k === 'Rows to publish' && row.v === '3')).toBe(true);
+    expect(rows.some((row) => row.k === 'Rows to skip' && row.v === '3')).toBe(true);
+    expect(rows.some((row) => row.k === 'Skip reason')).toBe(true);
+    expect(rows.some((row) => /duplicate-in-upload/i.test(`${row.k} ${row.v}`))).toBe(false);
+  });
 });

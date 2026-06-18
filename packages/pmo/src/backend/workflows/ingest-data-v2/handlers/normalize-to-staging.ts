@@ -36,6 +36,7 @@ import type {
 
 type StagingResultState = NonNullable<DynamicIngestRuntimeContext['staging_result']>;
 type PublishableChangeType = Exclude<StagedRow['changeType'], 'duplicate_in_upload'>;
+type ChangeSummaryTable = StagingChangeSummary[number];
 
 function isMissingRequiredValue(value: unknown): boolean {
   if (value === null || value === undefined) return true;
@@ -116,6 +117,48 @@ function effectiveChangeTypeForReviewedRow(params: {
   return params.activeSourceHash === params.row.sourceRowHash
     ? 'exact_duplicate'
     : 'updated_record';
+}
+
+function summarizeApprovedStagingRows(params: {
+  rows: StagedRow[];
+  activeSourceHashByNaturalKey: Map<string, string>;
+}): StagingChangeSummary {
+  const byTable = new Map<string, ChangeSummaryTable>();
+
+  for (const row of params.rows) {
+    const activeSourceHash = params.activeSourceHashByNaturalKey.get(
+      `${row.tableId}:${row.naturalKeyHash}`,
+    );
+    const changeType = effectiveChangeTypeForReviewedRow({ row, activeSourceHash });
+    let table = byTable.get(row.tableId);
+    if (!table) {
+      table = {
+        tableId: row.tableId,
+        counts: {
+          new_records: 0,
+          updated_records: 0,
+          exact_duplicates: 0,
+          duplicates_in_upload: 0,
+        },
+        sampleChanges: [],
+      };
+      byTable.set(row.tableId, table);
+    }
+
+    if (changeType === 'new_record') table.counts.new_records++;
+    if (changeType === 'updated_record') table.counts.updated_records++;
+    if (changeType === 'exact_duplicate') table.counts.exact_duplicates++;
+
+    if (changeType !== 'exact_duplicate' && table.sampleChanges.length < 5) {
+      table.sampleChanges.push({
+        type: changeType,
+        naturalKey: row.naturalKeyDisplay,
+        newValues: row.values,
+      });
+    }
+  }
+
+  return [...byTable.values()];
 }
 
 function resolveApprovedMappingResult(
@@ -856,14 +899,35 @@ export function createNormalizeToStagingHandler(
         };
       }
 
+      const skippedRowIds = new Set([
+        ...[...rowDecisions.entries()]
+          .filter(([, decision]) => decision === 'skip_row')
+          .map(([rowId]) => rowId),
+        ...reviewRows.filter((row) => row.decision === 'skip_row').map((row) => row.id),
+      ]);
+      const stagedForInsert = allStaged.filter(
+        (entry) =>
+          !skippedRowIds.has(reviewRowId(entry.tableId, entry.sourceRow, entry.sourceSheet)),
+      );
+      const approvedChangeSummary = summarizeApprovedStagingRows({
+        rows: stagedForInsert,
+        activeSourceHashByNaturalKey,
+      });
+      const approvedNormalizationResult: NormalizationResult = {
+        ...normalizationResult,
+        changeSummary: approvedChangeSummary,
+        hasUpdates: approvedChangeSummary.some(
+          (table) => table.counts.new_records + table.counts.updated_records > 0,
+        ),
+      };
       const checkpoint = approveProposal({
         proposal,
-        approvedOutput: normalizationResult,
+        approvedOutput: approvedNormalizationResult,
         approvedBy: input.userId || 'system',
       });
       const approvedState = appendCheckpoint(proposedState, checkpoint);
       const approvedStagingPayload = buildStagingPayload({
-        normalization: normalizationResult,
+        normalization: approvedNormalizationResult,
         checkpointState: approvedState,
         requiresReview: false,
       });
@@ -874,16 +938,6 @@ export function createNormalizeToStagingHandler(
         .where(drizzleEq(stagingChanges.ingestion_session_id, input.ingestionSessionId));
 
       if (allStaged.length > 0) {
-        const skippedRowIds = new Set([
-          ...[...rowDecisions.entries()]
-            .filter(([, decision]) => decision === 'skip_row')
-            .map(([rowId]) => rowId),
-          ...reviewRows.filter((row) => row.decision === 'skip_row').map((row) => row.id),
-        ]);
-        const stagedForInsert = allStaged.filter(
-          (entry) =>
-            !skippedRowIds.has(reviewRowId(entry.tableId, entry.sourceRow, entry.sourceSheet)),
-        );
         if (stagedForInsert.length > 0) {
           await db.insert(stagingChanges).values(
             stagedForInsert.map((entry) => {
@@ -918,7 +972,7 @@ export function createNormalizeToStagingHandler(
         },
         outputSummary: {
           status: 'staging_normalized',
-          change_tables: changeSummary.length,
+          change_tables: approvedChangeSummary.length,
           checkpoint_version: checkpoint.version,
         },
       };

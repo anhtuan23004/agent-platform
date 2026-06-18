@@ -528,6 +528,24 @@ describe('createNormalizeToStagingHandler', () => {
         }),
       ]),
     );
+    const approvedChangeSummary = approvedReverseResult.runtimeContextPatch?.staging_result
+      ?.changeSummary as Array<{
+      tableId: string;
+      counts: {
+        new_records: number;
+        updated_records: number;
+        exact_duplicates: number;
+        duplicates_in_upload: number;
+      };
+    }>;
+    expect(
+      approvedChangeSummary.find((table) => table.tableId === 'resource_allocation')?.counts,
+    ).toMatchObject({
+      new_records: 1,
+      updated_records: 0,
+      exact_duplicates: 0,
+      duplicates_in_upload: 0,
+    });
     expect(reverseInsertedRows).toEqual(
       expect.not.arrayContaining([
         expect.objectContaining({
