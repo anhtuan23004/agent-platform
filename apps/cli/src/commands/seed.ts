@@ -13,8 +13,7 @@ import {
   listPlans,
   listTasks,
 } from '@seta/planner';
-// Mock-data seeding is intentionally disabled for now.
-// import { seedPmo02FromMockDbForTenant } from '@seta/pmo';
+import { seedPmoDefaultThresholdConfigsForTenant } from '@seta/pmo';
 import {
   buildRegistry,
   IMPLICIT_PERMISSIONS,
@@ -588,8 +587,17 @@ export async function seedCommand(opts: SeedOpts): Promise<void> {
       `${JSON.stringify({ phase: 'pmo', skipped: true, reason: 'PMO_SEED_ENABLED=false' })}\n`,
     );
   } else {
+    log.info('phase 9: seeding PMO threshold defaults');
+    const thresholdResult = await seedPmoDefaultThresholdConfigsForTenant({ tenantId });
     process.stdout.write(
-      `${JSON.stringify({ phase: 'pmo', skipped: true, reason: 'PMO mock-data seed disabled' })}\n`,
+      `${JSON.stringify({
+        phase: 'pmo',
+        thresholdDefaults: {
+          inserted: thresholdResult.inserted,
+          configIds: thresholdResult.configIds,
+        },
+        mockData: { skipped: true, reason: 'PMO mock-data seed disabled' },
+      })}\n`,
     );
     /*
     log.info('phase 9: seeding PMO_02 from mock-data.db');

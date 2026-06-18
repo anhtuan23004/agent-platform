@@ -1,0 +1,18 @@
+export const METRIC_HELP = {
+  scope: 'Shows whether this week is included in the calculation.',
+  reason: 'Why this week was excluded from the totals.',
+  available: 'Hours this member can work this week.',
+  planned: 'Hours assigned to this member.',
+  logged: 'Hours recorded in timesheets.',
+  expectedLogged: 'Expected logged hours for this member this week.',
+  busyRate: 'Shows how much of the member capacity is already planned.',
+  effortConsumption: 'Shows how actual logged work compares with planned work.',
+  rag: 'Risk color based on the current thresholds.',
+  issue: 'The issue found for this row.',
+  inScopeWeeks: 'Weeks used in the member total.',
+  excludedWeeks: 'Weeks skipped to avoid skewing the numbers.',
+  overbookYellow: 'The warning threshold for overbooked work.',
+  overbookRed: 'The severe threshold for overbooked work.',
+  idle: 'Below this level, the member is treated as idle.',
+  mismatch: 'Allowed gap between logged and planned hours.',
+} as const;

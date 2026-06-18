@@ -1,6 +1,8 @@
 import { DEFAULT_THRESHOLDS, type Thresholds } from './types.ts';
 
 export interface ConfigRow {
+  config_id?: string | null;
+  rule_name?: string | null;
   overbook_threshold: number | null;
   overbook_red_threshold: number | null;
   idle_threshold: number | null;
@@ -10,19 +12,46 @@ export interface ConfigRow {
   effective_date: Date | null;
 }
 
-/**
- * Resolve thresholds from overbook_idle_config rows. Picks the row with the
- * latest effective_date (rows without a date sort last). Falls back to SOP
- * defaults per-field when a value is null or no rows exist.
- */
-export function resolveThresholds(rows: ConfigRow[]): Thresholds {
-  if (rows.length === 0) return { ...DEFAULT_THRESHOLDS };
+export interface ThresholdResolutionOptions {
+  effectiveDate?: Date;
+}
 
-  const latest = [...rows].sort((a, b) => {
+/**
+ * Pick the config active on the requested effective date. Without a requested
+ * date, use the latest config. Rows without effective_date act as a baseline.
+ */
+export function selectThresholdConfig(
+  rows: ConfigRow[],
+  options: ThresholdResolutionOptions = {},
+): ConfigRow | undefined {
+  if (rows.length === 0) return undefined;
+  const effectiveDate = options.effectiveDate;
+
+  const applicable = effectiveDate
+    ? rows.filter((row) => {
+        const effectiveTime = row.effective_date?.getTime() ?? Number.NEGATIVE_INFINITY;
+        return effectiveTime <= effectiveDate.getTime();
+      })
+    : rows;
+
+  const latest = [...applicable].sort((a, b) => {
     const ta = a.effective_date?.getTime() ?? Number.NEGATIVE_INFINITY;
     const tb = b.effective_date?.getTime() ?? Number.NEGATIVE_INFINITY;
     return tb - ta;
   })[0];
+
+  return latest;
+}
+
+/**
+ * Resolve thresholds from overbook_idle_config rows. Falls back to SOP defaults
+ * per-field when a value is null or no config applies to the selected date.
+ */
+export function resolveThresholds(
+  rows: ConfigRow[],
+  options: ThresholdResolutionOptions = {},
+): Thresholds {
+  const latest = selectThresholdConfig(rows, options);
 
   if (!latest) return { ...DEFAULT_THRESHOLDS };
 
