@@ -9,6 +9,7 @@ import {
   isMappingApprovalRow,
   isNormalizationApprovalRow,
   isPublishApprovalRow,
+  isReportApprovalRow,
   type MappingProgressItem,
   type MappingViewModel,
   type NormalizationReviewViewModel,
@@ -55,6 +56,8 @@ export interface UsePmoWorkflowRuntimeResult {
   publishApprovals: WorkflowApprovalRow[];
   selectedPublishApproval: WorkflowApprovalRow | null;
   selectedPublishView: PublishReviewViewModel | null;
+  reportApprovals: WorkflowApprovalRow[];
+  selectedReportApproval: WorkflowApprovalRow | null;
   runtimeActiveStepId: string | null;
   hasRuntimeCurrentStepMatch: boolean;
   timeline: Array<{ id: number; label: string; state: TimelineState }>;
@@ -114,6 +117,11 @@ export function usePmoWorkflowRuntime(
 
   const publishApprovals = useMemo(
     () => (pendingApprovals.data ?? []).filter((approval) => isPublishApprovalRow(approval)),
+    [pendingApprovals.data],
+  );
+
+  const reportApprovals = useMemo(
+    () => (pendingApprovals.data ?? []).filter((approval) => isReportApprovalRow(approval)),
     [pendingApprovals.data],
   );
 
@@ -193,11 +201,35 @@ export function usePmoWorkflowRuntime(
     return null;
   }, [publishApprovals, selectedSession, selectedWorkflowRun]);
 
+  const selectedReportApproval = useMemo(() => {
+    if (!selectedSession) return null;
+
+    if (selectedWorkflowRun?.runId) {
+      const matchedByRun = reportApprovals.find(
+        (approval) => approval.runId === selectedWorkflowRun.runId,
+      );
+      if (matchedByRun) return matchedByRun;
+    }
+
+    const exactMatch = reportApprovals.find((approval) => {
+      const ingestionSessionId = readIngestionSessionIdFromApproval(approval);
+      return sessionIdsMatch(ingestionSessionId, selectedSession.ingestion_session_id);
+    });
+    if (exactMatch) return exactMatch;
+
+    if (!selectedWorkflowRun?.runId && reportApprovals.length === 1) {
+      return reportApprovals[0] ?? null;
+    }
+
+    return null;
+  }, [reportApprovals, selectedSession, selectedWorkflowRun]);
+
   const selectedWorkflowRunId =
     selectedWorkflowRun?.runId ??
     selectedMappingApproval?.runId ??
     selectedNormalizationApproval?.runId ??
     selectedPublishApproval?.runId ??
+    selectedReportApproval?.runId ??
     '';
   const selectedWorkflowRunSnapshot = useWorkflowRuntimeRunSnapshot(selectedWorkflowRunId);
 
@@ -232,12 +264,22 @@ export function usePmoWorkflowRuntime(
     );
   }, [runApprovals.data, selectedWorkflowRunId]);
 
+  const historicalReportApproval = useMemo(() => {
+    if (!selectedWorkflowRunId) return null;
+    return (
+      (runApprovals.data ?? []).find(
+        (a) => a.runId === selectedWorkflowRunId && isReportApprovalRow(a),
+      ) ?? null
+    );
+  }, [runApprovals.data, selectedWorkflowRunId]);
+
   // Use pending approval when available (actionable), fall back to decided
   // approval from the run history (read-only).
   const effectiveMappingApproval = selectedMappingApproval ?? historicalMappingApproval;
   const effectiveNormalizationApproval =
     selectedNormalizationApproval ?? historicalNormalizationApproval;
   const effectivePublishApproval = selectedPublishApproval ?? historicalPublishApproval;
+  const effectiveReportApproval = selectedReportApproval ?? historicalReportApproval;
 
   const selectedMappingView = useMemo(
     () => parseMappingView(effectiveMappingApproval),
@@ -263,9 +305,10 @@ export function usePmoWorkflowRuntime(
     const mappingRunId = approval.runId;
     const hasLaterApprovalForRun =
       normalizationApprovals.some((a) => a.runId === mappingRunId) ||
-      publishApprovals.some((a) => a.runId === mappingRunId);
+      publishApprovals.some((a) => a.runId === mappingRunId) ||
+      reportApprovals.some((a) => a.runId === mappingRunId);
     return hasLaterApprovalForRun ? null : approval;
-  }, [normalizationApprovals, publishApprovals, effectiveMappingApproval]);
+  }, [normalizationApprovals, publishApprovals, reportApprovals, effectiveMappingApproval]);
 
   const groupedMappingItems = useMemo(() => {
     if (!selectedMappingView?.items.length) {
@@ -295,6 +338,7 @@ export function usePmoWorkflowRuntime(
   }, [selectedMappingView]);
 
   const runtimeActiveStepId = useMemo(() => {
+    if (selectedReportApproval?.stepId) return selectedReportApproval.stepId;
     if (selectedPublishApproval?.stepId) return selectedPublishApproval.stepId;
     if (selectedNormalizationApproval?.stepId) return selectedNormalizationApproval.stepId;
     if (selectedMappingApprovalForDisplay?.stepId) return selectedMappingApprovalForDisplay.stepId;
@@ -303,6 +347,7 @@ export function usePmoWorkflowRuntime(
     selectedMappingApprovalForDisplay,
     selectedNormalizationApproval,
     selectedPublishApproval,
+    selectedReportApproval,
     selectedWorkflowRunSnapshot.data,
   ]);
 
@@ -360,6 +405,8 @@ export function usePmoWorkflowRuntime(
     publishApprovals,
     selectedPublishApproval: effectivePublishApproval,
     selectedPublishView,
+    reportApprovals,
+    selectedReportApproval: effectiveReportApproval,
     runtimeActiveStepId,
     hasRuntimeCurrentStepMatch,
     timeline,

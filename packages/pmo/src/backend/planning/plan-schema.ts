@@ -20,6 +20,7 @@ export const IntentModeSchema = z.enum([
   'mapping_readiness',
   'stage_preview',
   'publish_intent',
+  'publish_report_intent',
 ]);
 
 export const ReviewActionSchema = z.enum(['approve', 'modify', 'regenerate', 'reject', 'continue']);

@@ -65,6 +65,18 @@
       "allowed_intent_modes": ["publish_intent"],
       "requires_prior_checkpoint": ["database_change_summary"],
       "produces": ["publish_result"]
+    },
+    {
+      "action_id": "generate_report",
+      "step_name": "Generate PMO report",
+      "review_type": "report",
+      "objective": "Generate idle and overbook member report from published PMO canonical data for a confirmed date range.",
+      "agent_responsibility": "Resolve or request the report date range, then generate the report from published canonical PMO data.",
+      "user_responsibility": "Confirm the report date range when it was not explicit in the goal.",
+      "default_requires_user_review": false,
+      "allowed_intent_modes": ["publish_report_intent"],
+      "requires_prior_checkpoint": ["database_change_summary"],
+      "produces": ["pmo_report"]
     }
   ]
 }

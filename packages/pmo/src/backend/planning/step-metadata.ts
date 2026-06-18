@@ -4,6 +4,7 @@ export const PMO_PLAN_ACTION_IDS = [
   'normalize_to_staging',
   'database_change_summary',
   'publish_after_approval',
+  'generate_report',
   'generic_review',
 ] as const;
 
@@ -15,6 +16,7 @@ export const PMO_REVIEW_TYPES = [
   'mapping',
   'normalization',
   'publish',
+  'report',
   'generic',
 ] as const;
 
@@ -64,6 +66,10 @@ export function derivePmoActionId(step: PlannerStepLike): PmoPlanActionId {
 
   const text = normalizeSearchText(step);
 
+  if (/report|utili[sz]ation|overbook|idle|under-alloc|under\s*alloc|báo\s*cáo/.test(text)) {
+    return 'generate_report';
+  }
+
   if (/publish|final\s*approval|apply\s+approved|write\s+target|upsert/.test(text)) {
     return 'publish_after_approval';
   }
@@ -98,6 +104,7 @@ export function reviewTypeForPmoAction(actionId: PmoPlanActionId): PmoReviewType
   if (actionId === 'database_change_summary' || actionId === 'publish_after_approval') {
     return 'publish';
   }
+  if (actionId === 'generate_report') return 'report';
   return 'generic';
 }
 

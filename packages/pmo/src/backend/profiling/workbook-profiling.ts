@@ -155,6 +155,7 @@ export interface WorkflowExecutionStep {
   review_type?: string;
   step_name: string;
   status: WorkflowExecutionStepStatus;
+  output_summary?: Record<string, unknown>;
 }
 
 export interface WorkflowExecutionState {
@@ -167,6 +168,8 @@ export interface WorkflowExecutionState {
   documents: SessionDocumentProfileRecord[];
   profiling_summary: WorkbookProfilingSessionSummary | null;
   profiling_review: ProfilingReviewState | null;
+  report_request?: unknown;
+  report_result?: unknown;
 }
 
 export interface WorkbookProfilingSessionSummary {

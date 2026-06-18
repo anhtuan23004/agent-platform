@@ -362,3 +362,26 @@ export const memberWeekFacts = pmoSchema.table(
     index('mwf_tenant_issue').on(t.tenant_id, t.issue_type),
   ],
 );
+
+// ── PMO report runs (generated after canonical publish) ─────────────────────
+
+export const reportRuns = pmoSchema.table(
+  'report_runs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenant_id: uuid('tenant_id').notNull(),
+    ingestion_session_id: uuid('ingestion_session_id'),
+    report_types: jsonb('report_types').notNull(),
+    date_range_start: timestamp('date_range_start', { withTimezone: true }).notNull(),
+    date_range_end: timestamp('date_range_end', { withTimezone: true }).notNull(),
+    status: text('status').notNull(),
+    result_summary: jsonb('result_summary'),
+    result_payload: jsonb('result_payload'),
+    created_by: uuid('created_by'),
+    created_at: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index('report_runs_tenant_created').on(t.tenant_id, t.created_at),
+    index('report_runs_ingestion_session').on(t.ingestion_session_id),
+  ],
+);

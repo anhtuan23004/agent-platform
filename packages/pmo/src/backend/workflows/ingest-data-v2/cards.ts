@@ -98,6 +98,15 @@ interface NormalizationCardInput {
   plannerStep?: PmoPlannerStepMetadata | null;
 }
 
+interface ReportRangeCardInput {
+  ingestionSessionId: string;
+  suggestedDateRange: { from: string; to: string };
+  reportTypes: Array<'idle_members' | 'overbook_members'>;
+  identity: CardIdentity;
+  toolCallId: string;
+  plannerStep?: PmoPlannerStepMetadata | null;
+}
+
 interface NormalizationReviewCardColumn {
   key: string;
   label: string;
@@ -1003,6 +1012,57 @@ export function buildNormalizationReviewCard(input: NormalizationCardInput): App
       userId: input.identity.userId,
       agentPath: ['supervisor', 'work', 'pmo'],
       toolId: 'pmo_reviewNormalization',
+      ...plannerStepMeta(input.plannerStep),
+      ts: new Date().toISOString(),
+    },
+  };
+}
+
+export function buildReportRangeCard(input: ReportRangeCardInput): ApprovalCard {
+  const reportLabel = input.reportTypes
+    .map((type) => (type === 'idle_members' ? 'Idle members' : 'Overbook members'))
+    .join(', ');
+
+  return {
+    toolCallId: input.toolCallId,
+    intent: 'Confirm PMO report date range',
+    riskBadge: 'write',
+    summary:
+      'The goal asks for a PMO report but does not include a clear date range. Confirm the suggested workbook range before report generation.',
+    details: [
+      {
+        kind: 'kvTable',
+        rows: [
+          { k: 'Ingestion session', v: input.ingestionSessionId },
+          { k: 'Report types', v: reportLabel },
+          { k: 'Suggested from', v: input.suggestedDateRange.from },
+          { k: 'Suggested to', v: input.suggestedDateRange.to },
+          { k: 'Suggestion source', v: 'Uploaded workbook/reporting period' },
+        ],
+      },
+      {
+        kind: 'text',
+        body: checklistMarkdown([
+          'Confirm this range to generate the report after publish.',
+          'If this range is not correct, provide a different from/to date before resuming the workflow.',
+          'Rejecting this step stops report generation but does not roll back published PMO data.',
+        ]),
+      },
+    ],
+    primary: {
+      label: 'Generate report',
+      argsPatch: {
+        decision: 'approve',
+        dateRange: input.suggestedDateRange,
+      },
+    },
+    alternates: [],
+    decline: { label: 'Skip report', argsPatch: { decision: 'reject' } },
+    meta: {
+      tenantId: input.identity.tenantId,
+      userId: input.identity.userId,
+      agentPath: ['supervisor', 'work', 'pmo'],
+      toolId: 'pmo_confirmReportRange',
       ...plannerStepMeta(input.plannerStep),
       ts: new Date().toISOString(),
     },

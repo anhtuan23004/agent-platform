@@ -13,6 +13,7 @@ export type PmoPlanActionId =
   | 'normalize_to_staging'
   | 'database_change_summary'
   | 'publish_after_approval'
+  | 'generate_report'
   | 'generic_review';
 
 export type PmoReviewType =
@@ -21,6 +22,7 @@ export type PmoReviewType =
   | 'mapping'
   | 'normalization'
   | 'publish'
+  | 'report'
   | 'generic';
 
 export type ExecutionCard = {
@@ -31,6 +33,7 @@ export type ExecutionCard = {
   step_name: string;
   status: PmoWorkflowExecutionStepStatus;
   description?: string;
+  output_summary?: Record<string, unknown>;
 };
 
 export type ExecutionActionGroup = {
@@ -385,6 +388,23 @@ export function isPublishApprovalRow(approval: WorkflowApprovalRow): boolean {
   }
 
   return cardToolIdFromPayload(approval.proposedPayload) === 'pmo_confirmPublish';
+}
+
+export function isReportApprovalRow(approval: WorkflowApprovalRow): boolean {
+  const reviewType = readReviewTypeFromApproval(approval);
+  const actionId = readActionIdFromApproval(approval);
+  if (reviewType === 'report' || actionId === 'generate_report') return true;
+
+  const stepId = approval.stepId;
+  if (
+    stepId === 'pmo.ingest.confirmReportRange' ||
+    stepId === 'confirmReportRange' ||
+    stepId.endsWith('.confirmReportRange')
+  ) {
+    return true;
+  }
+
+  return cardToolIdFromPayload(approval.proposedPayload) === 'pmo_confirmReportRange';
 }
 
 export function isNormalizationApprovalRow(approval: WorkflowApprovalRow): boolean {
@@ -1113,6 +1133,9 @@ export function documentStatusTone(status: PmoSessionDocumentProfileRecord['stat
 
 function inferActionIdFromStepName(stepName: string): PmoPlanActionId {
   const normalized = stepName.toLowerCase();
+  if (/report|utili[sz]ation|overbook|idle/.test(normalized)) {
+    return 'generate_report';
+  }
   if (/publish|final\s*approval|upsert|write\s+target/.test(normalized)) {
     return 'publish_after_approval';
   }
@@ -1142,6 +1165,7 @@ function reviewTypeForActionId(actionId: string | undefined): PmoReviewType {
   if (actionId === 'database_change_summary' || actionId === 'publish_after_approval') {
     return 'publish';
   }
+  if (actionId === 'generate_report') return 'report';
   return 'generic';
 }
 
@@ -1172,6 +1196,8 @@ export function buildExecutionCards(session: PmoPlanningSession | null): Executi
           statusByStepNo.get(step.step_no) ??
           (session.planning_state === 'approved_plan' && index === 0 ? 'in_progress' : 'pending'),
         description: step.description,
+        output_summary: session.execution_state?.steps.find((item) => item.step_no === step.step_no)
+          ?.output_summary,
       };
     });
 
@@ -1188,6 +1214,7 @@ export function buildExecutionCards(session: PmoPlanningSession | null): Executi
         step_name: step.step_name,
         status: step.status,
         description: '',
+        output_summary: step.output_summary,
       }));
 
     return [...cards, ...runtimeOnlySteps].sort((a, b) => a.step_no - b.step_no);
@@ -1205,6 +1232,7 @@ export function buildExecutionCards(session: PmoPlanningSession | null): Executi
         step_name: step.step_name,
         status: step.status,
         description: '',
+        output_summary: step.output_summary,
       }));
   }
 

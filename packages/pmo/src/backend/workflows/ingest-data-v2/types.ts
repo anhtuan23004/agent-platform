@@ -16,6 +16,9 @@ export type DynamicRuntimeSessionStatus =
   | 'awaiting_normalization_review'
   | 'staging_normalized'
   | 'awaiting_publish_review'
+  | 'awaiting_report_range'
+  | 'generating_report'
+  | 'report_generated'
   | 'published'
   | 'failed'
   | 'rejected'
@@ -50,6 +53,8 @@ export interface PlannerExecutionStateV2 {
   documents: SessionDocumentProfileRecord[];
   profiling_summary: Record<string, unknown> | null;
   profiling_review: ProfilingReviewState | null;
+  report_request?: DynamicIngestRuntimeContext['report_request'];
+  report_result?: DynamicIngestRuntimeContext['report_result'];
 }
 
 export interface DynamicIngestRuntimeContext {
@@ -74,6 +79,29 @@ export interface DynamicIngestRuntimeContext {
     hasUpdates: boolean;
     requiresReview: boolean;
   } & ReviewCheckpointState;
+  report_request?: {
+    reportTypes: Array<'idle_members' | 'overbook_members'>;
+    dateRange?: {
+      from: string;
+      to: string;
+      source: 'goal_explicit' | 'user_confirmed' | 'sheet_suggested_pending';
+    };
+    suggestedDateRange?: {
+      from: string;
+      to: string;
+      source: 'sheet';
+    };
+  };
+  report_result?: {
+    dateRange: { from: string; to: string };
+    summary: {
+      memberCount: number;
+      overbookCount: number;
+      idleCount: number;
+      excludedWeekCount: number;
+    };
+    findings: unknown[];
+  };
 }
 
 export interface PmoDynamicHandlerInput {
@@ -82,6 +110,9 @@ export interface PmoDynamicHandlerInput {
   tenantId: string;
   userId: string;
   runId: string;
+  planningGoal?: string | null;
+  reportingPeriodStart?: Date | null;
+  reportingPeriodEnd?: Date | null;
   requestContext: { get: (key: string) => unknown };
   resumeData: Record<string, unknown> | undefined;
   step: PlannerExecutionStepV2;
@@ -109,6 +140,8 @@ export type PmoDynamicHandlerResult =
         rowsWritten?: Record<string, number>;
         rowsUpdated?: Record<string, number>;
         rowsSkipped?: Record<string, number>;
+        reportRunId?: string | null;
+        report?: unknown;
       };
     }
   | {
@@ -122,6 +155,8 @@ export type PmoDynamicHandlerResult =
         rowsWritten?: Record<string, number>;
         rowsUpdated?: Record<string, number>;
         rowsSkipped?: Record<string, number>;
+        reportRunId?: string | null;
+        report?: unknown;
       };
     };
 

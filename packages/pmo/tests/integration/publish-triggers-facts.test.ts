@@ -12,7 +12,7 @@ const dbCfg = () => ({
 
 const SESSION = '00000000-0000-0000-0000-0000000000cc';
 
-async function seedStagingMemberAndWeek(pool: Pool, tenant: string): Promise<void> {
+async function seedStagingMemberAndWeek(pool: Pool): Promise<void> {
   await pool.query(
     `INSERT INTO pmo.staging_changes
        (ingestion_session_id, table_id, natural_key_hash, change_type, new_values)
@@ -53,7 +53,7 @@ describe('PMO_INGESTION_ADAPTER.publish', () => {
       initPools({ databaseUrl });
       try {
         const tenant = crypto.randomUUID();
-        await seedStagingMemberAndWeek(pool, tenant);
+        await seedStagingMemberAndWeek(pool);
 
         const publishResult = await PMO_INGESTION_ADAPTER.publish({
           ingestionSessionId: SESSION,

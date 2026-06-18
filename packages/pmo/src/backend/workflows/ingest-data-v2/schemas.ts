@@ -184,6 +184,22 @@ export const PublishOutputSchema = z.object({
   status: z.enum(['published', 'rejected']),
 });
 
+const ReportDateRangeSchema = z.object({
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+
+const ReportOutputSchema = z.object({
+  dateRange: ReportDateRangeSchema,
+  summary: z.object({
+    memberCount: z.number().int(),
+    overbookCount: z.number().int(),
+    idleCount: z.number().int(),
+    excludedWeekCount: z.number().int(),
+  }),
+  findings: z.array(z.record(z.string(), z.unknown())),
+});
+
 // ── Dynamic runtime v2 suspend/resume schemas ───────────────────────────────
 
 export const DynamicPlannerResumeSchema = z
@@ -197,6 +213,7 @@ export const DynamicPlannerResumeSchema = z
     mappingOverride: MappingOverrideSchema.optional(),
     mappingOverrides: z.array(MappingOverrideSchema).optional(),
     memberMasterAdditions: z.array(MemberMasterAdditionSchema).optional(),
+    dateRange: ReportDateRangeSchema.optional(),
     note: z.string().optional(),
   })
   .passthrough();
@@ -211,6 +228,8 @@ export const IngestDataV2OutputSchema = z.object({
   rowsWritten: z.record(z.string(), z.number()).default({}),
   rowsUpdated: z.record(z.string(), z.number()).default({}),
   rowsSkipped: z.record(z.string(), z.number()).default({}),
+  reportRunId: z.string().uuid().nullable().optional(),
+  report: ReportOutputSchema.optional(),
 });
 
 export type DynamicPlannerResume = z.infer<typeof DynamicPlannerResumeSchema>;

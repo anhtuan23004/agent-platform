@@ -3,6 +3,7 @@ import {
   buildMappingItemReviewCard,
   buildMappingReviewCard,
   buildPublishReviewCard,
+  buildReportRangeCard,
   collectMappingReviewItems,
 } from '../../../../src/backend/workflows/ingest-data-v2/cards.ts';
 
@@ -385,5 +386,23 @@ describe('PMO ingest review cards', () => {
     expect(rows.some((row) => row.k === 'Rows to skip' && row.v === '3')).toBe(true);
     expect(rows.some((row) => row.k === 'Skip reason')).toBe(true);
     expect(rows.some((row) => /duplicate-in-upload/i.test(`${row.k} ${row.v}`))).toBe(false);
+  });
+
+  it('builds report range confirmation card with suggested date range payload', () => {
+    const card = buildReportRangeCard({
+      ingestionSessionId: 'f56e9152-7856-44e9-b2d7-4f21d86cdffd',
+      suggestedDateRange: { from: '2026-06-01', to: '2026-06-30' },
+      reportTypes: ['idle_members', 'overbook_members'],
+      identity: { tenantId: 'tenant-1', userId: 'user-1' },
+      toolCallId: 'workflow:test:pmo_confirmReportRange',
+    });
+
+    expect(card.intent).toBe('Confirm PMO report date range');
+    expect(card.primary.argsPatch).toEqual({
+      decision: 'approve',
+      dateRange: { from: '2026-06-01', to: '2026-06-30' },
+    });
+    expect(JSON.stringify(card.details)).toContain('2026-06-01');
+    expect(JSON.stringify(card.details)).toContain('2026-06-30');
   });
 });

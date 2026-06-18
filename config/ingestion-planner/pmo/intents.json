@@ -34,8 +34,19 @@
         "workbook_profiling",
         "column_mapping",
         "normalize_to_staging",
+        "database_change_summary"
+      ]
+    },
+    {
+      "intent_mode": "publish_report_intent",
+      "label": "Publish and generate report",
+      "description": "The user explicitly wants to publish or update PMO data and then generate an idle, overbook, utilization, or PMO report from the published data.",
+      "allowed_action_ids": [
+        "workbook_profiling",
+        "column_mapping",
+        "normalize_to_staging",
         "database_change_summary",
-        "publish_after_approval"
+        "generate_report"
       ]
     }
   ]
