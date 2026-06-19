@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import type { AgentRouteEnv } from '../../src/backend/routes.ts';
 import { registerAgentRoutes } from '../../src/backend/routes.ts';
+import { LifecycleDrainer } from '../../src/backend/runtime.ts';
 import type { SessionLike } from '../../src/backend/types.ts';
 import { withAgentTestDb } from '../helpers.ts';
 
@@ -44,7 +45,12 @@ function makeMastra(opts: {
   } as unknown as Mastra;
 }
 
-function makeApp(s: SessionLike | null, mastra: Mastra, pool: import('pg').Pool) {
+function makeApp(
+  s: SessionLike | null,
+  mastra: Mastra,
+  pool: import('pg').Pool,
+  drainer = new LifecycleDrainer(),
+) {
   const app = new Hono<AgentRouteEnv>();
   app.use('*', async (c, next) => {
     if (s) c.set('session', s);
@@ -54,8 +60,9 @@ function makeApp(s: SessionLike | null, mastra: Mastra, pool: import('pg').Pool)
     chatOrchestration: () => stubOrchestration(),
     mastra,
     pool,
+    drainer,
   });
-  return app;
+  return { app, drainer };
 }
 
 describe('POST /api/agent/v1/workflows/runs/:workflowId/start', () => {
@@ -64,7 +71,7 @@ describe('POST /api/agent/v1/workflows/runs/:workflowId/start', () => {
       const s = session();
       const start = vi.fn().mockResolvedValue(undefined);
       const runId = randomUUID();
-      const app = makeApp(s, makeMastra({ start, runId }), pool);
+      const { app } = makeApp(s, makeMastra({ start, runId }), pool);
       const res = await app.request('/api/agent/v1/workflows/runs/assignBySkill/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -104,7 +111,7 @@ describe('POST /api/agent/v1/workflows/runs/:workflowId/start', () => {
 
   it('returns 401 when not authenticated', async () => {
     await withAgentTestDb(async ({ pool }) => {
-      const app = makeApp(null, makeMastra({}), pool);
+      const { app } = makeApp(null, makeMastra({}), pool);
       const res = await app.request('/api/agent/v1/workflows/runs/assignBySkill/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -116,7 +123,7 @@ describe('POST /api/agent/v1/workflows/runs/:workflowId/start', () => {
 
   it('returns 404 for an unknown workflow id', async () => {
     await withAgentTestDb(async ({ pool }) => {
-      const app = makeApp(session(), makeMastra({ unknownWorkflow: true }), pool);
+      const { app } = makeApp(session(), makeMastra({ unknownWorkflow: true }), pool);
       const res = await app.request('/api/agent/v1/workflows/runs/nope/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -133,15 +140,15 @@ describe('POST /api/agent/v1/workflows/runs/:workflowId/start', () => {
       const start = vi
         .fn()
         .mockRejectedValue(Object.assign(new Error('boom'), { code: 'compute_failed' }));
-      const app = makeApp(s, makeMastra({ start, runId }), pool);
+      const { app, drainer } = makeApp(s, makeMastra({ start, runId }), pool);
       const res = await app.request('/api/agent/v1/workflows/runs/assignBySkill/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ taskId: '00000000-0000-0000-0000-000000000001' }),
       });
       expect(res.status).toBe(200);
-      // Wait for the void-Promise catch + projection to flush.
-      await new Promise((r) => setTimeout(r, 50));
+      // Deterministically wait for the fire-and-forget run-failed projection.
+      await drainer.drain();
       const row = await pool.query(
         `SELECT status, error_summary FROM agent.workflow_runs WHERE run_id = $1`,
         [runId],
@@ -154,7 +161,7 @@ describe('POST /api/agent/v1/workflows/runs/:workflowId/start', () => {
   it('returns 400 when the caller smuggles a session field in the body', async () => {
     await withAgentTestDb(async ({ pool }) => {
       const start = vi.fn();
-      const app = makeApp(session(), makeMastra({ start }), pool);
+      const { app } = makeApp(session(), makeMastra({ start }), pool);
       const res = await app.request('/api/agent/v1/workflows/runs/assignBySkill/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -200,7 +207,7 @@ describe('POST /api/agent/v1/workflows/runs/:workflowId/start', () => {
         } as unknown as Mastra;
         // Wire createRun separately so we can assert it wasn't called.
         createRun.mockResolvedValue({ runId: randomUUID(), start });
-        const app = makeApp(s, mastra, pool);
+        const { app } = makeApp(s, mastra, pool);
 
         const res = await app.request('/api/agent/v1/workflows/runs/assignBySkill/start', {
           method: 'POST',
@@ -227,7 +234,7 @@ describe('POST /api/agent/v1/workflows/runs/:workflowId/start', () => {
         const s = session();
         const runId = randomUUID();
         const start = vi.fn().mockResolvedValue(undefined);
-        const app = makeApp(s, makeMastra({ start, runId }), pool);
+        const { app } = makeApp(s, makeMastra({ start, runId }), pool);
 
         const res = await app.request('/api/agent/v1/workflows/runs/assignBySkill/start', {
           method: 'POST',

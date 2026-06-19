@@ -53,6 +53,17 @@ export function createAgentMastraStorage(deps: { pool: Pool }): MastraCompositeS
 export class LifecycleDrainer {
   readonly #pending = new Set<Promise<void>>();
 
+  /** Registers an arbitrary in-flight Promise so drain() can await it. */
+  track(p: Promise<unknown>): void {
+    const vp = p
+      .then(
+        () => {},
+        () => {},
+      )
+      .finally(() => this.#pending.delete(vp));
+    this.#pending.add(vp);
+  }
+
   /** Wraps an async handler, registering its Promise so drain() can await it. */
   wrap(fn: (raw: unknown) => Promise<void>): (raw: unknown) => void {
     return (raw: unknown) => {
