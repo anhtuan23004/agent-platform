@@ -674,7 +674,7 @@ export function PmoNormalizationReviewPanel(props: PmoNormalizationReviewPanelPr
               type="button"
               size="sm"
               variant="primary"
-              disabled={!canApproveNormalization}
+              disabled={!canApproveNormalization || isSubmittingNormalizationDecision}
               onClick={approveNormalization}
             >
               {isSubmittingNormalizationDecision
