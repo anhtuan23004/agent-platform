@@ -366,25 +366,27 @@ export function mountWorkflowRoutes(app: Hono<AgentRouteEnv>, deps: AgentRouteDe
             err,
           });
         }
-        void onLifecycleEvent(deps.pool, {
-          kind: 'run-failed',
-          runId: run.runId,
-          eventSeq: -2,
-          workflowId: projectedWorkflowId,
-          tenantId: session.tenant_id,
-          occurredAt: new Date(),
-          durationMs: Date.now() - startedAt,
-          error: { code, message },
-        }).catch((projErr) => {
-          if (deps.log) {
-            deps.log.error(
-              { subsystem: 'agent.workflow.start', runId: run.runId, err: projErr },
-              'failed to project run-failed event',
-            );
-          } else {
-            console.error('[agent.workflow.start.project-fail]', projErr);
-          }
-        });
+        deps.drainer.track(
+          onLifecycleEvent(deps.pool, {
+            kind: 'run-failed',
+            runId: run.runId,
+            eventSeq: -2,
+            workflowId: projectedWorkflowId,
+            tenantId: session.tenant_id,
+            occurredAt: new Date(),
+            durationMs: Date.now() - startedAt,
+            error: { code, message },
+          }).catch((projErr) => {
+            if (deps.log) {
+              deps.log.error(
+                { subsystem: 'agent.workflow.start', runId: run.runId, err: projErr },
+                'failed to project run-failed event',
+              );
+            } else {
+              console.error('[agent.workflow.start.project-fail]', projErr);
+            }
+          }),
+        );
       });
       console.log('[workflow.start] → run created', {
         runId: run.runId,
