@@ -479,8 +479,7 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
   const isMappingReadOnly = !isCurrent && Boolean(selectedMappingApproval);
   const shouldRenderMappingDetails =
     isLikelyMappingStep && (isCurrent || Boolean(selectedMappingApproval));
-  const isNormalizationReadOnly =
-    Boolean(selectedNormalizationApproval) && selectedNormalizationApproval?.status !== 'pending';
+  const isNormalizationReadOnly = !isCurrent && Boolean(selectedNormalizationApproval);
   const shouldRenderNormalizationDetails =
     isLikelyNormalizationStep &&
     (isCurrent || Boolean(selectedNormalizationApproval) || Boolean(step.output_summary));

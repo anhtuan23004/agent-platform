@@ -11,6 +11,9 @@ export interface WorkflowApprovalRow {
   surfaceCanvas: boolean;
   surfaceChatThreadId: string | null;
   agentic: boolean;
+  status: 'pending';
+  decisionPayload: null;
+  decidedAt: null;
   expiresAt: Date;
   createdAt: Date;
 }
@@ -50,6 +53,9 @@ export async function listMyPendingApprovals(opts: {
     surfaceCanvas: r.surface_canvas,
     surfaceChatThreadId: r.surface_chat_thread_id,
     agentic: r.mastra_run_id != null,
+    status: 'pending' as const,
+    decisionPayload: null,
+    decidedAt: null,
     expiresAt: r.expires_at instanceof Date ? r.expires_at : new Date(r.expires_at),
     createdAt: r.created_at instanceof Date ? r.created_at : new Date(r.created_at),
   }));
