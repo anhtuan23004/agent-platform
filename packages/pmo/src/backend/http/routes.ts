@@ -1020,6 +1020,7 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
         mime_type: ingestionSessions.mime_type,
         created_at: ingestionSessions.created_at,
         status: ingestionSessions.status,
+        workflow_step_status: ingestionSessions.workflow_step_status,
         planning_plan_version: ingestionSessions.planning_plan_version,
         planning_feedback_history: ingestionSessions.planning_feedback_history,
       })
@@ -1038,6 +1039,16 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
     }
 
     const currentState = readPlanningState(row.status);
+    if (row.workflow_step_status === 'cancelled') {
+      return c.json(
+        {
+          error: 'invalid_state',
+          message: 'Cancelled upload sessions cannot generate a plan.',
+        },
+        409,
+      );
+    }
+
     if (currentState === 'approved_plan') {
       return c.json(
         {
@@ -1412,6 +1423,7 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
     const rows = await db
       .select({
         id: ingestionSessions.id,
+        planning_plan: ingestionSessions.planning_plan,
         workflow_execution_state: ingestionSessions.workflow_execution_state,
       })
       .from(ingestionSessions)
@@ -1428,16 +1440,10 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
       return c.json({ error: 'not_found', message: 'ingestion session not found' }, 404);
     }
 
-    const executionState = readExecutionState(row.workflow_execution_state);
-    if (!executionState || executionState.steps.length === 0) {
-      return c.json(
-        {
-          error: 'invalid_state',
-          message: 'Workflow is not started or has no execution steps.',
-        },
-        409,
-      );
-    }
+    const nowIso = new Date().toISOString();
+    const executionState =
+      readExecutionState(row.workflow_execution_state) ??
+      createInitialExecutionState(row.planning_plan, nowIso);
 
     if (
       executionState.current_step_status === 'completed' ||
@@ -1453,9 +1459,9 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
       );
     }
 
-    const nowIso = new Date().toISOString();
     const nextExecutionState: WorkflowExecutionState = {
       ...executionState,
+      started_at: executionState.started_at || nowIso,
       updated_at: nowIso,
       current_step_status: 'cancelled',
       steps: cancelOpenWorkflowSteps(executionState.steps),

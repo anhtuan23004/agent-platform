@@ -50,6 +50,7 @@ interface UsePmoSessionActionsResult {
   refreshPage: () => void;
   onFile: (file: File) => Promise<void>;
   handleAnalyzeGeneratePlan: () => Promise<void>;
+  handleGeneratePlanForSession: (session: PmoPlanningSession) => Promise<void>;
   handleRegeneratePlan: () => Promise<void>;
   handleApprovePlanAndStart: () => Promise<void>;
   handleConfirmPlanIntent: () => Promise<void>;
@@ -57,6 +58,7 @@ interface UsePmoSessionActionsResult {
   handleSaveProfilingReview: () => Promise<void>;
   handleApproveProfilingContinue: () => Promise<void>;
   isWorkflowCancelable: (run: PmoPlanningSession) => boolean;
+  isSessionGeneratable: (run: PmoPlanningSession) => boolean;
   handleCancelWorkflow: (run: PmoPlanningSession) => Promise<void>;
 }
 
@@ -163,6 +165,51 @@ export function usePmoSessionActions(
       setIsGenerating(false);
     }
   }, [goalDraft, isGenerating, loadSessions, setSelectedSessionId, targetGenerateSessionId]);
+
+  const handleGeneratePlanForSession = useCallback(
+    async (session: PmoPlanningSession) => {
+      if (session.planning_state !== 'uploaded') {
+        toast.error('Cannot generate plan', {
+          description: 'Plan generation is available only for uploaded sessions.',
+        });
+        return;
+      }
+
+      if (session.workflow_step_status === 'cancelled') {
+        toast.error('Cannot generate plan', {
+          description: 'This upload session has been cancelled.',
+        });
+        return;
+      }
+
+      if (isGenerating) {
+        return;
+      }
+
+      const goal = goalDraft.trim() || session.goal || 'Generate plan from uploaded workbook.';
+
+      setIsGenerating(true);
+      try {
+        await pmoApi.generatePlan({
+          ingestion_session_id: session.ingestion_session_id,
+          goal,
+        });
+        setSelectedSessionId(session.ingestion_session_id);
+        setIsReviewPanelOpen(true);
+        await loadSessions(true);
+
+        toast.success('Plan generated', {
+          description: 'Upload history status moved to Plan Review.',
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Plan generation failed.';
+        toast.error('Generate failed', { description: message });
+      } finally {
+        setIsGenerating(false);
+      }
+    },
+    [goalDraft, isGenerating, loadSessions, setIsReviewPanelOpen, setSelectedSessionId],
+  );
 
   const handleRegeneratePlan = useCallback(async () => {
     if (!selectedSession) {
@@ -449,6 +496,7 @@ export function usePmoSessionActions(
     (run: PmoPlanningSession): boolean => {
       const runtimeStatus = runtimeRunBySessionId.get(run.ingestion_session_id)?.status;
       return (
+        (run.planning_state === 'uploaded' && run.workflow_step_status !== 'cancelled') ||
         isRuntimeRunCancelable(runtimeStatus) ||
         run.workflow_step_status === 'in_progress' ||
         run.workflow_step_status === 'needs_review'
@@ -456,6 +504,10 @@ export function usePmoSessionActions(
     },
     [isRuntimeRunCancelable, runtimeRunBySessionId],
   );
+
+  const isSessionGeneratable = useCallback((run: PmoPlanningSession): boolean => {
+    return run.planning_state === 'uploaded' && run.workflow_step_status !== 'cancelled';
+  }, []);
 
   const handleCancelWorkflow = useCallback(
     async (run: PmoPlanningSession) => {
@@ -479,7 +531,9 @@ export function usePmoSessionActions(
         const runtimeRun = runtimeRunBySessionId.get(run.ingestion_session_id);
         const shouldCancelRuntime = isRuntimeRunCancelable(runtimeRun?.status);
         const shouldCancelPmo =
-          run.workflow_step_status === 'in_progress' || run.workflow_step_status === 'needs_review';
+          run.planning_state === 'uploaded' ||
+          run.workflow_step_status === 'in_progress' ||
+          run.workflow_step_status === 'needs_review';
 
         let canceledRuntime = false;
         let canceledPmo = false;
@@ -557,6 +611,7 @@ export function usePmoSessionActions(
     refreshPage,
     onFile,
     handleAnalyzeGeneratePlan,
+    handleGeneratePlanForSession,
     handleRegeneratePlan,
     handleApprovePlanAndStart,
     handleConfirmPlanIntent,
@@ -564,6 +619,7 @@ export function usePmoSessionActions(
     handleSaveProfilingReview,
     handleApproveProfilingContinue,
     isWorkflowCancelable,
+    isSessionGeneratable,
     handleCancelWorkflow,
   };
 }

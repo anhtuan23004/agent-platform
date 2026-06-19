@@ -127,6 +127,7 @@ jobs:
           AWS_REGION:            ${{ env.AWS_REGION }}
           AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ECR_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_ECR_SECRET_ACCESS_KEY }}
+          S3_BUCKET:             ${{ vars.S3_BUCKET }}
           APP_DOMAIN:            ${{ vars.APP_DOMAIN }}
           OPENAI_API_KEY:        ${{ secrets.OPENAI_API_KEY }}
           # ACME_EMAIL is optional — falls back to organizer address for cert notifications.
@@ -140,10 +141,11 @@ jobs:
           username:        ${{ vars.EC2_USER || 'ubuntu' }}
           key:             ${{ secrets.EC2_SSH_PRIVATE_KEY }}
           command_timeout: 25m
-          envs:            ECR_REGISTRY,ECR_REPOSITORY,IMAGE_TAG,AWS_REGION,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,APP_DOMAIN,OPENAI_API_KEY,ACME_EMAIL,GITHUB_REPO,GITHUB_REF_NAME
+          envs:            ECR_REGISTRY,ECR_REPOSITORY,IMAGE_TAG,AWS_REGION,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,S3_BUCKET,APP_DOMAIN,OPENAI_API_KEY,ACME_EMAIL,GITHUB_REPO,GITHUB_REF_NAME
           script: |
             set -euo pipefail
             echo "=== Deploying $GITHUB_REPO@$GITHUB_REF_NAME tag=$IMAGE_TAG ==="
+            : "${S3_BUCKET:?S3_BUCKET GitHub environment variable is required for PMO uploads}"
 
             aws ecr get-login-password --region "$AWS_REGION" \
               | docker login --username AWS --password-stdin "$ECR_REGISTRY"
@@ -199,6 +201,11 @@ jobs:
             BETTER_AUTH_SECRET=$BETTER_AUTH_SECRET
             SESSION_COOKIE_SAMESITE=strict
             CORS_ORIGINS=https://$APP_DOMAIN
+            AWS_REGION=$AWS_REGION
+            AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+            AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
+            S3_REGION=$AWS_REGION
+            S3_BUCKET=$S3_BUCKET
             OPENAI_API_KEY=$OPENAI_API_KEY
             CRYPTO_KEY_PROVIDER=env
             CRYPTO_LOCAL_MASTER_KEY=$CRYPTO_LOCAL_MASTER_KEY
