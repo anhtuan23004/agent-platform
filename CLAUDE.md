@@ -8,6 +8,8 @@ Contract for coding agents (Claude Code, Codex, any `AGENTS.md`-aware tool) work
 - [`docs/rbac.md`](docs/rbac.md) — how access control works, conceptually (for contributors + agents; no code).
 - [`docs/creating-modules.md`](docs/creating-modules.md) — add a new module + agent tool via `pnpm gen module`.
 - [`docs/dev-quickstart.md`](docs/dev-quickstart.md) — first tenant and accounts on a fresh DB.
+- [`docs/rules/adding-pmo-planner-step.md`](docs/rules/adding-pmo-planner-step.md) — add or change a PMO ingest planner step.
+- [`packages/pmo/README.md`](packages/pmo/README.md) and [`packages/pmo/docs/`](packages/pmo/docs/) — PMO domain model, data flows, formulas, and analytics contracts.
 - [`docs/hosting/`](docs/hosting/) — self-host (docker compose, AWS, scaling, upgrading).
 - [`DESIGN.md`](DESIGN.md) — design tokens and the `packages/shared-ui` contract.
 - [`/.env.example`](.env.example) — every variable the stack reads.
@@ -38,6 +40,22 @@ For `@mastra/core` API names, consult the sibling checkout at `../mastra/` inste
 **No cross-module data-handle sharing.** A module never hands its Drizzle client to another module. Mutation crosses the boundary only through public-surface function calls (RBAC re-checked at the callee) or domain events.
 
 **The bus is the outbox.** State change + event row commit in one transaction via `core.emit()` inside `withEmit(session, ...)`. No separate publish path. `LISTEN/NOTIFY` wakes subscribers; the 2s poll covers dropped notifies. Audit lives in `core.events` alongside domain events.
+
+## PMO use case
+
+PMO work lives in `packages/pmo/` and the web module under `apps/web/src/modules/pmo/`. Treat it as a production domain, not a demo surface: preserve tenant scoping, RBAC, HITL write approvals, persisted workflow state, deterministic analytics, and auditable events.
+
+**Canonical PMO paths:**
+- Planner catalog: `config/ingestion-planner/pmo/{steps,intents,classification-rules,examples}.json`.
+- Backend contracts and public surface: `packages/pmo/src/contracts.ts`, `packages/pmo/src/index.ts`, `packages/pmo/src/register.ts`, `packages/pmo/src/rbac.ts`.
+- Dynamic ingest planner/runtime: `packages/pmo/src/backend/planning/` and `packages/pmo/src/backend/workflows/ingest-data-v2/`.
+- Domain data and analytics: `packages/pmo/src/backend/db/`, `packages/pmo/src/backend/analytics/`, `packages/pmo/src/backend/profiling/`, plus `packages/pmo/docs/`.
+- Web UI: `apps/web/src/modules/pmo/api/`, `apps/web/src/modules/pmo/components/`, `apps/web/src/modules/pmo/hooks/`, and `apps/web/src/modules/pmo/pages/`.
+- Tests: `packages/pmo/tests/{unit,integration,contract}/` and PMO web tests under `apps/web/tests/` when UI behavior changes.
+
+When adding or changing a PMO planner step, follow `docs/rules/adding-pmo-planner-step.md` end to end: catalog metadata, backend schemas and step metadata, runtime state, handler registration, HITL cards, persistence or agent tools, frontend client/types/rendering, resume hooks, and focused tests. Keep `action_id`, `review_type`, intent modes, runtime statuses, card metadata, and frontend detectors in sync across layers.
+
+PMO analytics should be code-driven and testable. Do not move resource allocation formulas, overbooking/idle detection, normalization, or tenant-scoped reporting rules into prompts. Prompts may classify user intent or draft explanations, but persisted calculations and workflow decisions must remain validated TypeScript and SQL/Drizzle logic inside the PMO module.
 
 ## Workspace shape
 
