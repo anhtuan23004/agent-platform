@@ -1,3 +1,4 @@
+import { classifyRag } from './classify.ts';
 import { dateInWeek } from './dates.ts';
 import { ensureFactsComputed } from './ensure-facts-computed.ts';
 import {
@@ -6,13 +7,15 @@ import {
   detectOverbookIdle,
   type MemberAnalysis,
 } from './findings.ts';
-import { loadFactsAndContext } from './findings-context.ts';
 import { LEAVE_TYPE_APPROVED_OT_COMP, LEAVE_TYPE_TRAINING } from './leave-type.ts';
 import type { CanonicalInputs } from './load-canonical.ts';
 import { loadCanonicalInputs } from './load-canonical.ts';
+import { buildMemberWeekFacts } from './member-week-facts.ts';
+import { loadMemberWeekFacts } from './persist-facts.ts';
 import { splitPmoPopulations } from './populations.ts';
 import { buildProjectMemberDependencies, type ProjectMemberDependency } from './project-members.ts';
-import { resolveThresholds } from './thresholds.ts';
+import type { ConfigRow } from './thresholds.ts';
+import { resolveThresholds, selectThresholdConfig } from './thresholds.ts';
 import type {
   AllocationRow,
   Finding,
@@ -142,6 +145,11 @@ export interface DemoCanonicalInputs {
 export interface DemoAnalyticsResult {
   reportingWindow: { start: string; end: string };
   thresholds: Thresholds;
+  thresholdConfig: {
+    configId: string | null;
+    ruleName: string | null;
+    effectiveDate: string | null;
+  };
   inputCounts: {
     members: number;
     projects: number;
@@ -160,6 +168,13 @@ export interface DemoAnalyticsResult {
   memberAnalyses: DemoMemberAnalysisRow[];
   overbookIdleFindings: DemoFindingRow[];
   mismatchFindings: DemoFindingRow[];
+}
+
+export interface DemoAnalyticsOptions {
+  dateRange?: { from: Date; to: Date };
+  configEffectiveDate?: Date;
+  ingestionSessionId?: string;
+  thresholdOverrides?: Partial<Thresholds>;
 }
 
 function isoDate(d: Date | null | undefined): string | null {
@@ -194,7 +209,34 @@ function serializeFinding(f: Finding): DemoFindingRow {
   };
 }
 
-function serializeFact(f: MemberWeekFact): DemoMemberWeekRow {
+function classifyFact(
+  f: MemberWeekFact,
+  thresholds: Thresholds,
+): Pick<MemberWeekFact, 'ragColor' | 'issueType'> {
+  return classifyRag(
+    {
+      availableHours: f.availableHours,
+      plannedHours: f.plannedHours,
+      loggedHours: f.loggedHours,
+      expectedLoggedHours: f.expectedLoggedHours,
+      billableHours: f.billableHours,
+      benchHours: f.benchHours,
+      overtimeHours: f.overtimeHours,
+      trainingHours: f.trainingHours,
+      busyRate: f.busyRate,
+      utilization: f.utilization,
+      billableRate: f.billableRate,
+      benchRate: f.benchRate,
+      overtimeRatio: f.overtimeRatio,
+      effortConsumption: f.effortConsumption,
+      trainingCompliance: f.trainingCompliance,
+    },
+    thresholds,
+  );
+}
+
+function serializeFact(f: MemberWeekFact, thresholds: Thresholds): DemoMemberWeekRow {
+  const classification = classifyFact(f, thresholds);
   return {
     memberId: f.memberId,
     weekId: f.weekId,
@@ -205,8 +247,8 @@ function serializeFact(f: MemberWeekFact): DemoMemberWeekRow {
     expectedLoggedHours: f.expectedLoggedHours,
     busyRate: f.busyRate,
     effortConsumption: f.effortConsumption,
-    ragColor: f.ragColor,
-    issueType: f.issueType,
+    ragColor: classification.ragColor,
+    issueType: classification.issueType,
     suppressionReason: null,
   };
 }
@@ -339,12 +381,52 @@ function reportingWindow(weeks: WeekRow[]): { start: string; end: string } {
   };
 }
 
+function thresholdConfigMeta(row: ConfigRow | undefined): DemoAnalyticsResult['thresholdConfig'] {
+  return {
+    configId: row?.config_id ?? null,
+    ruleName: row?.rule_name ?? null,
+    effectiveDate: isoDate(row?.effective_date) ?? null,
+  };
+}
+
+function applyThresholdOverrides(base: Thresholds, overrides?: Partial<Thresholds>): Thresholds {
+  if (!overrides) return base;
+  return {
+    ...base,
+    ...(overrides.overbookThreshold !== undefined
+      ? { overbookThreshold: overrides.overbookThreshold }
+      : {}),
+    ...(overrides.overbookRedThreshold !== undefined
+      ? { overbookRedThreshold: overrides.overbookRedThreshold }
+      : {}),
+    ...(overrides.idleThreshold !== undefined ? { idleThreshold: overrides.idleThreshold } : {}),
+    ...(overrides.mismatchPctThreshold !== undefined
+      ? { mismatchPctThreshold: overrides.mismatchPctThreshold }
+      : {}),
+    ...(overrides.otMaxHoursPerWeek !== undefined
+      ? { otMaxHoursPerWeek: overrides.otMaxHoursPerWeek }
+      : {}),
+    ...(overrides.requiredTrainingHours !== undefined
+      ? { requiredTrainingHours: overrides.requiredTrainingHours }
+      : {}),
+  };
+}
+
 export function buildDemoAnalyticsResult(
   canonical: CanonicalInputs,
   facts: MemberWeekFact[],
+  options: Pick<DemoAnalyticsOptions, 'configEffectiveDate' | 'thresholdOverrides'> = {},
 ): DemoAnalyticsResult {
   const { members, projects, allocations, timesheets, leaves, weeks, configRows } = canonical;
-  const thresholds = resolveThresholds(configRows);
+  const selectedConfig = selectThresholdConfig(configRows, {
+    effectiveDate: options.configEffectiveDate,
+  });
+  const thresholds = applyThresholdOverrides(
+    resolveThresholds(configRows, { effectiveDate: options.configEffectiveDate }),
+    options.thresholdOverrides,
+  );
+  const weekIds = new Set(weeks.map((w) => w.week_id));
+  const scopedFacts = facts.filter((f) => weekIds.has(f.weekId));
   const { deliveryMembers, projectManagers } = splitPmoPopulations(members, projects);
   const projectMemberDependencies = buildProjectMemberDependencies(
     projects,
@@ -354,9 +436,9 @@ export function buildDemoAnalyticsResult(
 
   const weeksById = new Map(weeks.map((w) => [w.week_id, w]));
   const ctx = { leaves, weeksById, thresholds };
-  const overbookIdle = detectOverbookIdle(facts, ctx);
-  const mismatch = detectMismatch(facts, ctx);
-  const analyses = analyzeMembers(facts, ctx);
+  const overbookIdle = detectOverbookIdle(scopedFacts, ctx);
+  const mismatch = detectMismatch(scopedFacts, ctx);
+  const analyses = analyzeMembers(scopedFacts, ctx);
 
   const memberIdToLeaves = new Map<string, LeaveRow[]>();
   for (const l of leaves) {
@@ -369,6 +451,7 @@ export function buildDemoAnalyticsResult(
   return {
     reportingWindow: reportingWindow(weeks),
     thresholds,
+    thresholdConfig: thresholdConfigMeta(selectedConfig),
     inputCounts: {
       members: members.length,
       projects: projects.length,
@@ -383,8 +466,8 @@ export function buildDemoAnalyticsResult(
       projectManagers: projectManagers.map(serializeMember),
     },
     projectMemberDependencies: projectMemberDependencies.map(serializeProjectMemberDependency),
-    memberWeekFacts: facts.map((f) => {
-      const row = serializeFact(f);
+    memberWeekFacts: scopedFacts.map((f) => {
+      const row = serializeFact(f, thresholds);
       const week = weeksById.get(f.weekId);
       row.suppressionReason = suppressionReasonForFact(
         f,
@@ -401,18 +484,48 @@ export function buildDemoAnalyticsResult(
   };
 }
 
-export async function runDemoAnalytics(tenantId: string): Promise<DemoAnalyticsResult> {
-  const canonical = await loadCanonicalInputs(tenantId);
+export async function runDemoAnalytics(
+  tenantId: string,
+  options: DemoAnalyticsOptions = {},
+): Promise<DemoAnalyticsResult> {
+  const canonical = await loadCanonicalInputs(tenantId, {
+    dateRange: options.dateRange,
+    ingestionSessionId: options.ingestionSessionId,
+  });
   if (canonical.members.length === 0 || canonical.weeks.length === 0) {
     throw new DemoAnalyticsNoDataError();
   }
 
-  await ensureFactsComputed(tenantId);
-
-  const { facts } = await loadFactsAndContext(tenantId);
+  const facts = options.ingestionSessionId
+    ? buildSessionScopedFacts(canonical)
+    : await loadPersistedFacts(
+        tenantId,
+        canonical.weeks.map((week) => week.week_id),
+      );
   if (facts.length === 0) {
     throw new DemoAnalyticsNoDataError();
   }
 
-  return buildDemoAnalyticsResult(canonical, facts);
+  return buildDemoAnalyticsResult(canonical, facts, {
+    configEffectiveDate: options.configEffectiveDate ?? options.dateRange?.from,
+    thresholdOverrides: options.thresholdOverrides,
+  });
+}
+
+async function loadPersistedFacts(tenantId: string, weekIds: string[]): Promise<MemberWeekFact[]> {
+  await ensureFactsComputed(tenantId);
+  return loadMemberWeekFacts(tenantId, { weekIds });
+}
+
+function buildSessionScopedFacts(canonical: CanonicalInputs): MemberWeekFact[] {
+  const thresholds = resolveThresholds(canonical.configRows);
+  const { deliveryMembers } = splitPmoPopulations(canonical.members, canonical.projects);
+  return buildMemberWeekFacts({
+    members: deliveryMembers,
+    allocations: canonical.allocations,
+    timesheets: canonical.timesheets,
+    leaves: canonical.leaves,
+    weeks: canonical.weeks,
+    thresholds,
+  });
 }

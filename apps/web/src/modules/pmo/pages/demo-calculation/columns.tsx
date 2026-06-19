@@ -6,6 +6,8 @@ import type {
   DemoProjectMemberDependencyRow,
 } from '../../api/demo-analytics.ts';
 import { excludedCell, nullish, pct, ragBadge, reasonBadge } from './formatters.tsx';
+import { MetricHelpLabel } from './metric-help.tsx';
+import { METRIC_HELP } from './metric-help-copy.ts';
 
 function memberLabelCell(getMemberLabel: (memberId: string) => string) {
   return ({ row }: { row: { original: { memberId: string } } }) => (
@@ -68,32 +70,50 @@ export const factColumns = (
     ),
   },
   { accessorKey: 'weekId', header: 'Week' },
-  { accessorKey: 'scopeStatus', header: 'Scope' },
+  {
+    accessorKey: 'scopeStatus',
+    header: () => <MetricHelpLabel help={METRIC_HELP.scope}>Scope</MetricHelpLabel>,
+  },
   {
     accessorKey: 'suppressionReason',
-    header: 'Reason',
+    header: () => <MetricHelpLabel help={METRIC_HELP.reason}>Reason</MetricHelpLabel>,
     cell: ({ row }) => reasonBadge(row.original.suppressionReason),
   },
-  { accessorKey: 'availableHours', header: 'Available' },
-  { accessorKey: 'plannedHours', header: 'Planned' },
-  { accessorKey: 'loggedHours', header: 'Logged' },
-  { accessorKey: 'expectedLoggedHours', header: 'Expected log' },
+  {
+    accessorKey: 'availableHours',
+    header: () => <MetricHelpLabel help={METRIC_HELP.available}>Available</MetricHelpLabel>,
+  },
+  {
+    accessorKey: 'plannedHours',
+    header: () => <MetricHelpLabel help={METRIC_HELP.planned}>Planned</MetricHelpLabel>,
+  },
+  {
+    accessorKey: 'loggedHours',
+    header: () => <MetricHelpLabel help={METRIC_HELP.logged}>Logged</MetricHelpLabel>,
+  },
+  {
+    accessorKey: 'expectedLoggedHours',
+    header: () => <MetricHelpLabel help={METRIC_HELP.expectedLogged}>Expected log</MetricHelpLabel>,
+  },
   {
     accessorKey: 'busyRate',
-    header: 'Busy rate',
+    header: () => <MetricHelpLabel help={METRIC_HELP.busyRate}>Busy rate</MetricHelpLabel>,
     cell: ({ row }) => pct(row.original.busyRate),
   },
   {
     accessorKey: 'effortConsumption',
-    header: 'EC',
+    header: () => <MetricHelpLabel help={METRIC_HELP.effortConsumption}>EC</MetricHelpLabel>,
     cell: ({ row }) => pct(row.original.effortConsumption),
   },
   {
     accessorKey: 'ragColor',
-    header: 'RAG',
+    header: () => <MetricHelpLabel help={METRIC_HELP.rag}>RAG</MetricHelpLabel>,
     cell: ({ row }) => ragBadge(row.original.ragColor),
   },
-  { accessorKey: 'issueType', header: 'Issue' },
+  {
+    accessorKey: 'issueType',
+    header: () => <MetricHelpLabel help={METRIC_HELP.issue}>Issue</MetricHelpLabel>,
+  },
 ];
 
 export const analysisColumns = (
@@ -106,20 +126,25 @@ export const analysisColumns = (
       <span className="font-medium text-ink">{getMemberLabel(row.original.memberId)}</span>
     ),
   },
-  { accessorKey: 'inScopeWeekCount', header: 'In-scope weeks' },
+  {
+    accessorKey: 'inScopeWeekCount',
+    header: () => <MetricHelpLabel help={METRIC_HELP.inScopeWeeks}>In-scope weeks</MetricHelpLabel>,
+  },
   {
     accessorKey: 'busyRate',
-    header: 'Busy rate',
+    header: () => <MetricHelpLabel help={METRIC_HELP.busyRate}>Busy rate</MetricHelpLabel>,
     cell: ({ row }) => pct(row.original.busyRate),
   },
   {
     accessorKey: 'effortConsumption',
-    header: 'EC',
+    header: () => <MetricHelpLabel help={METRIC_HELP.effortConsumption}>EC</MetricHelpLabel>,
     cell: ({ row }) => pct(row.original.effortConsumption),
   },
   {
     id: 'excluded',
-    header: 'Excluded weeks',
+    header: () => (
+      <MetricHelpLabel help={METRIC_HELP.excludedWeeks}>Excluded weeks</MetricHelpLabel>
+    ),
     cell: ({ row }) => excludedCell(row.original.excludedWeeks),
   },
 ];

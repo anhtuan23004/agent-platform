@@ -1,4 +1,4 @@
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { pmoDb } from '../db/client.ts';
 import { memberWeekFacts } from '../db/schema.ts';
 import { loadCanonicalInputs } from './load-canonical.ts';
@@ -115,13 +115,30 @@ function sqlExcluded(column: string) {
   return sql.raw(`excluded.${column}`);
 }
 
+export interface LoadMemberWeekFactsOptions {
+  weekIds?: string[];
+  ingestionSessionId?: string;
+}
+
 /** Load the persisted facts for a tenant (used by the detect tools). */
-export async function loadMemberWeekFacts(tenantId: string): Promise<MemberWeekFact[]> {
+export async function loadMemberWeekFacts(
+  tenantId: string,
+  options: LoadMemberWeekFactsOptions = {},
+): Promise<MemberWeekFact[]> {
   const db = pmoDb();
+  const filters = [eq(memberWeekFacts.tenant_id, tenantId)];
+  if (options.weekIds) {
+    if (options.weekIds.length === 0) return [];
+    filters.push(inArray(memberWeekFacts.week_id, options.weekIds));
+  }
+  if (options.ingestionSessionId) {
+    filters.push(eq(memberWeekFacts.last_ingestion_session_id, options.ingestionSessionId));
+  }
+
   const rows = await db
     .select()
     .from(memberWeekFacts)
-    .where(eq(memberWeekFacts.tenant_id, tenantId));
+    .where(and(...filters));
 
   return rows.map((r) => ({
     memberId: r.member_id,

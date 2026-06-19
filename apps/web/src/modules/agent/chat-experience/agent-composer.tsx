@@ -4,8 +4,15 @@ import { X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { ModelSelector } from '../components/model-selector';
 import { useChatAttachments } from '../hooks/use-chat-attachments';
-import { AGENT_COPY } from '../i18n';
-import { useAgentRuntimeContext, useAgentSelection, usePanelUI } from './agent-provider';
+import { usePmoChatIngestAttachments } from '../hooks/use-pmo-chat-ingest-attachments';
+import { CHAT_AGENT_COPY } from '../i18n';
+import {
+  useAgentRuntimeContext,
+  useAgentSelection,
+  useChatAgent,
+  usePanelUI,
+  usePmoIngestSendRef,
+} from './agent-provider';
 
 interface AgentComposerProps {
   compact?: boolean;
@@ -16,29 +23,35 @@ export function AgentComposer({ compact = false }: AgentComposerProps) {
   const aui = useAui();
   const isRunning = useAuiState((s) => s.thread.isRunning);
   const { selection, actions } = useAgentSelection();
+  const { chatAgent } = useChatAgent();
   const { pendingPrompt, setPendingPrompt } = usePanelUI();
   const { runError, clearRunError } = useAgentRuntimeContext();
-  const { attachments, attach, remove, reset, warning } = useChatAttachments(selection.threadId);
+  const pmoIngestSendRef = usePmoIngestSendRef();
+  const staffingAttachments = useChatAttachments(selection.threadId);
+  const pmoIngestAttachments = usePmoChatIngestAttachments(selection.threadId);
+  const isPmo = chatAgent === 'pmo';
+  const attachments = isPmo ? pmoIngestAttachments.attachments : staffingAttachments.attachments;
+  const attach = isPmo ? pmoIngestAttachments.attach : staffingAttachments.attach;
+  const remove = isPmo ? pmoIngestAttachments.remove : staffingAttachments.remove;
+  const reset = isPmo ? pmoIngestAttachments.reset : staffingAttachments.reset;
+  const warning = isPmo ? pmoIngestAttachments.warning : staffingAttachments.warning;
+  const pendingIngestSessionId = isPmo ? pmoIngestAttachments.pendingIngestSessionId : null;
 
   const submit = () => {
     if (!value.trim() || isRunning) return;
     if (attachmentsBlockSend(attachments)) return;
-    // A fresh send clears any prior run error (e.g. a context-overflow 413).
     clearRunError();
-    // Page-context attachment is wired in useAgentRuntime's toCreateMessage
-    // override (assistant-ui v0.14.5 rejects arbitrary parts on composer.addAttachment).
+    if (isPmo && pendingIngestSessionId) {
+      pmoIngestSendRef.current = { ingestionSessionId: pendingIngestSessionId };
+    } else if (!isPmo) {
+      pmoIngestSendRef.current = {};
+    }
     aui.composer().setText(value);
     aui.composer().send();
     setValue('');
-    // Files persist server-side keyed by thread_id; the orchestrator finds them
-    // on this and future turns. Clear the upload chips for the next message.
     reset();
   };
 
-  // One-shot pending prompt from external callers (e.g. planner "Suggest
-  // assignee" button). Only autoSend mode is wired today; non-autoSend can
-  // be added later by routing through aui.composer().setText (the local
-  // `value` mirror is updated by aui via the ChatComposer onChange).
   useEffect(() => {
     if (!pendingPrompt || isRunning) return;
     const { text, autoSend } = pendingPrompt;
@@ -75,8 +88,17 @@ export function AgentComposer({ compact = false }: AgentComposerProps) {
         onChange={setValue}
         onSubmit={submit}
         pending={isRunning}
-        placeholder={AGENT_COPY.composerPlaceholder}
-        permissionHint={warning ?? undefined}
+        placeholder={
+          isPmo
+            ? 'Upload a workbook to ingest, or ask about utilization…'
+            : CHAT_AGENT_COPY[chatAgent].placeholder
+        }
+        permissionHint={
+          warning ??
+          (isPmo
+            ? 'Excel workbooks upload as PMO ingestion sessions for ingest workflow.'
+            : undefined)
+        }
         attachments={attachments}
         onAttachFiles={attach}
         onRemoveAttachment={remove}

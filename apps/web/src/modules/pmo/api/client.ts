@@ -23,6 +23,37 @@ export interface UploadWorkbookResponse {
   message?: string;
 }
 
+interface UploadUrlResponse {
+  ingestion_session_id: string;
+  upload_url: string;
+  s3_key: string;
+  filename: string;
+}
+
+async function putWorkbookToS3(
+  uploadUrl: string,
+  file: File,
+  onProgress?: (fraction: number) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', uploadUrl);
+    xhr.setRequestHeader(
+      'Content-Type',
+      file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total);
+    };
+    xhr.onload = () =>
+      xhr.status >= 200 && xhr.status < 300
+        ? resolve()
+        : reject(new Error(`S3 upload failed (${xhr.status})`));
+    xhr.onerror = () => reject(new Error('S3 upload failed (network error)'));
+    xhr.send(file);
+  });
+}
+
 export interface PmoPlan {
   intent_analysis?: {
     intent_mode:
@@ -414,20 +445,53 @@ export interface StartIngestWorkflowResponse {
   runId: string;
 }
 
-export const pmoApi = {
-  async uploadWorkbook(file: File, reportingPeriodKey?: string): Promise<UploadWorkbookResponse> {
-    const formData = new FormData();
-    formData.append('file', file);
-    if (reportingPeriodKey) {
-      formData.append('reporting_period_key', reportingPeriodKey);
-    }
+export interface UploadWorkbookOptions {
+  reportingPeriodKey?: string;
+  chatThreadId?: string;
+  onProgress?: (fraction: number) => void;
+}
 
-    const res = await fetch('/api/pmo/v1/upload', {
+export const pmoApi = {
+  async uploadWorkbook(
+    file: File,
+    reportingPeriodKeyOrOptions?: string | UploadWorkbookOptions,
+    onProgress?: (fraction: number) => void,
+  ): Promise<UploadWorkbookResponse> {
+    const options: UploadWorkbookOptions =
+      typeof reportingPeriodKeyOrOptions === 'string'
+        ? { reportingPeriodKey: reportingPeriodKeyOrOptions, onProgress }
+        : {
+            ...reportingPeriodKeyOrOptions,
+            onProgress: onProgress ?? reportingPeriodKeyOrOptions?.onProgress,
+          };
+
+    const mimeType =
+      file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+    const urlRes = await fetch('/api/pmo/v1/upload-url', {
       method: 'POST',
-      body: formData,
+      headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
+      body: JSON.stringify({
+        filename: file.name,
+        file_size_bytes: file.size,
+        mime_type: mimeType,
+        ...(options.reportingPeriodKey ? { reporting_period_key: options.reportingPeriodKey } : {}),
+        ...(options.chatThreadId ? { chat_thread_id: options.chatThreadId } : {}),
+      }),
     });
-    return jsonOrThrow<UploadWorkbookResponse>(res);
+    const urlBody = await jsonOrThrow<UploadUrlResponse>(urlRes);
+
+    await putWorkbookToS3(urlBody.upload_url, file, options.onProgress);
+
+    return {
+      ingestion_session_id: urlBody.ingestion_session_id,
+      s3_key: urlBody.s3_key,
+      status: 'uploaded',
+      filename: urlBody.filename,
+      file_size_bytes: file.size,
+      message: 'Workbook uploaded to PMO ingestion storage.',
+    };
   },
 
   async startIngestWorkflow(input: StartIngestWorkflowInput): Promise<StartIngestWorkflowResponse> {

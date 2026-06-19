@@ -34,6 +34,11 @@ export interface CanonicalInputDateRange {
   to: Date;
 }
 
+export interface LoadCanonicalInputsOptions {
+  dateRange?: CanonicalInputDateRange;
+  ingestionSessionId?: string;
+}
+
 function overlapsRange(
   start: Date | null,
   end: Date | null,
@@ -58,11 +63,21 @@ function inRange(date: Date, range: CanonicalInputDateRange): boolean {
  */
 export async function loadCanonicalInputs(
   tenantId: string,
-  options: { dateRange?: CanonicalInputDateRange } = {},
+  options: LoadCanonicalInputsOptions = {},
 ): Promise<CanonicalInputs> {
   const db = pmoDb();
-  const activeFilter = (table: { tenant_id: never; is_active: never }) =>
-    and(eq(table.tenant_id, tenantId as never), eq(table.is_active, true as never));
+  const activeFilter = (table: {
+    tenant_id: never;
+    is_active: never;
+    last_ingestion_session_id: never;
+  }) =>
+    and(
+      eq(table.tenant_id, tenantId as never),
+      eq(table.is_active, true as never),
+      ...(options.ingestionSessionId
+        ? [eq(table.last_ingestion_session_id, options.ingestionSessionId as never)]
+        : []),
+    );
 
   const [memberRows, projectRows, allocRows, tsRows, leaveRows, weekRows, configRowsRaw] =
     await Promise.all([
@@ -131,6 +146,8 @@ export async function loadCanonicalInputs(
         .where(activeFilter(calendarWeeks as never)),
       db
         .select({
+          config_id: overbookIdleConfig.config_id,
+          rule_name: overbookIdleConfig.rule_name,
           overbook_threshold: overbookIdleConfig.overbook_threshold,
           overbook_red_threshold: overbookIdleConfig.overbook_red_threshold,
           idle_threshold: overbookIdleConfig.idle_threshold,

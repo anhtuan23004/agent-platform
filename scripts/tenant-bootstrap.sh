@@ -47,6 +47,8 @@ for ((i = 1; i <= MEMBER_COUNT; i++)); do
     --user "$email" --tenant "$SLUG" --role knowledge.member --scope tenant --action grant
   pnpm -F @seta/cli exec tsx src/index.ts role-grant \
     --user "$email" --tenant "$SLUG" --role agent.contributor --scope tenant --action grant
+  pnpm -F @seta/cli exec tsx src/index.ts role-grant \
+    --user "$email" --tenant "$SLUG" --role pmo.operator --scope tenant --action grant
 done
 
 cat <<EOF

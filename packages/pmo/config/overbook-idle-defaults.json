@@ -1,0 +1,24 @@
+[
+  {
+    "config_id": "seta-08-sop-001-2026-01-01",
+    "rule_name": "SETA-08-SOP-001 RAG thresholds",
+    "effective_date": "2026-01-01",
+    "overbook_threshold": 1.2,
+    "overbook_red_threshold": 1.4,
+    "idle_threshold": 0.5,
+    "mismatch_pct_threshold": 0.2,
+    "ot_max_hours_per_week": 48,
+    "required_training_hours": 0
+  },
+  {
+    "config_id": "seta-08-sop-001-2026-06-29",
+    "rule_name": "SETA-08-SOP-001 RAG thresholds",
+    "effective_date": "2026-06-29",
+    "overbook_threshold": 1.1,
+    "overbook_red_threshold": 1.2,
+    "idle_threshold": 0.75,
+    "mismatch_pct_threshold": 0.2,
+    "ot_max_hours_per_week": 48,
+    "required_training_hours": 0
+  }
+]

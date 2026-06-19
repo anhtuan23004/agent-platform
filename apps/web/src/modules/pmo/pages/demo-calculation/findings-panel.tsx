@@ -9,6 +9,8 @@ import {
 import { useMemo, useState } from 'react';
 import type { DemoFindingRow } from '../../api/demo-analytics.ts';
 import { pct, ragBadge } from './formatters.tsx';
+import { MetricHelpLabel } from './metric-help.tsx';
+import { METRIC_HELP } from './metric-help-copy.ts';
 
 export type FindingKindFilter = 'all' | 'overbook' | 'idle' | 'mismatch_under' | 'mismatch_over';
 
@@ -94,11 +96,19 @@ function FindingCard({
         </div>
         <dl className="flex shrink-0 gap-4 text-right text-caption">
           <div>
-            <dt className="text-ink-subtle">Busy</dt>
+            <dt className="flex justify-end">
+              <MetricHelpLabel help={METRIC_HELP.busyRate} className="font-medium">
+                Busy
+              </MetricHelpLabel>
+            </dt>
             <dd className="font-semibold tabular-nums text-ink">{pct(finding.busyRate)}</dd>
           </div>
           <div>
-            <dt className="text-ink-subtle">EC</dt>
+            <dt className="flex justify-end">
+              <MetricHelpLabel help={METRIC_HELP.effortConsumption} className="font-medium">
+                EC
+              </MetricHelpLabel>
+            </dt>
             <dd className="font-semibold tabular-nums text-ink">
               {pct(finding.effortConsumption)}
             </dd>
@@ -107,19 +117,21 @@ function FindingCard({
       </div>
 
       {finding.detail ? (
-        <p className="mt-3 text-body-sm leading-relaxed text-ink-muted">{finding.detail}</p>
+        <p className="mt-3 text-body-sm leading-relaxed text-ink">{finding.detail}</p>
       ) : null}
 
       {finding.excludedWeeks.length > 0 ? (
         <div className="mt-3 flex flex-wrap gap-1.5">
-          <span className="text-caption text-ink-subtle">Excluded weeks</span>
+          <MetricHelpLabel help={METRIC_HELP.excludedWeeks} className="text-caption font-medium">
+            Excluded weeks
+          </MetricHelpLabel>
           {finding.excludedWeeks.map((week) => (
             <span
               key={`${finding.memberId}-${week.weekId}`}
-              className="rounded-md border border-hairline bg-canvas px-2 py-0.5 font-mono text-[11px] text-ink-subtle"
+              className="rounded-md border border-hairline-strong bg-canvas px-2 py-0.5 font-mono text-[11px] text-ink-muted"
             >
               {week.weekId}
-              <span className="text-ink-subtle/80"> · {week.reason}</span>
+              <span className="text-ink-muted"> · {week.reason}</span>
             </span>
           ))}
         </div>
@@ -146,7 +158,7 @@ function FindingGroup({
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
           <h3 className="text-body font-semibold text-ink">{title}</h3>
-          <p className="text-body-sm text-ink-subtle">{description}</p>
+          <p className="text-body-sm text-ink-muted">{description}</p>
         </div>
         <Badge variant={findings.length > 0 ? 'warning' : 'success'}>
           {findings.length} flagged
@@ -184,8 +196,8 @@ function FindingKindFilterBar({
   counts: Record<FindingKindFilter, number>;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-hairline bg-canvas px-3 py-2">
-      <span className="text-caption font-medium uppercase tracking-wide text-ink-subtle">
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-hairline bg-canvas px-3 py-2 shadow-sm">
+      <span className="text-caption font-semibold uppercase tracking-wide text-ink-muted">
         Issue type
       </span>
       {KIND_FILTERS.map((item) => {
@@ -202,8 +214,10 @@ function FindingKindFilterBar({
           >
             {item.label}
             <span
-              className={`inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 text-[11px] font-medium ${
-                active ? 'bg-primary/15 text-primary-ink' : 'bg-surface-2 text-ink-muted'
+              className={`inline-flex min-w-[1.25rem] items-center justify-center rounded-full border px-1.5 text-[11px] font-semibold ${
+                active
+                  ? 'border-on-primary/25 bg-on-primary/20 text-on-primary'
+                  : 'border-hairline-strong bg-surface-2 text-ink'
               }`}
             >
               {count}

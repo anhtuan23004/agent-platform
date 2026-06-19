@@ -15,15 +15,6 @@ import type { DemoAnalyticsResult } from '../../api/demo-analytics.ts';
 import { analysisColumns, factColumns, memberColumns, projectMemberColumns } from './columns.tsx';
 import { DemoCalculationFindingsPanel } from './findings-panel.tsx';
 
-const PIPELINE_STEPS = [
-  { id: 'findings', step: 1, label: 'Findings' },
-  { id: 'population', step: 2, label: 'Populations' },
-  { id: 'facts', step: 3, label: 'Facts' },
-  { id: 'analysis', step: 4, label: 'Aggregation' },
-] as const;
-
-type PipelineTab = (typeof PIPELINE_STEPS)[number]['id'];
-
 function SectionCard({
   title,
   description,
@@ -46,9 +37,36 @@ function SectionCard({
 
 function TabCount({ count }: { count: number }) {
   return (
-    <span className="ml-1.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-surface-2 px-1.5 text-[11px] font-medium text-ink-muted">
+    <span className="ml-1.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-surface-2 px-1.5 text-[11px] font-semibold text-ink">
       {count}
     </span>
+  );
+}
+
+function PipelineStageTab({
+  value,
+  label,
+  count,
+  hint,
+}: {
+  value: string;
+  label: string;
+  count: number;
+  hint?: string;
+}) {
+  return (
+    <TabsTrigger
+      value={value}
+      className="flex h-auto w-full flex-col items-start gap-1 rounded-lg border border-hairline bg-surface-1 px-4 py-3 text-left shadow-sm transition-colors hover:bg-surface-2 data-[state=active]:border-primary-border data-[state=active]:bg-canvas data-[state=active]:shadow-md border-b-0 -mb-0"
+    >
+      <span className="text-caption font-semibold uppercase tracking-wide text-ink-muted">
+        {label}
+      </span>
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        <span className="text-2xl font-semibold tabular-nums text-ink">{count}</span>
+        {hint ? <span className="text-caption font-medium text-ink-muted">{hint}</span> : null}
+      </div>
+    </TabsTrigger>
   );
 }
 
@@ -67,56 +85,35 @@ export function DemoCalculationPipeline({
 
   return (
     <section className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2 text-caption text-ink-subtle">
-        <span className="font-medium uppercase tracking-wide">Pipeline</span>
-        {PIPELINE_STEPS.map((item, index) => (
-          <span key={item.id} className="inline-flex items-center gap-2">
-            <span className="inline-flex size-5 items-center justify-center rounded-full bg-primary-tint text-[11px] font-semibold text-primary-ink">
-              {item.step}
-            </span>
-            <span>{item.label}</span>
-            {index < PIPELINE_STEPS.length - 1 ? (
-              <span className="text-ink-subtle" aria-hidden>
-                →
-              </span>
-            ) : null}
-          </span>
-        ))}
-      </div>
-
-      <Tabs defaultValue={'findings' satisfies PipelineTab}>
-        <TabsList className="h-auto flex-wrap justify-start gap-1 rounded-lg border border-hairline bg-surface-1 p-1">
-          <TabsTrigger
+      <Tabs defaultValue="findings">
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-3 border-0 bg-transparent p-0 lg:grid-cols-4">
+          <PipelineStageTab
             value="findings"
-            className="data-[state=active]:bg-canvas data-[state=active]:shadow-sm"
-          >
-            Findings
-            <TabCount count={findingCount} />
-          </TabsTrigger>
-          <TabsTrigger
+            label="Findings"
+            count={findingCount}
+            hint={`${data.overbookIdleFindings.length} overbook/idle · ${data.mismatchFindings.length} mismatch`}
+          />
+          <PipelineStageTab
             value="population"
-            className="data-[state=active]:bg-canvas data-[state=active]:shadow-sm"
-          >
-            Populations
-            <TabCount count={data.projectMemberDependencies.length} />
-          </TabsTrigger>
-          <TabsTrigger
+            label="Populations"
+            count={data.projectMemberDependencies.length}
+            hint={`${data.populations.deliveryMembers.length} delivery · ${data.inputCounts.projects} projects`}
+          />
+          <PipelineStageTab
             value="facts"
-            className="data-[state=active]:bg-canvas data-[state=active]:shadow-sm"
-          >
-            Member × week
-            <TabCount count={data.memberWeekFacts.length} />
-          </TabsTrigger>
-          <TabsTrigger
+            label="Member × week"
+            count={data.memberWeekFacts.length}
+            hint="persisted facts"
+          />
+          <PipelineStageTab
             value="analysis"
-            className="data-[state=active]:bg-canvas data-[state=active]:shadow-sm"
-          >
-            Aggregation
-            <TabCount count={data.memberAnalyses.length} />
-          </TabsTrigger>
+            label="Aggregation"
+            count={data.memberAnalyses.length}
+            hint="member rollups"
+          />
         </TabsList>
 
-        <TabsContent value="findings" className="mt-4">
+        <TabsContent value="findings" className="mt-6">
           <DemoCalculationFindingsPanel
             overbookIdle={data.overbookIdleFindings}
             mismatch={data.mismatchFindings}
@@ -124,7 +121,7 @@ export function DemoCalculationPipeline({
           />
         </TabsContent>
 
-        <TabsContent value="population" className="mt-4">
+        <TabsContent value="population" className="mt-6">
           <SectionCard
             title="PM & delivery populations"
             description="Project managers are separated from delivery members before utilization is calculated."
@@ -166,7 +163,7 @@ export function DemoCalculationPipeline({
           </SectionCard>
         </TabsContent>
 
-        <TabsContent value="facts" className="mt-4">
+        <TabsContent value="facts" className="mt-6">
           <SectionCard
             title="Member × week facts"
             description="Persisted read-model: availability, planned and logged hours, busy rate, and effort consumption per week."
@@ -175,7 +172,7 @@ export function DemoCalculationPipeline({
           </SectionCard>
         </TabsContent>
 
-        <TabsContent value="analysis" className="mt-4">
+        <TabsContent value="analysis" className="mt-6">
           <SectionCard
             title="Member-level aggregation"
             description="Holiday, leave, approved OT, and training weeks are excluded before member-level ratios are computed."

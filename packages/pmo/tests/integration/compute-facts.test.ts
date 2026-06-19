@@ -200,6 +200,15 @@ describe('pmo analytics — compute + detect (DB)', () => {
 
         const persisted = await loadMemberWeekFacts(tenant);
         expect(persisted).toHaveLength(24);
+        expect(await loadMemberWeekFacts(tenant, { weekIds: ['W1'] })).toHaveLength(4);
+        expect(await loadMemberWeekFacts(tenant, { weekIds: [] })).toHaveLength(0);
+        expect(await loadMemberWeekFacts(tenant, { ingestionSessionId: SESSION })).toHaveLength(24);
+        expect(
+          await loadMemberWeekFacts(tenant, {
+            weekIds: ['W1'],
+            ingestionSessionId: '00000000-0000-0000-0000-0000000000bb',
+          }),
+        ).toHaveLength(0);
 
         // ── Build context for detectors ────────────────────────────────────
         const inputs = await loadCanonicalInputs(tenant);
