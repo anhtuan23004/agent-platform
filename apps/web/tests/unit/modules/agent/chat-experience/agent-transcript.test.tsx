@@ -39,6 +39,7 @@ vi.mock('@assistant-ui/react', () => {
 
 vi.mock('@/modules/agent/chat-experience/agent-provider', () => ({
   useAgentSelection: () => ({ selection: { threadId: undefined } }),
+  useChatAgent: () => ({ chatAgent: 'staffing' }),
   usePageContext: () => ({ pageContext: null }),
 }));
 

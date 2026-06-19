@@ -306,6 +306,12 @@ export interface PmoPlanningSession {
   file_type: string;
   uploaded_at: string;
   operator: string;
+  status: string;
+  is_published: boolean;
+  is_selectable: boolean;
+  reporting_period_key: string | null;
+  reporting_period_start: string | null;
+  reporting_period_end: string | null;
   planning_state: 'uploaded' | 'generating_plan' | 'plan_review' | 'approved_plan';
   status_label: string;
   active_gate: string;

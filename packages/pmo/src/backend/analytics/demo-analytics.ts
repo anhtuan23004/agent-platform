@@ -498,7 +498,10 @@ export async function runDemoAnalytics(
 
   const facts = options.ingestionSessionId
     ? buildSessionScopedFacts(canonical)
-    : await loadPersistedFacts(tenantId);
+    : await loadPersistedFacts(
+        tenantId,
+        canonical.weeks.map((week) => week.week_id),
+      );
   if (facts.length === 0) {
     throw new DemoAnalyticsNoDataError();
   }
@@ -509,9 +512,9 @@ export async function runDemoAnalytics(
   });
 }
 
-async function loadPersistedFacts(tenantId: string): Promise<MemberWeekFact[]> {
+async function loadPersistedFacts(tenantId: string, weekIds: string[]): Promise<MemberWeekFact[]> {
   await ensureFactsComputed(tenantId);
-  return loadMemberWeekFacts(tenantId);
+  return loadMemberWeekFacts(tenantId, { weekIds });
 }
 
 function buildSessionScopedFacts(canonical: CanonicalInputs): MemberWeekFact[] {
