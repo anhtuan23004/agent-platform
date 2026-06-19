@@ -21,6 +21,8 @@ import { registerKnowledgeContributions } from '@seta/knowledge/register';
 import { registerNotificationsContributions } from '@seta/notifications/register';
 import { assignTask } from '@seta/planner';
 import { registerPlannerContributions } from '@seta/planner/register';
+import { makePmoStartIngestTool } from '@seta/pmo/agent-tools/start-ingest';
+import { buildPmoChatOrchestrationRuntime } from '@seta/pmo/chat';
 import { registerPmoContributions } from '@seta/pmo/register';
 import { createCrypto, createKeyProviderFromEnv, parseCryptoEnv } from '@seta/shared-crypto';
 import { closePools, getPool, initPools } from '@seta/shared-db';
@@ -158,6 +160,17 @@ const staffingOrchestration = buildStaffingOrchestrationRuntime({
     },
   },
 });
+// The PMO Agent chat runtime. Mastra is wired lazily after registerAgent builds
+// the engine so pmo_startIngest can start pmo.ingestData.v2.
+const mastraForPmoChat: { current: { getWorkflow(id: string): unknown } | null } = {
+  current: null,
+};
+const pmoChatOrchestration = buildPmoChatOrchestrationRuntime({
+  resolveModel: () => resolveModel('auto', { tierHint: 'fast' }).model,
+  resolveExtraTools: () =>
+    mastraForPmoChat.current ? [makePmoStartIngestTool({ mastra: mastraForPmoChat.current })] : [],
+});
+
 SpecializedAgentRegistry.freeze();
 OrchestrationRegistry.freeze();
 
@@ -176,6 +189,11 @@ const agent = registerAgent({
   // orchestration's streaming entrypoint. apps/server is the only layer that
   // can bind the staffing runtime to the engine surface.
   chatOrchestration: staffingOrchestration.runStream,
+  // Per-agent chat runtimes selected by the chat route's `agent` field.
+  chatOrchestrations: {
+    staffing: staffingOrchestration.runStream,
+    pmo: pmoChatOrchestration.runStream,
+  },
   // Native-suspend HITL resume: POST /chat/resume re-enters the suspended
   // proposeAssignment composite via resumeStream. Same composition-root binding.
   resumeOrchestration: staffingOrchestration.runResume,
@@ -216,6 +234,8 @@ const agent = registerAgent({
   markAttachmentsConsumed: (ids) => markAttachmentsConsumed(ids),
   markAttachmentsFailed: (ids) => markAttachmentsFailed(ids),
 });
+mastraForPmoChat.current = agent.mastra as { getWorkflow(id: string): unknown };
+
 const agentSubscribers = reg.collected.subscriberBuilders.map(({ builder }) =>
   builder({ mastra: agent.mastra }),
 );

@@ -69,7 +69,7 @@ MEMBER_COUNT=5 bash scripts/tenant-bootstrap.sh   # admin + 5 members
 SLUG=widgets bash scripts/tenant-bootstrap.sh     # custom slug
 ```
 
-Sign in as `admin@sandbox.test` / `ChangeMe@2026`, or as a member `member1@sandbox.test` / `ChangeMe@2026`. Each member is seeded with `planner.contributor`, `knowledge.member`, and `agent.contributor`, so Planner, Knowledge, and Chat are usable out of the box (nav is permission-gated).
+Sign in as `admin@sandbox.test` / `ChangeMe@2026`, or as a member `member1@sandbox.test` / `ChangeMe@2026`. Each member is seeded with `planner.contributor`, `knowledge.member`, `agent.contributor`, and `pmo.operator`, so Planner, Knowledge, Chat, and PMO Agent are usable out of the box (nav is permission-gated).
 
 Overridable env vars: `SLUG`, `NAME`, `ADMIN_EMAIL`, `ADMIN_NAME`, `ADMIN_PASSWORD`, `MEMBER_COUNT`, `MEMBER_DOMAIN`, `MEMBER_PASSWORD`, `MEMBER_ROLE` (the primary role; defaults to `planner.contributor`).
 

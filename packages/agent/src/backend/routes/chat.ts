@@ -15,6 +15,8 @@ import { generateThreadTitle } from '../thread-title.ts';
 import {
   type AgentRouteDeps,
   type AgentRouteEnv,
+  CHAT_AGENT_PERMISSION,
+  type ChatAgent,
   getMemoryStore,
   NO_BUFFER_HEADERS,
 } from './_shared.ts';
@@ -24,6 +26,18 @@ const ChatBody = z.object({
   messages: z.array(z.unknown()).min(1),
   trigger: z.enum(['submit-message', 'regenerate-message']).optional(),
   model: z.string().optional(),
+  /** Which chat runtime drives this turn. Defaults to 'staffing'. */
+  agent: z.enum(['staffing', 'pmo']).optional(),
+  /** PMO chat workbook upload: ingestion session to start ingest from this turn. */
+  ingestionSessionId: z.string().uuid().optional(),
+  reportingDateFrom: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+  reportingDateTo: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
 });
 
 type PageContextPart = {
@@ -123,6 +137,10 @@ function pageContextTaskId(messages: UIMessage[]): string | null {
   return null;
 }
 
+function storedThreadChatAgent(thread: { metadata?: Record<string, unknown> }): ChatAgent {
+  return thread.metadata?.chatAgent === 'pmo' ? 'pmo' : 'staffing';
+}
+
 export function mountChatRoute(app: Hono<AgentRouteEnv>, deps: AgentRouteDeps): void {
   app.post('/api/agent/v1/chat', async (c) => {
     const session = c.get('session') as import('../types.ts').SessionLike | undefined;
@@ -138,6 +156,26 @@ export function mountChatRoute(app: Hono<AgentRouteEnv>, deps: AgentRouteDeps): 
       return c.json(
         { error: 'validation_failed', message: 'bad body', details: parsed.error.format() },
         400,
+      );
+    }
+
+    const chatAgent: ChatAgent = parsed.data.agent ?? 'staffing';
+    // Per-agent gate beyond agent.chat.use (POC: PMO gate disabled).
+    const agentPermission = CHAT_AGENT_PERMISSION[chatAgent];
+    if (agentPermission && !session.effective_permissions.has(agentPermission)) {
+      return c.json(
+        { error: 'forbidden', message: `${agentPermission} required for the ${chatAgent} agent` },
+        403,
+      );
+    }
+    // Pick the runtime for this agent; fall back to the legacy single binding.
+    const orchestrate = parsed.data.agent
+      ? (deps.chatOrchestrations?.[chatAgent] ?? deps.chatOrchestration)
+      : (deps.chatOrchestrations?.staffing ?? deps.chatOrchestration);
+    if (!orchestrate) {
+      return c.json(
+        { error: 'agent_unavailable', message: `no runtime bound for the ${chatAgent} agent` },
+        503,
       );
     }
 
@@ -182,7 +220,6 @@ export function mountChatRoute(app: Hono<AgentRouteEnv>, deps: AgentRouteDeps): 
     }
 
     const taskId = pageContextTaskId(effectiveMessages);
-    const orchestrate = deps.chatOrchestration;
     const orchThreadId = parsed.data.id;
     const orchStore = getMemoryStore(deps.mastra);
     // Original (un-prefixed) last user message — what the user actually typed,
@@ -239,6 +276,9 @@ export function mountChatRoute(app: Hono<AgentRouteEnv>, deps: AgentRouteDeps): 
       if (existing && existing.resourceId !== `${session.tenant_id}:${session.user_id}`) {
         return c.json({ error: 'not_found', message: 'thread not found' }, 404);
       }
+      if (existing && storedThreadChatAgent(existing) !== chatAgent) {
+        return c.json({ error: 'not_found', message: 'thread not found' }, 404);
+      }
       if (!existing) {
         createdNewThread = true;
         await orchStore.saveThread({
@@ -252,7 +292,7 @@ export function mountChatRoute(app: Hono<AgentRouteEnv>, deps: AgentRouteDeps): 
             title: deps.userMemory ? '' : orchThreadTitle,
             createdAt: userCreatedAt,
             updatedAt: userCreatedAt,
-            metadata: {},
+            metadata: { chatAgent },
           },
         });
       }
@@ -261,7 +301,7 @@ export function mountChatRoute(app: Hono<AgentRouteEnv>, deps: AgentRouteDeps): 
     let effectiveUserText = userText;
     let consumedFileIds: string[] = [];
     let contextParts: Array<{ type: 'text'; text: string }> = [];
-    if (orchThreadId && deps.consumeThreadAttachments) {
+    if (orchThreadId && deps.consumeThreadAttachments && chatAgent !== 'pmo') {
       const r = await deps.consumeThreadAttachments({
         tenantId: session.tenant_id,
         threadId: orchThreadId,
@@ -297,20 +337,24 @@ export function mountChatRoute(app: Hono<AgentRouteEnv>, deps: AgentRouteDeps): 
     const uiStream = createUIMessageStream({
       originalMessages: effectiveMessages,
       execute: async ({ writer }) => {
-        const run = await orchestrate(
-          { userText: effectiveUserText, taskId },
-          {
-            tenantId: session.tenant_id,
-            actorUserId: session.user_id,
-            effectivePermissions: session.effective_permissions,
-            threadId: orchThreadId,
-            userMemory:
-              deps.userMemory && deps.userMemoryConfig
-                ? { memory: deps.userMemory, memoryConfig: deps.userMemoryConfig }
-                : undefined,
-            model: modelOverride,
-          },
-        );
+        const run = await orchestrate({ userText: effectiveUserText, taskId }, {
+          tenantId: session.tenant_id,
+          actorUserId: session.user_id,
+          effectivePermissions: session.effective_permissions,
+          threadId: orchThreadId,
+          userMemory:
+            deps.userMemory && deps.userMemoryConfig
+              ? { memory: deps.userMemory, memoryConfig: deps.userMemoryConfig }
+              : undefined,
+          model: modelOverride,
+          ...(chatAgent === 'pmo' && parsed.data.ingestionSessionId
+            ? {
+                ingestionSessionId: parsed.data.ingestionSessionId,
+                reportingDateFrom: parsed.data.reportingDateFrom,
+                reportingDateTo: parsed.data.reportingDateTo,
+              }
+            : {}),
+        } as never);
         const aiParts = toAISdkStream(run.output, {
           from: 'agent',
           version: 'v6',
@@ -385,7 +429,7 @@ export function mountChatRoute(app: Hono<AgentRouteEnv>, deps: AgentRouteDeps): 
               model: modelOverride ?? resolveModel('auto', { tierHint: 'fast' }).model,
               fallback: orchThreadTitle,
             });
-            await orchStore.updateThread({ id: orchThreadId, title, metadata: {} });
+            await orchStore.updateThread({ id: orchThreadId, title, metadata: { chatAgent } });
           } catch (err) {
             (deps.log?.error ?? console.error)(
               {

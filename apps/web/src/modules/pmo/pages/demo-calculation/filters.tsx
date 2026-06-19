@@ -16,12 +16,16 @@ import {
 import { ChevronDown, Filter, RefreshCw, X } from 'lucide-react';
 import { useState } from 'react';
 import type { DemoAnalyticsSettings, DemoThresholds } from '../../api/demo-analytics.ts';
+import { hasCustomDateRange, type SourceUploadOption } from '../demo-calculation-page.logic.ts';
 
 interface DemoCalculationFiltersProps {
   members: string[];
   projects: string[];
+  uploadOptions: SourceUploadOption[];
   memberFilter: string | null;
   projectFilter: string | null;
+  selectedUploadId: string | null;
+  selectedUploadLabel: string | null;
   onMemberFilterChange: (id: string | null) => void;
   onProjectFilterChange: (id: string | null) => void;
   getProjectLabel: (id: string) => string;
@@ -50,6 +54,31 @@ interface CalculationSettingsFormProps {
   onAnalyticsSettingsChange: (settings: DemoAnalyticsSettings | undefined) => void;
 }
 
+function compactSettings(settings: DemoAnalyticsSettings): DemoAnalyticsSettings | undefined {
+  const thresholds = settings.thresholds;
+  const hasThresholds =
+    thresholds?.overbookThreshold !== undefined ||
+    thresholds?.overbookRedThreshold !== undefined ||
+    thresholds?.idleThreshold !== undefined ||
+    thresholds?.mismatchPctThreshold !== undefined;
+  if (
+    !settings.from &&
+    !settings.to &&
+    !settings.configEffectiveDate &&
+    !settings.ingestionSessionId &&
+    !hasThresholds
+  ) {
+    return undefined;
+  }
+  return {
+    ...(settings.from ? { from: settings.from } : {}),
+    ...(settings.to ? { to: settings.to } : {}),
+    ...(settings.configEffectiveDate ? { configEffectiveDate: settings.configEffectiveDate } : {}),
+    ...(settings.ingestionSessionId ? { ingestionSessionId: settings.ingestionSessionId } : {}),
+    ...(hasThresholds ? { thresholds } : {}),
+  };
+}
+
 function pctInput(value: number): string {
   return String(Math.round(value * 1000) / 10);
 }
@@ -62,8 +91,11 @@ function parsePctInput(value: string): number | undefined {
 export function DemoCalculationFilters({
   members,
   projects,
+  uploadOptions,
   memberFilter,
   projectFilter,
+  selectedUploadId,
+  selectedUploadLabel,
   onMemberFilterChange,
   onProjectFilterChange,
   getProjectLabel,
@@ -75,6 +107,7 @@ export function DemoCalculationFilters({
   onRefresh,
   isRefreshing,
 }: DemoCalculationFiltersProps) {
+  const [uploadOpen, setUploadOpen] = useState(false);
   const [memberOpen, setMemberOpen] = useState(false);
   const [projectOpen, setProjectOpen] = useState(false);
   const calculationSettingsKey = [
@@ -85,14 +118,111 @@ export function DemoCalculationFilters({
     thresholds.overbookRedThreshold,
     thresholds.idleThreshold,
     thresholds.mismatchPctThreshold,
+    analyticsSettings?.from,
+    analyticsSettings?.to,
+    analyticsSettings?.configEffectiveDate,
   ].join(':');
 
-  const hasFilter = Boolean(memberFilter || projectFilter);
+  const activeFrom = analyticsSettings?.from ?? reportingWindow.start;
+  const activeTo = analyticsSettings?.to ?? reportingWindow.end;
+  const hasFilter = Boolean(
+    selectedUploadId ||
+      memberFilter ||
+      projectFilter ||
+      analyticsSettings?.from ||
+      analyticsSettings?.to,
+  );
+  const setUploadFilter = (upload: SourceUploadOption | null) => {
+    const uploadPeriodStart = upload?.reportingPeriodStart ?? undefined;
+    const uploadPeriodEnd = upload?.reportingPeriodEnd ?? undefined;
+    const shouldPrefillRange =
+      uploadPeriodStart && uploadPeriodEnd && !hasCustomDateRange(analyticsSettings);
+    onAnalyticsSettingsChange(
+      compactSettings({
+        ...(analyticsSettings ?? {}),
+        ingestionSessionId: upload?.id,
+        ...(shouldPrefillRange
+          ? {
+              from: uploadPeriodStart,
+              to: uploadPeriodEnd,
+            }
+          : {}),
+      }),
+    );
+  };
+  const clearDataFilters = () => {
+    onMemberFilterChange(null);
+    onProjectFilterChange(null);
+    onAnalyticsSettingsChange(
+      compactSettings({
+        ...(analyticsSettings ?? {}),
+        ingestionSessionId: undefined,
+      }),
+    );
+  };
 
   return (
     <div className="space-y-3">
+      <CalculationSettingsForm
+        key={calculationSettingsKey}
+        reportingWindow={reportingWindow}
+        thresholdConfig={thresholdConfig}
+        thresholds={thresholds}
+        analyticsSettings={analyticsSettings}
+        onAnalyticsSettingsChange={onAnalyticsSettingsChange}
+      />
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
+          <Popover open={uploadOpen} onOpenChange={setUploadOpen}>
+            <PopoverTrigger asChild>
+              <Button variant="secondary" size="sm">
+                <Filter className="size-4" />
+                Source upload
+                <ChevronDown className="size-4" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-[360px] p-0">
+              <Command>
+                <CommandInput placeholder="Search source upload…" />
+                <CommandList>
+                  <CommandEmpty>No uploads found.</CommandEmpty>
+                  <CommandGroup heading="Source uploads">
+                    <CommandItem
+                      onSelect={() => {
+                        setUploadFilter(null);
+                        setUploadOpen(false);
+                      }}
+                    >
+                      All published data
+                    </CommandItem>
+                    {uploadOptions.map((upload) => (
+                      <CommandItem
+                        key={upload.id}
+                        disabled={upload.disabled}
+                        onSelect={() => {
+                          if (upload.disabled) return;
+                          setUploadFilter(upload);
+                          setUploadOpen(false);
+                        }}
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate">{upload.label}</div>
+                          <div className="text-caption text-ink-muted">
+                            {upload.uploadedAtLabel} · {upload.statusLabel}
+                          </div>
+                          <div className="text-caption text-ink-subtle">
+                            {upload.reportingPeriodLabel}
+                          </div>
+                        </div>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
+
           <Popover open={memberOpen} onOpenChange={setMemberOpen}>
             <PopoverTrigger asChild>
               <Button variant="secondary" size="sm">
@@ -155,23 +285,26 @@ export function DemoCalculationFilters({
             </PopoverContent>
           </Popover>
 
+          {selectedUploadId ? (
+            <Badge variant="secondary">Source: {selectedUploadLabel ?? selectedUploadId}</Badge>
+          ) : null}
+          {activeFrom && activeTo ? (
+            <Badge variant="secondary">
+              Date range: {activeFrom} to {activeTo}
+            </Badge>
+          ) : null}
           {memberFilter ? <Badge variant="secondary">Member: {memberFilter}</Badge> : null}
           {projectFilter ? <Badge variant="secondary">Project: {projectFilter}</Badge> : null}
 
           {hasFilter ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                onMemberFilterChange(null);
-                onProjectFilterChange(null);
-              }}
-            >
+            <Button variant="ghost" size="sm" onClick={clearDataFilters}>
               <X className="size-4" />
               Clear filters
             </Button>
           ) : (
-            <span className="text-body-sm text-ink-subtle">All members & projects</span>
+            <span className="text-body-sm text-ink-subtle">
+              All published sources, members & projects
+            </span>
           )}
         </div>
 
@@ -191,15 +324,6 @@ export function DemoCalculationFilters({
           </Button>
         </div>
       </div>
-
-      <CalculationSettingsForm
-        key={calculationSettingsKey}
-        reportingWindow={reportingWindow}
-        thresholdConfig={thresholdConfig}
-        thresholds={thresholds}
-        analyticsSettings={analyticsSettings}
-        onAnalyticsSettingsChange={onAnalyticsSettingsChange}
-      />
     </div>
   );
 }
@@ -216,8 +340,8 @@ function CalculationSettingsForm({
     thresholdConfig.effectiveDate ??
     reportingWindow.start;
   const [configEffectiveDate, setConfigEffectiveDate] = useState(defaultRuleDate);
-  const [from, setFrom] = useState(reportingWindow.start);
-  const [to, setTo] = useState(reportingWindow.end);
+  const [from, setFrom] = useState(analyticsSettings?.from ?? reportingWindow.start);
+  const [to, setTo] = useState(analyticsSettings?.to ?? reportingWindow.end);
   const [overbookY, setOverbookY] = useState(pctInput(thresholds.overbookThreshold));
   const [overbookR, setOverbookR] = useState(pctInput(thresholds.overbookRedThreshold));
   const [idle, setIdle] = useState(pctInput(thresholds.idleThreshold));
@@ -237,17 +361,20 @@ function CalculationSettingsForm({
   );
 
   const applyCalculationSettings = () => {
-    onAnalyticsSettingsChange({
-      from: from || undefined,
-      to: to || undefined,
-      configEffectiveDate: configEffectiveDate || undefined,
-      thresholds: {
-        overbookThreshold: parsePctInput(overbookY),
-        overbookRedThreshold: parsePctInput(overbookR),
-        idleThreshold: parsePctInput(idle),
-        mismatchPctThreshold: parsePctInput(mismatch),
-      },
-    });
+    onAnalyticsSettingsChange(
+      compactSettings({
+        ...(analyticsSettings ?? {}),
+        from: from || undefined,
+        to: to || undefined,
+        configEffectiveDate: configEffectiveDate || undefined,
+        thresholds: {
+          overbookThreshold: parsePctInput(overbookY),
+          overbookRedThreshold: parsePctInput(overbookR),
+          idleThreshold: parsePctInput(idle),
+          mismatchPctThreshold: parsePctInput(mismatch),
+        },
+      }),
+    );
   };
 
   const resetCalculationSettings = () => {
@@ -258,14 +385,16 @@ function CalculationSettingsForm({
     setOverbookR(pctInput(thresholds.overbookRedThreshold));
     setIdle(pctInput(thresholds.idleThreshold));
     setMismatch(pctInput(thresholds.mismatchPctThreshold));
-    onAnalyticsSettingsChange(undefined);
+    onAnalyticsSettingsChange(
+      compactSettings({ ingestionSessionId: analyticsSettings?.ingestionSessionId }),
+    );
   };
 
   return (
-    <div className="space-y-3 border-t border-hairline pt-3">
+    <div className="space-y-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 space-y-0.5">
-          <div className="text-body-sm font-semibold text-ink">Calculation settings</div>
+          <div className="text-body-sm font-semibold text-ink">Reporting window</div>
           <div className="max-w-full text-caption text-ink-muted">
             {thresholdConfig.ruleName ?? 'Threshold config'}
             {thresholdConfig.effectiveDate
@@ -290,7 +419,37 @@ function CalculationSettingsForm({
         </div>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-[minmax(220px,0.8fr)_minmax(280px,1fr)_minmax(360px,1.4fr)]">
+      <div className="grid gap-3 lg:grid-cols-[minmax(280px,1fr)_minmax(220px,0.8fr)_minmax(360px,1.4fr)]">
+        <div className="space-y-2">
+          <div className="text-caption font-medium text-ink-muted">Date range</div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <Label htmlFor="pmo-week-from" className="text-caption text-ink-muted">
+                From
+              </Label>
+              <Input
+                id="pmo-week-from"
+                type="date"
+                size="sm"
+                value={from}
+                onChange={(event) => setFrom(event.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="pmo-week-to" className="text-caption text-ink-muted">
+                To
+              </Label>
+              <Input
+                id="pmo-week-to"
+                type="date"
+                size="sm"
+                value={to}
+                onChange={(event) => setTo(event.target.value)}
+              />
+            </div>
+          </div>
+        </div>
+
         <div className="space-y-2">
           <div className="text-caption font-medium text-ink-muted">Rule timing</div>
           <div className="space-y-1">
@@ -310,36 +469,6 @@ function CalculationSettingsForm({
                 Rule date must be on or before Week from.
               </div>
             ) : null}
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <div className="text-caption font-medium text-ink-muted">Reporting window</div>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="space-y-1">
-              <Label htmlFor="pmo-week-from" className="text-caption text-ink-muted">
-                Week from
-              </Label>
-              <Input
-                id="pmo-week-from"
-                type="date"
-                size="sm"
-                value={from}
-                onChange={(event) => setFrom(event.target.value)}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="pmo-week-to" className="text-caption text-ink-muted">
-                Week to
-              </Label>
-              <Input
-                id="pmo-week-to"
-                type="date"
-                size="sm"
-                value={to}
-                onChange={(event) => setTo(event.target.value)}
-              />
-            </div>
           </div>
         </div>
 

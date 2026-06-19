@@ -36,7 +36,12 @@ type StorageWithStores = {
 
 async function seedThread(
   storage: unknown,
-  thread: { id: string; resourceId: string; title?: string },
+  thread: {
+    id: string;
+    resourceId: string;
+    title?: string;
+    metadata?: Record<string, unknown>;
+  },
 ): Promise<void> {
   const now = new Date();
   await (storage as StorageWithStores).stores.memory.saveThread({
@@ -46,7 +51,7 @@ async function seedThread(
       title: thread.title,
       createdAt: now,
       updatedAt: now,
-      metadata: {},
+      metadata: thread.metadata ?? {},
     },
   });
 }
@@ -91,6 +96,41 @@ describe('threads routes', () => {
       expect(res.status).toBe(200);
       const body = (await res.json()) as { threads: unknown[] };
       expect(body.threads).toEqual([]);
+    });
+  });
+
+  it('GET /threads can filter history by chat agent', async () => {
+    await withAgentTestDb(async ({ pool, databaseUrl }) => {
+      const { admin_user_id, tenant_id } = await createTestTenantWithAdmin({ pool });
+      const resourceId = `${tenant_id}:${admin_user_id}`;
+      const mastra = buildMastra({ pool, databaseUrl });
+      const storage = mastra.getStorage();
+      await (storage as { init: () => Promise<void> }).init();
+
+      await seedThread(storage, { id: 'staffing-1', resourceId, title: 'Staffing' });
+      await seedThread(storage, {
+        id: 'pmo-1',
+        resourceId,
+        title: 'PMO',
+        metadata: { chatAgent: 'pmo' },
+      });
+
+      const app = makeApp({ tenant_id, user_id: admin_user_id, mastra, pool });
+      const pmoRes = await app.request('/api/agent/v1/threads?agent=pmo');
+      expect(pmoRes.status).toBe(200);
+      const pmoBody = (await pmoRes.json()) as { threads: Array<{ id: string }> };
+      expect(pmoBody.threads.map((t) => t.id)).toEqual(['pmo-1']);
+
+      const staffingRes = await app.request('/api/agent/v1/threads?agent=staffing');
+      expect(staffingRes.status).toBe(200);
+      const staffingBody = (await staffingRes.json()) as { threads: Array<{ id: string }> };
+      expect(staffingBody.threads.map((t) => t.id)).toEqual(['staffing-1']);
+
+      const wrongAgentThread = await app.request('/api/agent/v1/threads/staffing-1?agent=pmo');
+      expect(wrongAgentThread.status).toBe(404);
+
+      const matchingAgentThread = await app.request('/api/agent/v1/threads/pmo-1?agent=pmo');
+      expect(matchingAgentThread.status).toBe(200);
     });
   });
 

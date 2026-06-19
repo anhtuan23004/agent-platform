@@ -2,16 +2,21 @@ import { DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from '@set
 import { useNavigate } from '@tanstack/react-router';
 import { Plus } from 'lucide-react';
 import { useThreadList } from '../hooks/use-thread-list';
-import { useAgentSelection } from './agent-provider';
+import { type ChatAgentMode, useAgentSelection } from './agent-provider';
 
 interface AgentThreadSwitcherProps {
+  chatAgent?: ChatAgentMode;
   onAfterSelect?: () => void;
 }
 
-export function AgentThreadSwitcher({ onAfterSelect }: AgentThreadSwitcherProps) {
-  const { groups } = useThreadList();
+export function AgentThreadSwitcher({
+  chatAgent = 'staffing',
+  onAfterSelect,
+}: AgentThreadSwitcherProps) {
+  const { groups } = useThreadList(chatAgent);
   const { actions, selection } = useAgentSelection();
   const navigate = useNavigate();
+  const chatPath = chatAgent === 'pmo' ? '/pmo/agent' : '/agent/chat';
 
   const flat = (groups ?? [])
     .flatMap((g) => g.items.map((i) => ({ ...i, group: g.label })))
@@ -21,7 +26,8 @@ export function AgentThreadSwitcher({ onAfterSelect }: AgentThreadSwitcherProps)
     <>
       <DropdownMenuItem
         onSelect={() => {
-          actions.startFreshThread();
+          const id = actions.startFreshThread();
+          void navigate({ to: chatPath, search: { thread: id }, replace: true });
           onAfterSelect?.();
         }}
         className="gap-2"
@@ -40,6 +46,7 @@ export function AgentThreadSwitcher({ onAfterSelect }: AgentThreadSwitcherProps)
           key={t.id}
           onSelect={() => {
             actions.setThreadId(t.id);
+            void navigate({ to: chatPath, search: { thread: t.id } });
             onAfterSelect?.();
           }}
           className={`gap-2 ${selection.threadId === t.id ? 'bg-surface-2' : ''}`}
@@ -50,12 +57,12 @@ export function AgentThreadSwitcher({ onAfterSelect }: AgentThreadSwitcherProps)
       <DropdownMenuSeparator />
       <DropdownMenuItem
         onSelect={() => {
-          void navigate({ to: '/agent/chat', search: { thread: selection.threadId } });
+          void navigate({ to: chatPath, search: { thread: selection.threadId } });
           onAfterSelect?.();
         }}
         className="gap-2 text-ink-muted"
       >
-        Show all in /agent/chat
+        {chatAgent === 'pmo' ? 'Show all in PMO Agent' : 'Show all in /agent/chat'}
       </DropdownMenuItem>
     </>
   );

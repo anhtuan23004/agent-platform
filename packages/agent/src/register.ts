@@ -83,10 +83,12 @@ export function registerAgent(deps: {
    * orchestration. Injected by the server entry-point (the only layer that can
    * bind staffing adapters to the engine). See AgentRouteDeps.chatOrchestration.
    */
-  chatOrchestration: (
+  chatOrchestration?: (
     runInput: { userText: string; taskId: string | null },
     ctx: import('@seta/shared-orchestration').RunCtx,
   ) => Promise<import('@seta/shared-orchestration').ChatStreamRun>;
+  /** Per-agent chat runtimes selected by the chat route's `agent` field. */
+  chatOrchestrations?: import('./backend/routes.ts').AgentRouteDeps['chatOrchestrations'];
   /**
    * Resume runtime for native-suspend agentic chat-HITL runs. Injected by the
    * server entry-point as the staffing runtime's `runResume`. See
@@ -168,6 +170,7 @@ export function registerAgent(deps: {
         pool: deps.pool,
         log: deps.log,
         chatOrchestration: deps.chatOrchestration,
+        chatOrchestrations: deps.chatOrchestrations,
         resumeOrchestration: deps.resumeOrchestration,
         consumeThreadAttachments: deps.consumeThreadAttachments,
         markAttachmentsConsumed: deps.markAttachmentsConsumed,

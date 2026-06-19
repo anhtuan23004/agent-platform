@@ -5,15 +5,18 @@ import { type ReactNode, useCallback } from 'react';
 import { ThreadListRefresher } from '../components/thread-list-refresher';
 import { ToolUIRegistry } from '../components/tool-renderers';
 import { ToolFallback } from '../components/tool-renderers/tool-fallback';
-import { AGENT_COPY } from '../i18n';
+import { CHAT_AGENT_COPY } from '../i18n';
 import { parseContextAttachment } from '../lib/context-attachment';
 import { ChatEmbeddedHitl } from '../workflows/components/chat-embedded-hitl';
-import { type PageContext, useAgentSelection, usePageContext } from './agent-provider';
+import {
+  type PageContext,
+  useAgentSelection,
+  useChatAgent,
+  usePageContext,
+} from './agent-provider';
 import { ChainOfThought } from './chain-of-thought';
 import { groupByThought } from './group-by-thought';
 import { RenderContextBadge } from './render-context-badge';
-
-const ASSISTANT_LABEL = 'Agent';
 
 interface PartProps {
   text: string;
@@ -93,7 +96,15 @@ function PlainTextPart({ text }: PartProps) {
   return <span className="whitespace-pre-wrap">{text}</span>;
 }
 
-function AgentEmpty({ title, body }: { title: string; body: string }) {
+function AgentEmpty({
+  title,
+  body,
+  suggestions,
+}: {
+  title: string;
+  body: string;
+  suggestions: readonly string[];
+}) {
   const aui = useAui();
   const send = (text: string) => {
     aui.composer().setText(text);
@@ -112,7 +123,7 @@ function AgentEmpty({ title, body }: { title: string; body: string }) {
         <p className="mt-1.5 text-body-sm leading-[1.5] text-ink-subtle">{body}</p>
       </div>
       <div className="flex flex-wrap items-center justify-center gap-1.5">
-        {AGENT_COPY.emptySuggestions.map((s) => (
+        {suggestions.map((s) => (
           <button
             key={s}
             type="button"
@@ -226,18 +237,20 @@ function makeAssistantMessage(authorLabel: string) {
 export function AgentTranscript() {
   const { selection } = useAgentSelection();
   const { pageContext } = usePageContext();
-  const AssistantMessage = makeAssistantMessage(ASSISTANT_LABEL);
+  const { chatAgent } = useChatAgent();
+  const copy = CHAT_AGENT_COPY[chatAgent];
+  const AssistantMessage = makeAssistantMessage(copy.label);
 
-  const emptyTitle = pageContext ? `Ask about ${pageContext.label}` : AGENT_COPY.emptyThreads.title;
+  const emptyTitle = pageContext ? `Ask about ${pageContext.label}` : copy.emptyTitle;
   const emptyBody = pageContext
-    ? `Ask agent anything about this ${pageContext.kind.split('.').pop() ?? 'item'}.`
-    : AGENT_COPY.emptyThreads.body;
+    ? `Ask the ${copy.label} about this ${pageContext.kind.split('.').pop() ?? 'item'}.`
+    : copy.emptyBody;
 
   return (
     <>
       <ChatTranscript>
         <ThreadPrimitive.Empty>
-          <AgentEmpty title={emptyTitle} body={emptyBody} />
+          <AgentEmpty title={emptyTitle} body={emptyBody} suggestions={copy.suggestions} />
         </ThreadPrimitive.Empty>
         <ThreadPrimitive.Messages components={{ UserMessage, AssistantMessage }} />
         <div className="px-4 pb-4">

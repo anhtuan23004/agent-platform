@@ -1,4 +1,5 @@
-import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { GetObjectCommand } from '@aws-sdk/client-s3';
+import { getS3Client } from '@seta/shared-storage';
 import type { PmoFileStore } from './file-store.ts';
 
 /**
@@ -8,8 +9,7 @@ import type { PmoFileStore } from './file-store.ts';
 export function createS3FileStore(bucket: string): PmoFileStore {
   return {
     async getBuffer(fileKey: string): Promise<Buffer> {
-      const region = process.env.S3_REGION ?? 'ap-southeast-1';
-      const s3 = new S3Client({ region });
+      const s3 = getS3Client();
       const response = await s3.send(
         new GetObjectCommand({
           Bucket: bucket,

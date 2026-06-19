@@ -1,8 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import type { UIMessage } from 'ai';
+import type { ChatAgentMode } from '../api/schemas';
 
 export interface ThreadMessagesResponse {
-  thread: { id: string; title: string | null; updatedAt: string | null };
+  thread: { id: string; title: string | null; updatedAt: string | null; chatAgent?: ChatAgentMode };
   messages: UIMessage[];
   page: number;
   perPage: number;
@@ -21,21 +22,24 @@ export class ThreadMessagesError extends Error {
 
 async function fetchMessages(
   threadId: string,
+  agent?: ChatAgentMode,
   page = 0,
   perPage = 50,
 ): Promise<ThreadMessagesResponse> {
-  const url = `/api/agent/v1/threads/${encodeURIComponent(threadId)}?page=${page}&perPage=${perPage}`;
+  const params = new URLSearchParams({ page: String(page), perPage: String(perPage) });
+  if (agent) params.set('agent', agent);
+  const url = `/api/agent/v1/threads/${encodeURIComponent(threadId)}?${params.toString()}`;
   const res = await fetch(url, { credentials: 'include' });
   if (!res.ok) throw new ThreadMessagesError(res.status, `thread messages ${res.status}`);
   return (await res.json()) as ThreadMessagesResponse;
 }
 
-export function useThreadMessages(threadId: string | undefined) {
+export function useThreadMessages(threadId: string | undefined, agent?: ChatAgentMode) {
   return useQuery({
-    queryKey: ['agent', 'thread', threadId],
+    queryKey: ['agent', 'thread', threadId, agent ?? 'all'],
     queryFn: () => {
       if (!threadId) throw new Error('threadId required');
-      return fetchMessages(threadId);
+      return fetchMessages(threadId, agent);
     },
     enabled: Boolean(threadId),
     staleTime: 5 * 60_000,

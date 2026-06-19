@@ -51,6 +51,30 @@ describe('adaptMastraEvent — non-UUID runIds', () => {
   });
 });
 
+describe('adaptMastraEvent — chat thread surfacing', () => {
+  it('maps requestContext thread_id to surfaceChatThreadId on workflow.suspend', () => {
+    const runId = randomUUID();
+    const threadId = randomUUID();
+    const adapted = adaptMastraEvent({
+      type: 'workflow.suspend',
+      runId,
+      data: {
+        workflowId: 'pmo.ingestData.v2',
+        requestContext: {
+          tenant_id: FIXED_TENANT_ID,
+          actor: { user_id: FIXED_USER_ID },
+          thread_id: threadId,
+        },
+        prevResult: { suspendPayload: { title: 'Review mappings' } },
+      },
+    });
+    expect(adapted?.kind).toBe('run-suspended');
+    if (adapted?.kind === 'run-suspended') {
+      expect(adapted.surfaceChatThreadId).toBe(threadId);
+    }
+  });
+});
+
 describe('onLifecycleEvent — idempotency', () => {
   it('inserts a workflow_runs row on first delivery of run-started', async () => {
     await withAgentTestDb(async ({ pool }) => {
