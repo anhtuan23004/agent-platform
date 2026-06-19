@@ -1,11 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import { pmoDb } from '../db/client.ts';
 import { ingestionSessions } from '../db/schema.ts';
-import {
-  getIntentDefinition,
-  loadPmoPlannerCatalog,
-  type PmoIntentMode,
-} from '../planning/catalog.ts';
+import { loadPmoPlannerCatalog, type PmoActionMode } from '../planning/catalog.ts';
 import { compilePmoWorkflowSteps } from '../planning/compiler.ts';
 import type { PmoWorkflowPlan } from '../planning/plan-schema.ts';
 
@@ -17,7 +13,7 @@ function formatFileSize(bytes: number | null): string {
 }
 
 function buildDeterministicChatIngestPlan(params: {
-  intentMode: PmoIntentMode;
+  actionMode: Extract<PmoActionMode, 'publish' | 'publish_then_report'>;
   fileName: string;
   fileSizeBytes: number | null;
   mimeType: string;
@@ -25,9 +21,9 @@ function buildDeterministicChatIngestPlan(params: {
   goal: string;
 }): PmoWorkflowPlan {
   const catalog = loadPmoPlannerCatalog();
-  const intent = getIntentDefinition(catalog, params.intentMode);
   const compiled = compilePmoWorkflowSteps({
-    intentMode: params.intentMode,
+    dataSourceMode: 'uploaded_file',
+    actionMode: params.actionMode,
     candidateSteps: [],
     catalog,
   });
@@ -54,11 +50,13 @@ function buildDeterministicChatIngestPlan(params: {
     proposed_workflow: compiled.compiled_workflow,
     compiled_workflow: compiled.compiled_workflow,
     intent_analysis: {
-      intent_mode: intent.intent_mode,
+      dataSourceMode: 'uploaded_file',
+      actionMode: params.actionMode,
+      writePolicy: 'requires_approval',
       confidence: 'high',
       rationale: 'Deterministic chat-ingest plan seeded for PMO Agent workflow kickoff.',
       requires_confirmation: false,
-      allowed_action_ids: intent.allowed_action_ids,
+      allowed_action_ids: compiled.compiled_workflow.map((step) => step.action_id),
     },
     review_gates: [
       {
@@ -168,9 +166,7 @@ export async function prepareChatIngestSession(
     throw new Error('ingestion_session_source_file_missing');
   }
 
-  const intentMode: PmoIntentMode = input.generateReport
-    ? 'publish_report_intent'
-    : 'publish_intent';
+  const actionMode = input.generateReport ? 'publish_then_report' : 'publish';
 
   const dateClause =
     input.dateFrom && input.dateTo
@@ -192,7 +188,7 @@ export async function prepareChatIngestSession(
     hasCompiledPlan && row.status === 'approved_plan'
       ? (existingPlan as PmoWorkflowPlan)
       : buildDeterministicChatIngestPlan({
-          intentMode,
+          actionMode,
           fileName: row.source_file_name,
           fileSizeBytes: row.source_file_size_bytes,
           mimeType: row.mime_type,

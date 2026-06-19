@@ -13,145 +13,35 @@ const repoRoot = path.resolve(import.meta.dirname, '../../../../..');
 afterEach(() => {
   resetPmoPlannerCatalogCacheForTests();
   process.chdir(originalCwd);
-  if (originalCatalogDir === undefined) {
-    delete process.env.PMO_PLANNER_CATALOG_DIR;
-  } else {
-    process.env.PMO_PLANNER_CATALOG_DIR = originalCatalogDir;
-  }
+  if (originalCatalogDir === undefined) delete process.env.PMO_PLANNER_CATALOG_DIR;
+  else process.env.PMO_PLANNER_CATALOG_DIR = originalCatalogDir;
 });
 
-describe('PMO planner workflow compiler', () => {
-  it('compiles Review this file intent to workbook profiling only', () => {
-    const result = compilePmoWorkflowSteps({
-      intentMode: 'review_only',
-      candidateSteps: [
-        {
-          step_no: 1,
-          planner_step_id: 'model.step.1',
-          action_id: 'workbook_profiling',
-          review_type: 'profiling',
-          step_name: 'Workbook profiling',
-          description: 'Review workbook structure.',
-          requires_user_review: false,
-        },
-      ],
-    });
+function actions(
+  dataSourceMode: 'existing_db' | 'uploaded_file',
+  actionMode: Parameters<typeof compilePmoWorkflowSteps>[0]['actionMode'],
+) {
+  return compilePmoWorkflowSteps({
+    dataSourceMode,
+    actionMode,
+    candidateSteps: [],
+  }).compiled_workflow.map((step) => step.action_id);
+}
 
-    expect(result.compiled_workflow.map((step) => step.action_id)).toEqual(['workbook_profiling']);
-    expect(result.compiled_workflow).toHaveLength(1);
-  });
-
-  it('trims publish and invented summary steps from review-only model output', () => {
-    const result = compilePmoWorkflowSteps({
-      intentMode: 'review_only',
-      candidateSteps: [
-        {
-          step_no: 1,
-          step_name: 'Workbook profiling',
-          action_id: 'workbook_profiling',
-          review_type: 'profiling',
-          description: 'Review workbook structure.',
-          requires_user_review: false,
-        },
-        {
-          step_no: 2,
-          step_name: 'Document check summary',
-          description: 'Invented summary step.',
-          requires_user_review: false,
-        },
-        {
-          step_no: 3,
-          step_name: 'Optional publish after approval',
-          action_id: 'publish_after_approval',
-          review_type: 'publish',
-          description: 'Should not be present for review-only intent.',
-          requires_user_review: true,
-        },
-      ],
-    });
-
-    expect(result.compiled_workflow.map((step) => step.action_id)).toEqual(['workbook_profiling']);
-    expect(result.diagnostics).toContain(
-      'dropped_step_without_catalog_action:Document check summary',
-    );
-    expect(result.diagnostics).toContain('dropped_step_outside_intent:publish_after_approval');
-  });
-
-  it('compiles Review and map this file intent to profiling and mapping only', () => {
-    const result = compilePmoWorkflowSteps({
-      intentMode: 'mapping_readiness',
-      candidateSteps: [],
-    });
-
-    expect(result.compiled_workflow.map((step) => step.action_id)).toEqual([
-      'workbook_profiling',
-      'column_mapping',
-    ]);
-  });
-
-  it('compiles DB preview intent through database change summary and excludes publish', () => {
-    const result = compilePmoWorkflowSteps({
-      intentMode: 'stage_preview',
-      candidateSteps: [
-        {
-          step_no: 1,
-          step_name: 'Workbook profiling',
-          action_id: 'workbook_profiling',
-          review_type: 'profiling',
-          description: 'Profile workbook.',
-          requires_user_review: false,
-        },
-        {
-          step_no: 2,
-          step_name: 'Column mapping',
-          action_id: 'column_mapping',
-          review_type: 'mapping',
-          description: 'Map workbook columns.',
-          requires_user_review: true,
-        },
-        {
-          step_no: 3,
-          step_name: 'Normalize to staging',
-          action_id: 'normalize_to_staging',
-          review_type: 'normalization',
-          description: 'Normalize staged rows.',
-          requires_user_review: false,
-        },
-        {
-          step_no: 4,
-          step_name: 'Database change summary',
-          action_id: 'database_change_summary',
-          review_type: 'publish',
-          description: 'Preview DB changes.',
-          requires_user_review: true,
-        },
-        {
-          step_no: 5,
-          step_name: 'Publish after approval',
-          action_id: 'publish_after_approval',
-          review_type: 'publish',
-          description: 'Should be excluded.',
-          requires_user_review: true,
-        },
-      ],
-    });
-
-    expect(result.compiled_workflow.map((step) => step.action_id)).toEqual([
+describe('PMO multi-axis workflow compiler', () => {
+  it('compiles uploaded-file outcomes to deterministic prefixes', () => {
+    expect(actions('uploaded_file', 'inspect_file')).toEqual(['workbook_profiling']);
+    expect(actions('uploaded_file', 'review_staging')).toEqual([
       'workbook_profiling',
       'column_mapping',
       'normalize_to_staging',
-      'database_change_summary',
     ]);
-    expect(result.diagnostics).toContain('dropped_step_outside_intent:publish_after_approval');
-  });
-
-  it('compiles ingestion readiness intent through DB change preview without publish', () => {
-    const result = compilePmoWorkflowSteps({
-      intentMode: 'stage_preview',
-      candidateSteps: [],
-    });
-
-    expect(result.compiled_workflow.map((step) => step.action_id)).toEqual([
+    expect(actions('uploaded_file', 'validate')).toEqual([
+      'workbook_profiling',
+      'column_mapping',
+      'normalize_to_staging',
+    ]);
+    expect(actions('uploaded_file', 'preview_changes')).toEqual([
       'workbook_profiling',
       'column_mapping',
       'normalize_to_staging',
@@ -159,65 +49,82 @@ describe('PMO planner workflow compiler', () => {
     ]);
   });
 
-  it('compiles publish intent to the full configured chain', () => {
-    const result = compilePmoWorkflowSteps({
-      intentMode: 'publish_intent',
-      candidateSteps: [],
-    });
-
-    expect(result.compiled_workflow.map((step) => step.action_id)).toEqual([
+  it('adds canonical writes only for publish outcomes', () => {
+    expect(actions('uploaded_file', 'publish')).toEqual([
       'workbook_profiling',
       'column_mapping',
       'normalize_to_staging',
       'database_change_summary',
+      'publish_after_approval',
     ]);
-  });
-
-  it('compiles publish report intent through report generation', () => {
-    const result = compilePmoWorkflowSteps({
-      intentMode: 'publish_report_intent',
-      candidateSteps: [],
-    });
-
-    expect(result.compiled_workflow.map((step) => step.action_id)).toEqual([
+    expect(actions('uploaded_file', 'publish_then_report')).toEqual([
       'workbook_profiling',
       'column_mapping',
       'normalize_to_staging',
       'database_change_summary',
+      'publish_after_approval',
       'generate_report',
     ]);
   });
 
-  it('compiles a database-only report intent without workbook ingestion steps', () => {
+  it('compiles an existing database report without workbook steps', () => {
+    expect(actions('existing_db', 'generate_report')).toEqual(['generate_report']);
+  });
+
+  it('compiles uploaded-file generate_report to staging preview pipeline', () => {
+    expect(actions('uploaded_file', 'generate_report')).toEqual([
+      'workbook_profiling',
+      'column_mapping',
+      'normalize_to_staging',
+      'generate_report',
+    ]);
+  });
+
+  it('drops invented model steps but retains complete deterministic workflow', () => {
     const result = compilePmoWorkflowSteps({
-      intentMode: 'generate_report_intent',
-      candidateSteps: [],
+      dataSourceMode: 'uploaded_file',
+      actionMode: 'inspect_file',
+      candidateSteps: [
+        {
+          step_no: 1,
+          step_name: 'Document summary',
+          description: 'Invented step.',
+          requires_user_review: false,
+        },
+        {
+          step_no: 2,
+          step_name: 'Publish',
+          action_id: 'publish_after_approval',
+          review_type: 'publish',
+          requires_user_review: true,
+        },
+      ],
     });
 
-    expect(result.compiled_workflow.map((step) => step.action_id)).toEqual(['generate_report']);
+    expect(result.compiled_workflow.map((step) => step.action_id)).toEqual(['workbook_profiling']);
+    expect(result.diagnostics).toContain('dropped_step_without_catalog_action:Document summary');
+    expect(result.diagnostics).toContain('dropped_step_outside_intent:publish_after_approval');
   });
 
-  it('loads planner intent and step definitions from JSON catalog', () => {
+  it('loads axis catalog from JSON', () => {
     const catalog = loadPmoPlannerCatalog();
-    expect(catalog.default_intent_mode).toBe('review_only');
-    expect(catalog.low_confidence_requires_confirmation).toBe(true);
-    expect(catalog.steps.map((step) => step.action_id)).toContain('workbook_profiling');
-    expect(catalog.examples.map((example) => example.intent_mode)).toContain('review_only');
-    expect(catalog.classification_rules.map((entry) => entry.rule).join('\n')).toContain(
-      "The phrase 'check if ready to import' means stage_preview",
+    expect(catalog.default_intent).toEqual({
+      dataSourceMode: 'uploaded_file',
+      actionMode: 'preview_changes',
+    });
+    expect(catalog.valid_combinations).toContainEqual(
+      expect.objectContaining({ dataSourceMode: 'uploaded_file', actionMode: 'validate' }),
     );
-    expect(
-      catalog.examples.find((example) => example.goal.toLowerCase().includes('ready for ingestion'))
-        ?.intent_mode,
-    ).toBe('stage_preview');
+    expect(catalog.steps.find((step) => step.action_id === 'normalize_to_staging')).toMatchObject({
+      allowed_action_modes: expect.arrayContaining(['validate', 'review_staging']),
+    });
   });
 
-  it('loads the planner catalog from PMO_PLANNER_CATALOG_DIR when cwd is not the repo root', () => {
+  it('loads catalog from PMO_PLANNER_CATALOG_DIR outside repo root', () => {
     process.chdir('/tmp');
     process.env.PMO_PLANNER_CATALOG_DIR = path.join(repoRoot, 'config', 'ingestion-planner', 'pmo');
-
-    const catalog = loadPmoPlannerCatalog();
-
-    expect(catalog.steps.map((step) => step.action_id)).toContain('workbook_profiling');
+    expect(loadPmoPlannerCatalog().steps.map((step) => step.action_id)).toContain(
+      'workbook_profiling',
+    );
   });
 });

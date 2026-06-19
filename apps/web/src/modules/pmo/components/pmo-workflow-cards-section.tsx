@@ -1,4 +1,4 @@
-import { Button, Input, Label, Textarea } from '@seta/shared-ui';
+import { Button, Label, Textarea } from '@seta/shared-ui';
 import { CheckCircle2, Loader2, LockKeyhole } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { PmoPlan, PmoPlanningSession } from '../api/client';
@@ -39,8 +39,8 @@ interface PmoWorkflowCardsSectionProps {
   isApproving: boolean;
   isConfirmingIntent: boolean;
   onConfirmIntent: (selection?: {
-    dateRangeStrategy?: 'sheet_derived' | 'manual_database';
-    dateRange?: { from: string; to: string };
+    dataSourceMode?: 'existing_db' | 'uploaded_file';
+    actionMode?: NonNullable<PmoPlan['intent_analysis']>['actionMode'];
   }) => void;
   onRegeneratePlan: () => void;
   onApprovePlanAndStart: () => void;
@@ -55,12 +55,13 @@ interface PmoWorkflowCardsSectionProps {
 }
 
 function intentModeLabel(mode: string | undefined): string {
-  if (mode === 'review_only') return 'Review only';
-  if (mode === 'mapping_readiness') return 'Mapping readiness';
-  if (mode === 'stage_preview') return 'Stage preview';
-  if (mode === 'publish_intent') return 'Publish intent';
-  if (mode === 'generate_report_intent') return 'Database report';
-  if (mode === 'publish_report_intent') return 'Ingest and report';
+  if (mode === 'inspect_file') return 'Inspect file';
+  if (mode === 'review_staging') return 'Review staging';
+  if (mode === 'validate') return 'Validate data';
+  if (mode === 'preview_changes') return 'Preview changes';
+  if (mode === 'publish') return 'Publish';
+  if (mode === 'generate_report') return 'Generate report';
+  if (mode === 'publish_then_report') return 'Publish and report';
   return 'Intent';
 }
 
@@ -186,76 +187,35 @@ function buildWorkflowCards(params: {
   return cards;
 }
 
-export function IntentReportDateRangeForm(props: {
-  request: NonNullable<NonNullable<PmoPlan['intent_analysis']>['report_request']>;
+export function IntentResolutionOptions(props: {
+  options: NonNullable<NonNullable<PmoPlan['intent_analysis']>['resolution_options']>;
   isSubmitting: boolean;
   onConfirm: PmoWorkflowCardsSectionProps['onConfirmIntent'];
 }) {
-  const { request, isSubmitting, onConfirm } = props;
-  const bounds = request.database_date_bounds;
-  const [from, setFrom] = useState(bounds?.min ?? '');
-  const [to, setTo] = useState(bounds?.max ?? '');
-  const canUseDatabaseRange = Boolean(
-    from && to && from <= to && (!bounds || (from >= bounds.min && to <= bounds.max)),
-  );
+  const { options, isSubmitting, onConfirm } = props;
 
   return (
     <div className="space-y-3 rounded-md border border-warning-border bg-warning-tint/30 p-3">
-      <p className="font-medium text-ink">Choose report date range</p>
-      {bounds ? (
-        <p className="text-ink-subtle">
-          Database range: {bounds.min} to {bounds.max}
-        </p>
-      ) : null}
-      {request.date_range_strategy === 'sheet_or_database_confirmation' ? (
-        <Button
-          type="button"
-          size="sm"
-          variant="primary"
-          onClick={() => onConfirm({ dateRangeStrategy: 'sheet_derived' })}
-          disabled={isSubmitting}
-        >
-          Use dates from sheet
-        </Button>
-      ) : null}
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="space-y-1">
-          <Label htmlFor="intent-report-from">From</Label>
-          <Input
-            id="intent-report-from"
-            type="date"
-            min={bounds?.min}
-            max={bounds?.max}
-            value={from}
-            onChange={(event) => setFrom(event.target.value)}
-          />
-        </div>
-        <div className="space-y-1">
-          <Label htmlFor="intent-report-to">To</Label>
-          <Input
-            id="intent-report-to"
-            type="date"
-            min={bounds?.min}
-            max={bounds?.max}
-            value={to}
-            onChange={(event) => setTo(event.target.value)}
-          />
-        </div>
+      <p className="font-medium text-ink">Choose workflow scope</p>
+      <div className="grid gap-2">
+        {options.map((option) => (
+          <button
+            key={option.id}
+            type="button"
+            className="rounded-md border border-hairline bg-surface-1 px-3 py-2 text-left transition-colors hover:border-primary hover:bg-primary-tint/20 disabled:opacity-60"
+            onClick={() =>
+              onConfirm({
+                dataSourceMode: option.dataSourceMode,
+                actionMode: option.actionMode,
+              })
+            }
+            disabled={isSubmitting}
+          >
+            <span className="block font-medium text-ink">{option.label}</span>
+            <span className="mt-0.5 block text-ink-subtle">{option.description}</span>
+          </button>
+        ))}
       </div>
-      <Button
-        type="button"
-        size="sm"
-        variant="primary"
-        onClick={() =>
-          onConfirm({
-            dateRangeStrategy: 'manual_database',
-            dateRange: { from, to },
-          })
-        }
-        disabled={!canUseDatabaseRange || isSubmitting}
-      >
-        {isSubmitting ? 'Confirming...' : 'Use database range'}
-      </Button>
     </div>
   );
 }
@@ -296,9 +256,7 @@ export function PmoWorkflowCardsSection(props: PmoWorkflowCardsSectionProps) {
   );
   const activeCard = selectedCard ?? currentCard;
   const intent = selectedSession.intent ?? plan?.intent_analysis;
-  const reportRequestNeedsDate =
-    intent?.report_request?.date_range_strategy === 'database_confirmation' ||
-    intent?.report_request?.date_range_strategy === 'sheet_or_database_confirmation';
+  const needsIntentResolution = Boolean(intent?.resolution_options?.length);
   const canApprovePlan =
     selectedSession.planning_state === 'plan_review' && intent?.requires_confirmation !== true;
 
@@ -381,7 +339,7 @@ export function PmoWorkflowCardsSection(props: PmoWorkflowCardsSectionProps) {
               {intent ? (
                 <>
                   <span className="rounded-full bg-surface-2 px-2 py-0.5 font-medium text-ink">
-                    {intentModeLabel(intent.intent_mode)}
+                    {intentModeLabel(intent.actionMode)}
                   </span>
                   <span
                     className={`rounded-full px-2 py-0.5 font-medium ${
@@ -405,14 +363,14 @@ export function PmoWorkflowCardsSection(props: PmoWorkflowCardsSectionProps) {
                 </div>
                 {intent.requires_confirmation ? (
                   <div className="rounded-md border border-warning-border bg-warning-tint/70 px-3 py-2 text-warning-ink">
-                    {reportRequestNeedsDate
-                      ? 'Complete report date selection to generate the plan.'
+                    {needsIntentResolution
+                      ? 'Choose supported workflow scope to generate the plan.'
                       : 'Intent confidence is low. Confirm scope to generate the plan.'}
                   </div>
                 ) : null}
-                {reportRequestNeedsDate && intent.report_request ? (
-                  <IntentReportDateRangeForm
-                    request={intent.report_request}
+                {needsIntentResolution && intent.resolution_options ? (
+                  <IntentResolutionOptions
+                    options={intent.resolution_options}
                     isSubmitting={isConfirmingIntent}
                     onConfirm={onConfirmIntent}
                   />
@@ -425,7 +383,7 @@ export function PmoWorkflowCardsSection(props: PmoWorkflowCardsSectionProps) {
             )}
 
             <div className="flex flex-wrap items-center gap-2">
-              {intent?.requires_confirmation && !reportRequestNeedsDate ? (
+              {intent?.requires_confirmation && !needsIntentResolution ? (
                 <Button
                   type="button"
                   size="sm"

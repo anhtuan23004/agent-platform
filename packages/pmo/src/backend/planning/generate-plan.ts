@@ -49,7 +49,11 @@ function buildDynamicPlanningPrompt(params: {
       produces: step.produces,
     }));
   const examples = params.catalog.examples
-    .filter((example) => example.intent_mode === params.intent.intent_mode)
+    .filter(
+      (example) =>
+        example.dataSourceMode === params.intent.dataSourceMode &&
+        example.actionMode === params.intent.actionMode,
+    )
     .slice(0, 2);
 
   return `You are a PMO workflow planning agent.
@@ -119,7 +123,8 @@ function applyPlannerPostProcessing(params: {
   catalog: PmoPlannerCatalog;
 }): PmoWorkflowPlan {
   const compiled = compilePmoWorkflowSteps({
-    intentMode: params.intent.intent_mode,
+    dataSourceMode: params.intent.dataSourceMode,
+    actionMode: params.intent.actionMode,
     candidateSteps: params.plan.proposed_workflow,
     catalog: params.catalog,
   });
@@ -163,25 +168,34 @@ export async function generatePmoWorkflowPlan(
     model,
   });
 
-  const result = await planner.generate(
-    JSON.stringify({
-      ...input,
-      intent_analysis: intent,
-      allowed_action_ids: intent.allowed_action_ids,
-    }),
-    {
-      structuredOutput: { schema: PmoWorkflowPlanSchema },
-      providerOptions: { openai: { reasoningSummary: 'auto', temperature: 0 } },
-    },
-  );
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), 55_000);
 
-  if (!result.object) {
-    throw new Error('planning_model_no_structured_output');
+  try {
+    const result = await planner.generate(
+      JSON.stringify({
+        ...input,
+        intent_analysis: intent,
+        allowed_action_ids: intent.allowed_action_ids,
+      }),
+      {
+        modelSettings: { maxOutputTokens: 4096 },
+        abortSignal: ac.signal,
+        structuredOutput: { schema: PmoWorkflowPlanSchema },
+        providerOptions: { openai: { temperature: 0 } },
+      },
+    );
+
+    if (!result.object) {
+      throw new Error('planning_model_no_structured_output');
+    }
+
+    return applyPlannerPostProcessing({
+      plan: result.object,
+      intent,
+      catalog,
+    });
+  } finally {
+    clearTimeout(timer);
   }
-
-  return applyPlannerPostProcessing({
-    plan: result.object,
-    intent,
-    catalog,
-  });
 }

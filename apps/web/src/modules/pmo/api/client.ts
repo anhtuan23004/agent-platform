@@ -5,11 +5,24 @@ interface ApiErrorBody {
 
 async function jsonOrThrow<T>(res: Response): Promise<T> {
   if (!res.ok) {
+    const contentType = res.headers.get('content-type') ?? '';
+    if (!contentType.includes('application/json')) {
+      const fallback =
+        res.status === 524
+          ? 'Request timed out. The server took too long to respond — please try again.'
+          : res.status >= 500
+            ? `Server error (${res.status}). Please try again later.`
+            : `Unexpected response (${res.status}). Please try again.`;
+      throw Object.assign(new Error(fallback), { status: res.status, code: 'non_json_response' });
+    }
     const body = (await res.json().catch(() => ({}) as ApiErrorBody)) as ApiErrorBody;
-    throw Object.assign(new Error(body.message ?? res.statusText), {
-      status: res.status,
-      code: body.error,
-    });
+    throw Object.assign(
+      new Error(body.message || res.statusText || `Request failed (${res.status})`),
+      {
+        status: res.status,
+        code: body.error,
+      },
+    );
   }
   return (await res.json()) as T;
 }
@@ -69,15 +82,21 @@ async function uploadWorkbookThroughProxy(
   });
 }
 
+export type PmoDataSourceMode = 'existing_db' | 'uploaded_file';
+export type PmoActionMode =
+  | 'inspect_file'
+  | 'review_staging'
+  | 'validate'
+  | 'preview_changes'
+  | 'publish'
+  | 'generate_report'
+  | 'publish_then_report';
+
 export interface PmoPlan {
   intent_analysis?: {
-    intent_mode:
-      | 'review_only'
-      | 'mapping_readiness'
-      | 'stage_preview'
-      | 'publish_intent'
-      | 'generate_report_intent'
-      | 'publish_report_intent';
+    dataSourceMode: PmoDataSourceMode;
+    actionMode: PmoActionMode;
+    writePolicy: 'read_only' | 'requires_approval';
     confidence: 'low' | 'medium' | 'high';
     rationale: string;
     requires_confirmation: boolean;
@@ -90,18 +109,15 @@ export interface PmoPlan {
       | 'generate_report'
       | 'generic_review'
     >;
-    report_request?: {
-      source: 'database' | 'post_ingest_database';
-      date_range_strategy:
-        | 'explicit'
-        | 'database_confirmation'
-        | 'sheet_or_database_confirmation'
-        | 'sheet_derived'
-        | 'manual_database';
-      date_range: { from: string; to: string } | null;
-      report_types: Array<'idle_members' | 'overbook_members'>;
-      database_date_bounds?: { min: string; max: string };
-    } | null;
+    extractedDateRange?: { from: string; to: string } | null;
+    extractedReportTypes?: Array<'idle_members' | 'overbook_members'>;
+    resolution_options?: Array<{
+      id: 'report_existing_db' | 'publish_then_report' | 'preview_only';
+      label: string;
+      description: string;
+      dataSourceMode: PmoDataSourceMode;
+      actionMode: PmoActionMode;
+    }>;
     confirmed_at?: string;
     confirmed_by?: string;
   };
@@ -413,8 +429,8 @@ export interface ConfirmPlanIntentResponse {
 
 export interface ConfirmPlanIntentInput {
   ingestionSessionId: string;
-  dateRangeStrategy?: 'sheet_derived' | 'manual_database';
-  dateRange?: { from: string; to: string };
+  dataSourceMode?: 'existing_db' | 'uploaded_file';
+  actionMode?: NonNullable<PmoPlan['intent_analysis']>['actionMode'];
 }
 
 export interface AppendSessionDocumentResponse {
@@ -535,8 +551,8 @@ export const pmoApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         ingestion_session_id: input.ingestionSessionId,
-        date_range_strategy: input.dateRangeStrategy,
-        date_range: input.dateRange,
+        dataSourceMode: input.dataSourceMode,
+        actionMode: input.actionMode,
       }),
       credentials: 'include',
     });

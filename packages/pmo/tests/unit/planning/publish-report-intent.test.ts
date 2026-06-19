@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { compilePmoWorkflowSteps } from '../../../src/backend/planning/compiler.ts';
 
-describe('PMO publish_report_intent plan coverage', () => {
+describe('PMO publish-then-report plan coverage', () => {
   it('compiles through database_change_summary and generate_report', () => {
     const result = compilePmoWorkflowSteps({
-      intentMode: 'publish_report_intent',
+      dataSourceMode: 'uploaded_file',
+      actionMode: 'publish_then_report',
       candidateSteps: [],
     });
 
@@ -14,6 +15,7 @@ describe('PMO publish_report_intent plan coverage', () => {
       'column_mapping',
       'normalize_to_staging',
       'database_change_summary',
+      'publish_after_approval',
       'generate_report',
     ]);
   });

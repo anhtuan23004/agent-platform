@@ -1,11 +1,12 @@
 import { detectOverbookIdle, type FindingsContext } from './findings.ts';
-import { loadCanonicalInputs } from './load-canonical.ts';
+import { loadCanonicalInputs, loadMergedInputs } from './load-canonical.ts';
 import { buildMemberWeekFacts } from './member-week-facts.ts';
 import { splitPmoPopulations } from './populations.ts';
 import { resolveThresholds } from './thresholds.ts';
 import type { Finding } from './types.ts';
 
 export type PmoReportType = 'idle_members' | 'overbook_members';
+export type PmoReportSource = 'canonical_db' | 'staging_preview' | 'published_batch';
 
 export interface PmoReportDateRange {
   from: string;
@@ -17,6 +18,7 @@ export interface GeneratePmoReportInput {
   ingestionSessionId?: string;
   dateRange: PmoReportDateRange;
   reportTypes: PmoReportType[];
+  reportSource?: PmoReportSource;
 }
 
 export interface GeneratePmoReportOutput {
@@ -60,9 +62,18 @@ export async function generatePmoReport(
     throw new Error('invalid_report_date_range');
   }
 
-  const inputs = await loadCanonicalInputs(input.tenantId, {
-    dateRange: { from, to },
-  });
+  const reportSource = input.reportSource ?? 'canonical_db';
+  const inputs =
+    reportSource === 'staging_preview' && input.ingestionSessionId
+      ? await loadMergedInputs(input.tenantId, input.ingestionSessionId, {
+          dateRange: { from, to },
+        })
+      : await loadCanonicalInputs(input.tenantId, {
+          dateRange: { from, to },
+          ...(reportSource === 'published_batch' && input.ingestionSessionId
+            ? { ingestionSessionId: input.ingestionSessionId }
+            : {}),
+        });
   const thresholds = resolveThresholds(inputs.configRows);
   const { deliveryMembers } = splitPmoPopulations(inputs.members, inputs.projects);
   const facts = buildMemberWeekFacts({

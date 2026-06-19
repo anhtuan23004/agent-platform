@@ -3,16 +3,22 @@ import * as path from 'node:path';
 import { z } from 'zod';
 import type { PmoPlanActionId, PmoReviewType } from './step-metadata.ts';
 
-export const PMO_INTENT_MODES = [
-  'review_only',
-  'mapping_readiness',
-  'stage_preview',
-  'publish_intent',
-  'generate_report_intent',
-  'publish_report_intent',
-] as const;
+export const PMO_DATA_SOURCE_MODES = ['existing_db', 'uploaded_file'] as const;
+export type PmoDataSourceMode = (typeof PMO_DATA_SOURCE_MODES)[number];
 
-export type PmoIntentMode = (typeof PMO_INTENT_MODES)[number];
+export const PMO_ACTION_MODES = [
+  'inspect_file',
+  'review_staging',
+  'validate',
+  'preview_changes',
+  'publish',
+  'generate_report',
+  'publish_then_report',
+] as const;
+export type PmoActionMode = (typeof PMO_ACTION_MODES)[number];
+
+export const PMO_WRITE_POLICIES = ['read_only', 'requires_approval'] as const;
+export type PmoWritePolicy = (typeof PMO_WRITE_POLICIES)[number];
 
 export const IntentConfidenceSchema = z.enum(['low', 'medium', 'high']);
 export type IntentConfidence = z.infer<typeof IntentConfidenceSchema>;
@@ -25,22 +31,23 @@ export interface PmoPlannerStepDefinition {
   agent_responsibility: string;
   user_responsibility: string;
   default_requires_user_review: boolean;
-  allowed_intent_modes: PmoIntentMode[];
+  allowed_action_modes: PmoActionMode[];
   requires_prior_checkpoint: string[];
   produces: string[];
 }
 
-export interface PmoIntentDefinition {
-  intent_mode: PmoIntentMode;
+export interface PmoValidIntentCombination {
+  dataSourceMode: PmoDataSourceMode;
+  actionMode: PmoActionMode;
   label: string;
   description: string;
-  allowed_action_ids: PmoPlanActionId[];
 }
 
 export interface PmoPlannerExampleDefinition {
   goal: string;
-  intent_mode: PmoIntentMode;
-  allowed_action_ids: PmoPlanActionId[];
+  dataSourceMode: PmoDataSourceMode;
+  actionMode: PmoActionMode;
+  writePolicy: PmoWritePolicy;
   expected_title: string;
   expected_goal_summary: string;
 }
@@ -51,9 +58,9 @@ export interface PmoClassificationRuleDefinition {
 
 export interface PmoPlannerCatalog {
   version: string;
-  default_intent_mode: PmoIntentMode;
+  default_intent: Pick<PmoValidIntentCombination, 'dataSourceMode' | 'actionMode'>;
   low_confidence_requires_confirmation: boolean;
-  intents: PmoIntentDefinition[];
+  valid_combinations: PmoValidIntentCombination[];
   steps: PmoPlannerStepDefinition[];
   examples: PmoPlannerExampleDefinition[];
   classification_rules: PmoClassificationRuleDefinition[];
@@ -68,7 +75,9 @@ const ActionIdSchema = z.enum([
   'generate_report',
 ]);
 
-const IntentModeSchema = z.enum(PMO_INTENT_MODES);
+const DataSourceModeSchema = z.enum(PMO_DATA_SOURCE_MODES);
+const ActionModeSchema = z.enum(PMO_ACTION_MODES);
+const WritePolicySchema = z.enum(PMO_WRITE_POLICIES);
 
 const ReviewTypeSchema = z.enum([
   'none',
@@ -87,7 +96,7 @@ const StepDefinitionSchema = z.object({
   agent_responsibility: z.string().min(1),
   user_responsibility: z.string().min(1),
   default_requires_user_review: z.boolean(),
-  allowed_intent_modes: z.array(IntentModeSchema).min(1),
+  allowed_action_modes: z.array(ActionModeSchema).min(1),
   requires_prior_checkpoint: z.array(z.string().min(1)),
   produces: z.array(z.string().min(1)),
 });
@@ -97,24 +106,28 @@ const StepsFileSchema = z.object({
   steps: z.array(StepDefinitionSchema).min(1),
 });
 
-const IntentDefinitionSchema = z.object({
-  intent_mode: IntentModeSchema,
+const ValidCombinationSchema = z.object({
+  dataSourceMode: DataSourceModeSchema,
+  actionMode: ActionModeSchema,
   label: z.string().min(1),
   description: z.string().min(1),
-  allowed_action_ids: z.array(ActionIdSchema).min(1),
 });
 
 const IntentsFileSchema = z.object({
   version: z.string().min(1),
-  default_intent_mode: IntentModeSchema,
+  default_intent: z.object({
+    dataSourceMode: DataSourceModeSchema,
+    actionMode: ActionModeSchema,
+  }),
   low_confidence_requires_confirmation: z.boolean(),
-  intents: z.array(IntentDefinitionSchema).min(1),
+  valid_combinations: z.array(ValidCombinationSchema).min(1),
 });
 
 const ExampleDefinitionSchema = z.object({
   goal: z.string().min(1),
-  intent_mode: IntentModeSchema,
-  allowed_action_ids: z.array(ActionIdSchema).min(1),
+  dataSourceMode: DataSourceModeSchema,
+  actionMode: ActionModeSchema,
+  writePolicy: WritePolicySchema,
   expected_title: z.string().min(1),
   expected_goal_summary: z.string().min(1),
 });
@@ -213,29 +226,15 @@ export function loadPmoPlannerCatalog(): PmoPlannerCatalog {
     readJsonFile(path.join(baseDir, 'classification-rules.json')),
   );
 
-  const stepIds = new Set(stepsFile.steps.map((step) => step.action_id));
   const issues: string[] = [];
-
-  for (const intent of intentsFile.intents) {
-    for (const actionId of intent.allowed_action_ids) {
-      if (!stepIds.has(actionId)) {
-        issues.push(`intent ${intent.intent_mode} references unknown action ${actionId}`);
-      }
-    }
-  }
-
-  for (const example of examplesFile.examples) {
-    for (const actionId of example.allowed_action_ids) {
-      if (!stepIds.has(actionId)) {
-        issues.push(`example ${example.goal} references unknown action ${actionId}`);
-      }
-    }
-  }
-
   if (
-    !intentsFile.intents.some((intent) => intent.intent_mode === intentsFile.default_intent_mode)
+    !intentsFile.valid_combinations.some(
+      (intent) =>
+        intent.dataSourceMode === intentsFile.default_intent.dataSourceMode &&
+        intent.actionMode === intentsFile.default_intent.actionMode,
+    )
   ) {
-    issues.push(`default intent ${intentsFile.default_intent_mode} is not defined`);
+    issues.push('default multi-axis intent is not defined');
   }
 
   if (issues.length > 0) {
@@ -244,9 +243,9 @@ export function loadPmoPlannerCatalog(): PmoPlannerCatalog {
 
   cachedCatalog = {
     version: stepsFile.version,
-    default_intent_mode: intentsFile.default_intent_mode,
+    default_intent: intentsFile.default_intent,
     low_confidence_requires_confirmation: intentsFile.low_confidence_requires_confirmation,
-    intents: intentsFile.intents,
+    valid_combinations: intentsFile.valid_combinations,
     steps: stepsFile.steps,
     examples: examplesFile.examples,
     classification_rules: classificationRulesFile.classification_rules,
@@ -261,17 +260,22 @@ export function resetPmoPlannerCatalogCacheForTests(): void {
 
 export function getIntentDefinition(
   catalog: PmoPlannerCatalog,
-  intentMode: PmoIntentMode,
-): PmoIntentDefinition {
-  const exact = catalog.intents.find((intent) => intent.intent_mode === intentMode);
+  dataSourceMode: PmoDataSourceMode,
+  actionMode: PmoActionMode,
+): PmoValidIntentCombination {
+  const exact = catalog.valid_combinations.find(
+    (intent) => intent.dataSourceMode === dataSourceMode && intent.actionMode === actionMode,
+  );
   if (exact) return exact;
 
-  const fallback = catalog.intents.find(
-    (intent) => intent.intent_mode === catalog.default_intent_mode,
+  const fallback = catalog.valid_combinations.find(
+    (intent) =>
+      intent.dataSourceMode === catalog.default_intent.dataSourceMode &&
+      intent.actionMode === catalog.default_intent.actionMode,
   );
   if (fallback) return fallback;
 
-  const first = catalog.intents[0];
+  const first = catalog.valid_combinations[0];
   if (!first) {
     throw new Error('pmo_planner_intents_empty');
   }

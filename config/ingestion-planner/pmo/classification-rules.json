@@ -1,38 +1,35 @@
 {
-  "version": "1.0.0",
+  "version": "2.0.0",
   "classification_rules": [
     {
-      "rule": "If the user only asks to review, analyze, inspect, check structure, or understand the file, classify as review_only."
+      "rule": "Set dataSourceMode to uploaded_file when a workbook is attached and the requested outcome concerns that workbook; otherwise use existing_db for canonical PMO reporting."
     },
     {
-      "rule": "If the user asks to map columns, prepare mapping, or check mapping readiness, classify as mapping_readiness."
+      "rule": "Use inspect_file only for workbook structure, sheet, column, or type inspection."
     },
     {
-      "rule": "If the user asks to normalize, stage, preview database changes, check what would be inserted or updated, or check ingestion readiness without publishing, classify as stage_preview."
+      "rule": "Use review_staging for mapping, normalization, or staged-row review without a canonical DB diff."
     },
     {
-      "rule": "If the user clearly asks to publish, import into PMO, write to database, update PMO records, or apply changes after approval, classify as publish_intent."
+      "rule": "Use validate when the requested outcome emphasizes readiness, data quality, missing references, parse errors, or duplicates."
     },
     {
-      "rule": "If the user clearly asks to publish, import into PMO, write to database, update PMO records, or apply changes and also asks to generate a report, utilization report, idle report, overbook report, báo cáo idle, báo cáo overbook, or báo cáo utilization, classify as publish_report_intent."
+      "rule": "Use preview_changes when the user asks what canonical DB rows would be inserted, updated, skipped, or overwritten without publishing."
     },
     {
-      "rule": "If no workbook is attached and the user asks for a report from existing PMO data, classify as generate_report_intent. Extract an explicit from/to range when present; otherwise request database date-range confirmation."
+      "rule": "Use publish only when the user explicitly asks to import, publish, apply, sync, or update canonical PMO data."
     },
     {
-      "rule": "If a workbook is attached and the user asks to ingest it and generate a report without an explicit date range, classify as publish_report_intent and request a choice between the sheet-derived range and a manual database range after ingest."
+      "rule": "Use generate_report when the user asks for idle, overbook, utilization, or PMO reporting without requesting publication."
     },
     {
-      "rule": "If the user goal is ambiguous, choose the lowest-risk intent that satisfies the request."
+      "rule": "Use publish_then_report only when the user explicitly requests both publication and report generation."
     },
     {
-      "rule": "Do not include generate_report unless the user explicitly asks for a report, utilization report, idle report, or overbook report."
+      "rule": "Choose the narrowest actionMode satisfying the explicit requested outcome. Never add canonical writes implicitly."
     },
     {
-      "rule": "The phrase 'check if ready to import' means stage_preview, not publish_intent."
-    },
-    {
-      "rule": "The phrase 'import if valid' or 'publish after approval' means publish_intent, but actual publish still requires explicit user approval later."
+      "rule": "Extract dates and report types only when explicitly present. Never invent dates."
     }
   ]
 }

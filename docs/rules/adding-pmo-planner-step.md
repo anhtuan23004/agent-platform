@@ -12,18 +12,16 @@ Update the planner catalog files:
   - Add the new `action_id`.
   - Set `step_name`, `review_type`, `objective`, `agent_responsibility`,
     `user_responsibility`, `default_requires_user_review`,
-    `allowed_intent_modes`, `requires_prior_checkpoint`, and `produces`.
+    `allowed_action_modes`, `requires_prior_checkpoint`, and `produces`.
 - `config/ingestion-planner/pmo/intents.json`
-  - Add the new `action_id` to each intent mode that may use the step.
-  - Add a new intent mode only when the requested outcome is meaningfully new.
+  - Add a valid `dataSourceMode` + `actionMode` combination only when outcome is meaningfully new.
 - `config/ingestion-planner/pmo/classification-rules.json`
   - Add rules that tell the planner when to choose the intent or step.
 - `config/ingestion-planner/pmo/examples.json`
   - Add examples for goals that should select the new step.
 
-Keep catalog metadata consistent. If an intent can run the step chain, the
-`allowed_intent_modes` for each participating step should include that intent,
-even if the compiler currently relies on `intents.json` as the active allowlist.
+Keep catalog metadata consistent. Each participating step must include relevant `actionMode` in
+`allowed_action_modes`. Compiler remains deterministic from intent axes.
 
 ## 2. Extend Backend Planner Types
 
@@ -33,8 +31,7 @@ Update the backend planner schema and metadata:
   - Add the action id to `ActionIdSchema`.
   - Add a review type to `ReviewTypeSchema` when the step needs a new review
     category.
-  - Add a new intent mode to `PMO_INTENT_MODES` and `IntentModeSchema` when
-    needed.
+  - Add new source/action axis values only when existing axes cannot express outcome.
 - `packages/pmo/src/backend/planning/step-metadata.ts`
   - Add the action id to `PMO_PLAN_ACTION_IDS`.
   - Add the review type to `PMO_REVIEW_TYPES` when needed.
@@ -43,7 +40,7 @@ Update the backend planner schema and metadata:
 - `packages/pmo/src/backend/planning/compiler.ts`
   - Add the action id to `isStringActionId()`.
 - `packages/pmo/src/backend/planning/plan-schema.ts`
-  - Add any new intent mode to the plan schema.
+  - Add new axis values and resolution options when needed.
 
 ## 3. Add Runtime State And Output
 

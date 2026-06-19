@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PMO_ACTION_MODES, PMO_DATA_SOURCE_MODES, PMO_WRITE_POLICIES } from './catalog.ts';
 import { PMO_PLAN_ACTION_IDS, PMO_REVIEW_TYPES } from './step-metadata.ts';
 
 export const PlanDataAreaSchema = z.enum([
@@ -14,15 +15,6 @@ export const PlanDataAreaSchema = z.enum([
 ]);
 
 export const PlanConfidenceSchema = z.enum(['low', 'medium', 'high']);
-
-export const IntentModeSchema = z.enum([
-  'review_only',
-  'mapping_readiness',
-  'stage_preview',
-  'publish_intent',
-  'generate_report_intent',
-  'publish_report_intent',
-]);
 
 export const ReviewActionSchema = z.enum(['approve', 'modify', 'regenerate', 'reject', 'continue']);
 
@@ -43,36 +35,28 @@ export const WorkflowStepSchema = z.object({
 });
 
 export const IntentAnalysisSchema = z.object({
-  intent_mode: IntentModeSchema,
+  dataSourceMode: z.enum(PMO_DATA_SOURCE_MODES),
+  actionMode: z.enum(PMO_ACTION_MODES),
+  writePolicy: z.enum(PMO_WRITE_POLICIES),
   confidence: PlanConfidenceSchema,
   rationale: z.string().min(1),
   requires_confirmation: z.boolean(),
-  allowed_action_ids: z.array(z.enum(PMO_PLAN_ACTION_IDS)).min(1),
-  report_request: z
-    .object({
-      source: z.enum(['database', 'post_ingest_database']),
-      date_range_strategy: z.enum([
-        'explicit',
-        'database_confirmation',
-        'sheet_or_database_confirmation',
-        'sheet_derived',
-        'manual_database',
-      ]),
-      date_range: z
-        .object({
-          from: z.string(),
-          to: z.string(),
-        })
-        .nullable(),
-      report_types: z.array(z.enum(['idle_members', 'overbook_members'])).min(1),
-      database_date_bounds: z
-        .object({
-          min: z.string(),
-          max: z.string(),
-        })
-        .optional(),
-    })
-    .nullable()
+  allowed_action_ids: z.array(z.enum(PMO_PLAN_ACTION_IDS)),
+  extractedDateRange: z.object({ from: z.string(), to: z.string() }).nullable().optional(),
+  extractedReportTypes: z
+    .array(z.enum(['idle_members', 'overbook_members']))
+    .min(1)
+    .optional(),
+  resolution_options: z
+    .array(
+      z.object({
+        id: z.enum(['report_existing_db', 'publish_then_report', 'preview_only']),
+        label: z.string().min(1),
+        description: z.string().min(1),
+        dataSourceMode: z.enum(PMO_DATA_SOURCE_MODES),
+        actionMode: z.enum(PMO_ACTION_MODES),
+      }),
+    )
     .optional(),
   confirmed_at: z.string().optional(),
   confirmed_by: z.string().optional(),

@@ -32,7 +32,7 @@ Tools/workflows to add or extend:
 1. Extend PMO planning schema/catalog:
    - Add action id `generate_report`.
    - Add review type `report`.
-   - Add intent support for report requests, either as `report_intent` or as a report option attached to `publish_intent`.
+   - Route reports through multi-axis `actionMode`: `generate_report` or `publish_then_report`.
    - Update classification rules so goals containing “generate report”, “idle”, “overbook”, “utilization report”, or equivalent Vietnamese phrases can produce `generate_report`.
 
 2. Add `generate_report` to planner step metadata:

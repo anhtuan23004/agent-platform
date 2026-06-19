@@ -10,7 +10,7 @@ const dbCfg = () => ({
 });
 
 describe('prepareChatIngestSession', () => {
-  it('seeds an approved publish_report_intent plan with generate_report step', async () => {
+  it('seeds an approved publish-then-report plan with generate_report step', async () => {
     await withTestDb(dbCfg(), async ({ pool, databaseUrl }) => {
       resetPmoDb();
       initPools({ databaseUrl });

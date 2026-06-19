@@ -424,6 +424,12 @@ export function createNormalizeToStagingHandler(
   return {
     actionId: 'normalize_to_staging',
     execute: async (input) => {
+      const actionMode =
+        input.planningPlan && typeof input.planningPlan === 'object'
+          ? (input.planningPlan as { intent_analysis?: { actionMode?: unknown } }).intent_analysis
+              ?.actionMode
+          : undefined;
+      const cardFocus = actionMode === 'validate' ? 'validation' : 'staging';
       if (!input.runtimeContext.confirmed_mapping) {
         throw new Error('approved_checkpoint_missing:column_mapping');
       }
@@ -845,6 +851,7 @@ export function createNormalizeToStagingHandler(
             toolCallId: `workflow:${input.runId}:pmo_reviewNormalization`,
             plannerStep,
             reviewRows,
+            focus: cardFocus,
           }),
           sessionStatus: 'awaiting_normalization_review',
           runtimeContextPatch: {
@@ -887,6 +894,7 @@ export function createNormalizeToStagingHandler(
             toolCallId: `workflow:${input.runId}:pmo_reviewNormalization`,
             plannerStep,
             reviewRows,
+            focus: cardFocus,
           }),
           sessionStatus: 'awaiting_normalization_review',
           runtimeContextPatch: {

@@ -73,6 +73,12 @@ export function createDatabaseChangeSummaryHandler(
   return {
     actionId: 'database_change_summary',
     execute: async (input) => {
+      const writePolicy =
+        input.planningPlan && typeof input.planningPlan === 'object'
+          ? (input.planningPlan as { intent_analysis?: { writePolicy?: unknown } }).intent_analysis
+              ?.writePolicy
+          : undefined;
+      const willPublish = writePolicy === 'requires_approval';
       if (!input.runtimeContext.staging_result) {
         throw new Error('v2_staging_result_missing');
       }
@@ -126,6 +132,7 @@ export function createDatabaseChangeSummaryHandler(
             identity: deps.resolveCardIdentity(input.requestContext),
             toolCallId: `workflow:${input.runId}:pmo_confirmPublish`,
             plannerStep,
+            willPublish,
           }),
           sessionStatus: 'awaiting_publish_review',
           runtimeContextPatch: {
@@ -168,6 +175,7 @@ export function createDatabaseChangeSummaryHandler(
             identity: deps.resolveCardIdentity(input.requestContext),
             toolCallId: `workflow:${input.runId}:pmo_confirmPublish`,
             plannerStep,
+            willPublish,
           }),
           sessionStatus: 'awaiting_publish_review',
           runtimeContextPatch: {
@@ -190,14 +198,9 @@ export function createDatabaseChangeSummaryHandler(
         staging,
         checkpointState: approvedState,
       });
-      const publishResult = await deps.domainAdapter.publish({
-        ingestionSessionId: input.ingestionSessionId,
-        tenantId: input.tenantId,
-      });
-
       return {
         kind: 'completed',
-        sessionStatus: 'published',
+        sessionStatus: 'reviewed',
         runtimeContextPatch: {
           staging_result: approvedPayload,
         },
@@ -205,27 +208,15 @@ export function createDatabaseChangeSummaryHandler(
           change_summary: approvedPayload,
         },
         outputSummary: {
-          status: 'published',
+          status: 'reviewed',
           checkpoint_version: checkpoint.version,
-          rows_written: Object.values(publishResult.rowsWritten).reduce(
-            (sum, value) => sum + value,
-            0,
-          ),
-          rows_updated: Object.values(publishResult.rowsUpdated).reduce(
-            (sum, value) => sum + value,
-            0,
-          ),
-          rows_skipped: Object.values(publishResult.rowsSkipped).reduce(
-            (sum, value) => sum + value,
-            0,
-          ),
         },
         terminalOutput: {
           ingestionSessionId: input.ingestionSessionId,
-          status: 'published',
-          rowsWritten: publishResult.rowsWritten,
-          rowsUpdated: publishResult.rowsUpdated,
-          rowsSkipped: publishResult.rowsSkipped,
+          status: 'completed',
+          rowsWritten: {},
+          rowsUpdated: {},
+          rowsSkipped: {},
         },
       };
     },
