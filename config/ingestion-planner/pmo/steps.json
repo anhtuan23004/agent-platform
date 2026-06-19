@@ -13,7 +13,8 @@
         "review_only",
         "mapping_readiness",
         "stage_preview",
-        "publish_intent"
+        "publish_intent",
+        "publish_report_intent"
       ],
       "requires_prior_checkpoint": [],
       "produces": ["profiling_proposal"]
@@ -26,7 +27,12 @@
       "agent_responsibility": "Generate a mapping proposal with confidence markers and ambiguous fields called out.",
       "user_responsibility": "Approve, modify, or reject proposed mappings before any downstream staging step.",
       "default_requires_user_review": true,
-      "allowed_intent_modes": ["mapping_readiness", "stage_preview", "publish_intent"],
+      "allowed_intent_modes": [
+        "mapping_readiness",
+        "stage_preview",
+        "publish_intent",
+        "publish_report_intent"
+      ],
       "requires_prior_checkpoint": ["workbook_profiling"],
       "produces": ["mapping_proposal"]
     },
@@ -38,7 +44,7 @@
       "agent_responsibility": "Normalize data from approved mappings into staging artifacts without publishing changes.",
       "user_responsibility": "Review normalization warnings only when the workflow presents a review gate.",
       "default_requires_user_review": false,
-      "allowed_intent_modes": ["stage_preview", "publish_intent"],
+      "allowed_intent_modes": ["stage_preview", "publish_intent", "publish_report_intent"],
       "requires_prior_checkpoint": ["column_mapping"],
       "produces": ["staging_artifact"]
     },
@@ -50,7 +56,7 @@
       "agent_responsibility": "Produce a database change summary from staged data and flag blocking issues.",
       "user_responsibility": "Review database changes and decide whether the run may proceed toward publication.",
       "default_requires_user_review": true,
-      "allowed_intent_modes": ["stage_preview", "publish_intent"],
+      "allowed_intent_modes": ["stage_preview", "publish_intent", "publish_report_intent"],
       "requires_prior_checkpoint": ["normalize_to_staging"],
       "produces": ["db_change_summary_proposal"]
     },
@@ -74,8 +80,8 @@
       "agent_responsibility": "Resolve or request the report date range, then generate the report from published canonical PMO data.",
       "user_responsibility": "Confirm the report date range when it was not explicit in the goal.",
       "default_requires_user_review": false,
-      "allowed_intent_modes": ["publish_report_intent"],
-      "requires_prior_checkpoint": ["database_change_summary"],
+      "allowed_intent_modes": ["generate_report_intent", "publish_report_intent"],
+      "requires_prior_checkpoint": [],
       "produces": ["pmo_report"]
     }
   ]

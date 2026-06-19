@@ -1,0 +1,1 @@
+ALTER TABLE "pmo"."ingestion_sessions" ADD COLUMN "planning_intent" jsonb;

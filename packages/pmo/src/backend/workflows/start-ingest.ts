@@ -3,7 +3,7 @@ import { createS3FileStore } from '../ingestion/s3-file-store.ts';
 
 interface StartIngestWorkflowInput {
   ingestionSessionId: string;
-  fileKey: string;
+  fileKey?: string;
   tenantId: string;
   userId: string;
   mastra: { getWorkflow(id: string): unknown };
@@ -34,7 +34,7 @@ export async function startIngestWorkflow(input: StartIngestWorkflowInput): Prom
   const bucket = process.env.S3_BUCKET ?? 'hackathon-team-2-assets-033484686020';
   const requestContext = new RequestContext();
   requestContext.set('pmoFileStore', createS3FileStore(bucket));
-  requestContext.set('fileKey', fileKey);
+  if (fileKey) requestContext.set('fileKey', fileKey);
   requestContext.set('tenant_id', tenantId);
   requestContext.set('actor', { type: 'user' as const, user_id: userId });
 

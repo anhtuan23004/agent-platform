@@ -1,7 +1,7 @@
 import { Agent } from '@mastra/core/agent';
 import { loadPmoPlannerCatalog, type PmoPlannerCatalog } from './catalog.ts';
 import { compilePmoWorkflowSteps } from './compiler.ts';
-import { type ClassifiedPmoIntent, classifyPmoPlanningIntent } from './intent-classifier.ts';
+import type { ClassifiedPmoIntent } from './intent-classifier.ts';
 import { type PmoWorkflowPlan, PmoWorkflowPlanSchema } from './plan-schema.ts';
 
 interface UploadedFileInput {
@@ -23,7 +23,8 @@ interface WorkflowCapabilitiesInput {
 
 export interface GeneratePmoPlanInput {
   goal: string;
-  uploaded_file: UploadedFileInput;
+  intent: ClassifiedPmoIntent;
+  uploaded_file: UploadedFileInput | null;
   workflow_capabilities: WorkflowCapabilitiesInput;
   previous_plan?: unknown;
   plan_feedback?: string;
@@ -55,7 +56,7 @@ function buildDynamicPlanningPrompt(params: {
 
 Generate a high-level, reviewable execution plan from the provided intent analysis, workflow step catalog, examples, user goal, and file metadata.
 
-At this stage, the uploaded Excel file has not been parsed yet. You only know the user's goal, basic uploaded file metadata, and the pre-classified intent.
+At this stage, an uploaded Excel file has not been parsed yet. The input may have no file for a database-only report. You only know the user's goal, optional file metadata, and the pre-classified intent.
 
 Intent analysis:
 ${JSON.stringify(params.intent, null, 2)}
@@ -74,6 +75,7 @@ Rules:
 - Do not invent workflow steps. Summaries and document checks belong inside the relevant allowed step description.
 - Do not add downstream steps outside the allowed workflow steps.
 - Do not claim workbook parsing, mapping, normalization, database comparison, or publishing has already happened.
+- Set uploaded_file_summary to null when uploaded_file is null.
 - Do not invent sheet names, column names, row counts, data quality issues, mapping results, or database changes.
 - If intent_analysis.requires_confirmation is true, make next_action ask the user to confirm or refine the intended scope before approval.
 - Keep concise but complete.
@@ -153,7 +155,7 @@ export async function generatePmoWorkflowPlan(
 ): Promise<PmoWorkflowPlan> {
   const model = resolvePlanningModel();
   const catalog = loadPmoPlannerCatalog();
-  const intent = await classifyPmoPlanningIntent(input.goal);
+  const intent = input.intent;
   const planner = new Agent({
     id: 'pmo.workflowPlanner',
     name: 'PMO Workflow Planner',

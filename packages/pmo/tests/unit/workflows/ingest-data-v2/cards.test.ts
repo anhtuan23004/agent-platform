@@ -392,6 +392,8 @@ describe('PMO ingest review cards', () => {
     const card = buildReportRangeCard({
       ingestionSessionId: 'f56e9152-7856-44e9-b2d7-4f21d86cdffd',
       suggestedDateRange: { from: '2026-06-01', to: '2026-06-30' },
+      databaseDateBounds: { min: '2026-01-01', max: '2026-12-31' },
+      rangeSource: 'sheet_or_database',
       reportTypes: ['idle_members', 'overbook_members'],
       identity: { tenantId: 'tenant-1', userId: 'user-1' },
       toolCallId: 'workflow:test:pmo_confirmReportRange',
@@ -401,6 +403,9 @@ describe('PMO ingest review cards', () => {
     expect(card.primary.argsPatch).toEqual({
       decision: 'approve',
       dateRange: { from: '2026-06-01', to: '2026-06-30' },
+      dateRangeStrategy: 'sheet_derived',
+      databaseDateBounds: { min: '2026-01-01', max: '2026-12-31' },
+      rangeSource: 'sheet_or_database',
     });
     expect(JSON.stringify(card.details)).toContain('2026-06-01');
     expect(JSON.stringify(card.details)).toContain('2026-06-30');

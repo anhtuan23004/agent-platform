@@ -38,6 +38,12 @@
       ]
     },
     {
+      "intent_mode": "generate_report_intent",
+      "label": "Generate report from database",
+      "description": "The user wants an idle, overbook, utilization, or PMO report from existing tenant-scoped canonical PMO data without uploading or ingesting a workbook.",
+      "allowed_action_ids": ["generate_report"]
+    },
+    {
       "intent_mode": "publish_report_intent",
       "label": "Publish and generate report",
       "description": "The user explicitly wants to publish or update PMO data and then generate an idle, overbook, utilization, or PMO report from the published data.",

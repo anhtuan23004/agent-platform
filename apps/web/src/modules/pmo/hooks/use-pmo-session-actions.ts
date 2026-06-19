@@ -53,7 +53,10 @@ interface UsePmoSessionActionsResult {
   handleGeneratePlanForSession: (session: PmoPlanningSession) => Promise<void>;
   handleRegeneratePlan: () => Promise<void>;
   handleApprovePlanAndStart: () => Promise<void>;
-  handleConfirmPlanIntent: () => Promise<void>;
+  handleConfirmPlanIntent: (selection?: {
+    dateRangeStrategy?: 'sheet_derived' | 'manual_database';
+    dateRange?: { from: string; to: string };
+  }) => Promise<void>;
   handleAppendDocument: (file: File) => Promise<void>;
   handleSaveProfilingReview: () => Promise<void>;
   handleApproveProfilingContinue: () => Promise<void>;
@@ -131,9 +134,9 @@ export function usePmoSessionActions(
   );
 
   const handleAnalyzeGeneratePlan = useCallback(async () => {
-    if (!targetGenerateSessionId) {
-      toast.error('Upload required', {
-        description: 'Please upload a workbook or select an Uploaded run before generating a plan.',
+    if (!targetGenerateSessionId && !goalDraft.trim()) {
+      toast.error('Goal required', {
+        description: 'Describe the database report you want, or upload a workbook first.',
       });
       return;
     }
@@ -147,17 +150,23 @@ export function usePmoSessionActions(
     setIsGenerating(true);
     try {
       const payload: GeneratePlanInput = {
-        ingestion_session_id: targetGenerateSessionId,
+        ...(targetGenerateSessionId ? { ingestion_session_id: targetGenerateSessionId } : {}),
         goal,
       };
 
-      await pmoApi.generatePlan(payload);
+      const generated = await pmoApi.generatePlan(payload);
       await loadSessions(true);
-      setSelectedSessionId(targetGenerateSessionId);
+      setSelectedSessionId(generated.ingestion_session_id);
 
-      toast.success('Plan generated', {
-        description: 'Upload history status moved to Plan Review.',
-      });
+      toast.success(
+        generated.planning_state === 'intent_review' ? 'Intent ready' : 'Plan generated',
+        {
+          description:
+            generated.planning_state === 'intent_review'
+              ? 'Confirm report date range before plan generation.'
+              : 'Upload history status moved to Plan Review.',
+        },
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Plan generation failed.';
       toast.error('Generate failed', { description: message });
@@ -271,11 +280,19 @@ export function usePmoSessionActions(
     setIsApproving(true);
     try {
       await pmoApi.approvePlan(selectedSession.ingestion_session_id);
-      await loadSessions(true);
+      const isDatabaseReport =
+        selectedSession.plan?.intent_analysis?.intent_mode === 'generate_report_intent';
+      if (isDatabaseReport && !runtimeRunBySessionId.has(selectedSession.ingestion_session_id)) {
+        await pmoApi.startIngestWorkflow({
+          ingestionSessionId: selectedSession.ingestion_session_id,
+        });
+      }
+      await Promise.all([loadSessions(true), refreshWorkflowRuntime()]);
 
       toast.success('Plan approved', {
-        description:
-          'Workbook Profiling is ready for PMO review before the runtime workflow starts.',
+        description: isDatabaseReport
+          ? 'The database report workflow has started.'
+          : 'Workbook Profiling is ready for PMO review before the runtime workflow starts.',
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Plan approval failed.';
@@ -283,39 +300,53 @@ export function usePmoSessionActions(
     } finally {
       setIsApproving(false);
     }
-  }, [isApproving, loadSessions, selectedSession]);
+  }, [isApproving, loadSessions, refreshWorkflowRuntime, runtimeRunBySessionId, selectedSession]);
 
-  const handleConfirmPlanIntent = useCallback(async () => {
-    if (!selectedSession) {
-      return;
-    }
+  const handleConfirmPlanIntent = useCallback(
+    async (selection?: {
+      dateRangeStrategy?: 'sheet_derived' | 'manual_database';
+      dateRange?: { from: string; to: string };
+    }) => {
+      if (!selectedSession) {
+        return;
+      }
 
-    if (selectedSession.planning_state !== 'plan_review') {
-      toast.error('Cannot confirm intent', {
-        description: 'Intent can be confirmed only while the plan is in review.',
-      });
-      return;
-    }
+      if (selectedSession.planning_state !== 'intent_review') {
+        toast.error('Cannot confirm intent', {
+          description: 'Intent can be confirmed only while intent review is active.',
+        });
+        return;
+      }
 
-    if (isConfirmingIntent) {
-      return;
-    }
+      if (isConfirmingIntent) {
+        return;
+      }
 
-    setIsConfirmingIntent(true);
-    try {
-      await pmoApi.confirmPlanIntent(selectedSession.ingestion_session_id);
-      await loadSessions(true);
+      setIsConfirmingIntent(true);
+      try {
+        await pmoApi.confirmPlanIntent({
+          ingestionSessionId: selectedSession.ingestion_session_id,
+          dateRangeStrategy: selection?.dateRangeStrategy,
+          dateRange: selection?.dateRange,
+        });
+        await pmoApi.generatePlan({
+          ingestion_session_id: selectedSession.ingestion_session_id,
+          goal: selectedSession.goal,
+        });
+        await loadSessions(true);
 
-      toast.success('Intent confirmed', {
-        description: 'Plan review is now ready for approval.',
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Intent confirmation failed.';
-      toast.error('Confirm intent failed', { description: message });
-    } finally {
-      setIsConfirmingIntent(false);
-    }
-  }, [isConfirmingIntent, loadSessions, selectedSession]);
+        toast.success('Intent confirmed', {
+          description: 'Intent used as input. Plan review now ready.',
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Intent confirmation failed.';
+        toast.error('Confirm intent failed', { description: message });
+      } finally {
+        setIsConfirmingIntent(false);
+      }
+    },
+    [isConfirmingIntent, loadSessions, selectedSession],
+  );
 
   const handleAppendDocument = useCallback(
     async (file: File) => {

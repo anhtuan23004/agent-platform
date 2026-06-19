@@ -95,7 +95,10 @@ export interface PmoExecutionStepReportProps {
   selectedReportApproval: WorkflowApprovalRow | null;
   reportApprovalsCount: number;
   isSubmittingReportDecision: boolean;
-  confirmReportRange: (dateRange: { from: string; to: string }) => void;
+  confirmReportRange: (
+    dateRange: { from: string; to: string },
+    strategy?: 'sheet_derived' | 'manual_database',
+  ) => void;
   rejectReportRange: () => void;
 }
 
@@ -143,9 +146,11 @@ interface PmoExecutionStepCardProps {
   plan: PmoExecutionStepPlanProps;
 }
 
-function readReportDateRangeFromApproval(
-  approval: WorkflowApprovalRow | null,
-): { from: string; to: string } | null {
+function readReportRangeConfigFromApproval(approval: WorkflowApprovalRow | null): {
+  suggested: { from: string; to: string };
+  bounds: { min: string; max: string } | null;
+  source: 'database' | 'sheet_or_database';
+} | null {
   const payload = approval?.proposedPayload;
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
   const primary = (payload as { primary?: unknown }).primary;
@@ -156,26 +161,42 @@ function readReportDateRangeFromApproval(
   if (!dateRange || typeof dateRange !== 'object' || Array.isArray(dateRange)) return null;
   const from = (dateRange as { from?: unknown }).from;
   const to = (dateRange as { to?: unknown }).to;
-  return typeof from === 'string' && typeof to === 'string' ? { from, to } : null;
+  if (typeof from !== 'string' || typeof to !== 'string') return null;
+  const rawBounds = (argsPatch as { databaseDateBounds?: unknown }).databaseDateBounds;
+  const bounds =
+    rawBounds && typeof rawBounds === 'object' && !Array.isArray(rawBounds)
+      ? {
+          min: String((rawBounds as { min?: unknown }).min ?? ''),
+          max: String((rawBounds as { max?: unknown }).max ?? ''),
+        }
+      : null;
+  const rawSource = (argsPatch as { rangeSource?: unknown }).rangeSource;
+  return {
+    suggested: { from, to },
+    bounds: bounds?.min && bounds.max ? bounds : null,
+    source: rawSource === 'sheet_or_database' ? 'sheet_or_database' : 'database',
+  };
 }
 
 function PmoReportRangeForm(props: {
   stepNo: number;
-  suggestedRange: { from: string; to: string } | null;
+  rangeConfig: ReturnType<typeof readReportRangeConfigFromApproval>;
   isSubmittingReportDecision: boolean;
-  confirmReportRange: (dateRange: { from: string; to: string }) => void;
+  confirmReportRange: (
+    dateRange: { from: string; to: string },
+    strategy?: 'sheet_derived' | 'manual_database',
+  ) => void;
   rejectReportRange: () => void;
 }) {
-  const {
-    stepNo,
-    suggestedRange,
-    isSubmittingReportDecision,
-    confirmReportRange,
-    rejectReportRange,
-  } = props;
-  const [from, setFrom] = useState(suggestedRange?.from ?? '');
-  const [to, setTo] = useState(suggestedRange?.to ?? '');
-  const canSubmit = Boolean(from && to && from <= to);
+  const { stepNo, rangeConfig, isSubmittingReportDecision, confirmReportRange, rejectReportRange } =
+    props;
+  const [from, setFrom] = useState(rangeConfig?.suggested.from ?? '');
+  const [to, setTo] = useState(rangeConfig?.suggested.to ?? '');
+  const min = rangeConfig?.bounds?.min;
+  const max = rangeConfig?.bounds?.max;
+  const canSubmit = Boolean(
+    from && to && from <= to && (!min || from >= min) && (!max || to <= max),
+  );
 
   return (
     <div className="space-y-3 rounded-md border border-hairline bg-surface-1 p-3">
@@ -185,6 +206,8 @@ function PmoReportRangeForm(props: {
           <Input
             id={`report-from-${stepNo}`}
             type="date"
+            min={min}
+            max={max}
             value={from}
             onChange={(event) => setFrom(event.target.value)}
           />
@@ -194,6 +217,8 @@ function PmoReportRangeForm(props: {
           <Input
             id={`report-to-${stepNo}`}
             type="date"
+            min={min}
+            max={max}
             value={to}
             onChange={(event) => setTo(event.target.value)}
           />
@@ -213,11 +238,22 @@ function PmoReportRangeForm(props: {
           type="button"
           size="sm"
           variant="primary"
-          onClick={() => confirmReportRange({ from, to })}
+          onClick={() => confirmReportRange({ from, to }, 'manual_database')}
           disabled={!canSubmit || isSubmittingReportDecision}
         >
           {isSubmittingReportDecision ? 'Generating...' : 'Generate report'}
         </Button>
+        {rangeConfig?.source === 'sheet_or_database' ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="primary"
+            onClick={() => confirmReportRange(rangeConfig.suggested, 'sheet_derived')}
+            disabled={isSubmittingReportDecision}
+          >
+            Use sheet range
+          </Button>
+        ) : null}
       </div>
     </div>
   );
@@ -228,7 +264,10 @@ function PmoReportReviewPanel(props: {
   selectedReportApproval: WorkflowApprovalRow | null;
   reportApprovalsCount: number;
   isSubmittingReportDecision: boolean;
-  confirmReportRange: (dateRange: { from: string; to: string }) => void;
+  confirmReportRange: (
+    dateRange: { from: string; to: string },
+    strategy?: 'sheet_derived' | 'manual_database',
+  ) => void;
   rejectReportRange: () => void;
 }) {
   const {
@@ -239,8 +278,8 @@ function PmoReportReviewPanel(props: {
     confirmReportRange,
     rejectReportRange,
   } = props;
-  const suggestedRange = useMemo(
-    () => readReportDateRangeFromApproval(selectedReportApproval),
+  const rangeConfig = useMemo(
+    () => readReportRangeConfigFromApproval(selectedReportApproval),
     [selectedReportApproval],
   );
   const outputEntries = Object.entries(step.output_summary ?? {});
@@ -263,9 +302,9 @@ function PmoReportReviewPanel(props: {
 
       {selectedReportApproval && !step.output_summary ? (
         <PmoReportRangeForm
-          key={`${selectedReportApproval.approvalId}-${suggestedRange?.from ?? ''}-${suggestedRange?.to ?? ''}`}
+          key={`${selectedReportApproval.approvalId}-${rangeConfig?.suggested.from ?? ''}-${rangeConfig?.suggested.to ?? ''}`}
           stepNo={step.step_no}
-          suggestedRange={suggestedRange}
+          rangeConfig={rangeConfig}
           isSubmittingReportDecision={isSubmittingReportDecision}
           confirmReportRange={confirmReportRange}
           rejectReportRange={rejectReportRange}

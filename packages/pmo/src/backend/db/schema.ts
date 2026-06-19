@@ -21,15 +21,16 @@ export const ingestionSessions = pmoSchema.table(
     id: uuid('id').primaryKey().defaultRandom(),
     tenant_id: uuid('tenant_id').notNull(),
     status: text('status').notNull().default('uploaded'),
+    source_kind: text('source_kind').notNull().default('workbook'),
     // Status lifecycle:
     // uploaded → generating_plan → plan_review → approved_plan
     // → profiling → awaiting_confirmation → confirmed → normalizing
     // → staging_normalized → awaiting_publish_review → published
     // Terminal: failed, rejected
-    source_file_key: text('source_file_key').notNull(),
-    source_file_name: text('source_file_name').notNull(),
+    source_file_key: text('source_file_key'),
+    source_file_name: text('source_file_name'),
     source_file_size_bytes: integer('source_file_size_bytes'),
-    mime_type: text('mime_type').notNull(),
+    mime_type: text('mime_type'),
     // Reporting period (user selects at upload time)
     reporting_period_key: text('reporting_period_key'),
     reporting_period_start: timestamp('reporting_period_start', { withTimezone: true }),
@@ -41,6 +42,7 @@ export const ingestionSessions = pmoSchema.table(
     change_summary: jsonb('change_summary'),
     // Planning state (before workbook parsing starts)
     planning_goal: text('planning_goal'),
+    planning_intent: jsonb('planning_intent'),
     planning_plan: jsonb('planning_plan'),
     planning_plan_version: integer('planning_plan_version').notNull().default(0),
     planning_feedback_history: jsonb('planning_feedback_history'),

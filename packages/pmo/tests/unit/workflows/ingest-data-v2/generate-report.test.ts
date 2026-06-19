@@ -89,6 +89,7 @@ const deps = {
     excludedSheets: [],
     parseErrors: [],
   }),
+  getReportDateBounds: async () => ({ min: '2026-01-01', max: '2026-12-31' }),
 } satisfies Parameters<typeof createGenerateReportHandler>[0];
 
 function makeInput(overrides: Partial<PmoDynamicHandlerInput> = {}): PmoDynamicHandlerInput {
@@ -167,5 +168,119 @@ describe('createGenerateReportHandler', () => {
     });
     expect(result.outputSummary?.report_run_id).toBe('44444444-4444-4444-4444-444444444444');
     expect(result.terminalOutput?.report).toBeDefined();
+  });
+
+  it('uses sheet-derived dates selected in intent card without suspending again', async () => {
+    const result = await createGenerateReportHandler(deps).execute(
+      makeInput({
+        planningPlan: {
+          intent_analysis: {
+            intent_mode: 'publish_report_intent',
+            report_request: {
+              source: 'post_ingest_database',
+              date_range_strategy: 'sheet_derived',
+              date_range: null,
+              report_types: ['idle_members', 'overbook_members'],
+            },
+          },
+        },
+      }),
+    );
+
+    expect(result.kind).toBe('completed');
+    expect(generatePmoReport).toHaveBeenCalledWith(
+      expect.objectContaining({ dateRange: { from: '2026-06-01', to: '2026-06-30' } }),
+    );
+  });
+
+  it('runs a database-only report without requiring a publish checkpoint', async () => {
+    const result = await createGenerateReportHandler({
+      ...deps,
+      getReportDateBounds: vi.fn().mockResolvedValue({
+        min: '2026-01-01',
+        max: '2026-12-31',
+      }),
+    }).execute(
+      makeInput({
+        planningPlan: {
+          intent_analysis: {
+            intent_mode: 'generate_report_intent',
+            report_request: {
+              source: 'database',
+              date_range_strategy: 'explicit',
+              date_range: { from: '2026-06-01', to: '2026-06-30' },
+              report_types: ['idle_members', 'overbook_members'],
+            },
+          },
+        },
+        runtimeContext: {},
+      }),
+    );
+
+    expect(result.kind).toBe('completed');
+    expect(generatePmoReport).toHaveBeenCalledWith(
+      expect.objectContaining({ dateRange: { from: '2026-06-01', to: '2026-06-30' } }),
+    );
+  });
+
+  it('offers database bounds when a database-only report has no explicit range', async () => {
+    const result = await createGenerateReportHandler({
+      ...deps,
+      getReportDateBounds: vi.fn().mockResolvedValue({
+        min: '2026-02-01',
+        max: '2026-11-30',
+      }),
+    }).execute(
+      makeInput({
+        planningPlan: {
+          intent_analysis: {
+            intent_mode: 'generate_report_intent',
+            report_request: {
+              source: 'database',
+              date_range_strategy: 'database_confirmation',
+              date_range: null,
+              report_types: ['idle_members'],
+            },
+          },
+        },
+        runtimeContext: {},
+      }),
+    );
+
+    expect(result.kind).toBe('suspend');
+    if (result.kind !== 'suspend') throw new Error('expected suspend');
+    expect(result.card.primary.argsPatch).toMatchObject({
+      dateRange: { from: '2026-02-01', to: '2026-11-30' },
+      dateRangeStrategy: 'manual_database',
+    });
+    expect(JSON.stringify(result.card.details)).toContain('2026-02-01');
+    expect(JSON.stringify(result.card.details)).toContain('2026-11-30');
+  });
+
+  it('rejects an LLM-extracted range outside the tenant database bounds', async () => {
+    await expect(
+      createGenerateReportHandler({
+        ...deps,
+        getReportDateBounds: vi.fn().mockResolvedValue({
+          min: '2026-02-01',
+          max: '2026-11-30',
+        }),
+      }).execute(
+        makeInput({
+          planningPlan: {
+            intent_analysis: {
+              intent_mode: 'generate_report_intent',
+              report_request: {
+                source: 'database',
+                date_range_strategy: 'explicit',
+                date_range: { from: '2026-01-01', to: '2026-12-31' },
+                report_types: ['idle_members'],
+              },
+            },
+          },
+          runtimeContext: {},
+        }),
+      ),
+    ).rejects.toThrow('report_date_range_outside_database_bounds');
   });
 });

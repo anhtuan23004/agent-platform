@@ -8,6 +8,7 @@ export const PMO_INTENT_MODES = [
   'mapping_readiness',
   'stage_preview',
   'publish_intent',
+  'generate_report_intent',
   'publish_report_intent',
 ] as const;
 

@@ -101,6 +101,8 @@ interface NormalizationCardInput {
 interface ReportRangeCardInput {
   ingestionSessionId: string;
   suggestedDateRange: { from: string; to: string };
+  databaseDateBounds: { min: string; max: string };
+  rangeSource: 'database' | 'sheet_or_database';
   reportTypes: Array<'idle_members' | 'overbook_members'>;
   identity: CardIdentity;
   toolCallId: string;
@@ -1028,7 +1030,9 @@ export function buildReportRangeCard(input: ReportRangeCardInput): ApprovalCard 
     intent: 'Confirm PMO report date range',
     riskBadge: 'write',
     summary:
-      'The goal asks for a PMO report but does not include a clear date range. Confirm the suggested workbook range before report generation.',
+      input.rangeSource === 'database'
+        ? 'The goal asks for a PMO report but does not include a clear date range. Choose a range within the available database dates.'
+        : 'The ingest-and-report goal has no clear date range. Use the sheet-derived range or choose a range from the database after ingest.',
     details: [
       {
         kind: 'kvTable',
@@ -1037,7 +1041,12 @@ export function buildReportRangeCard(input: ReportRangeCardInput): ApprovalCard 
           { k: 'Report types', v: reportLabel },
           { k: 'Suggested from', v: input.suggestedDateRange.from },
           { k: 'Suggested to', v: input.suggestedDateRange.to },
-          { k: 'Suggestion source', v: 'Uploaded workbook/reporting period' },
+          { k: 'Database minimum', v: input.databaseDateBounds.min },
+          { k: 'Database maximum', v: input.databaseDateBounds.max },
+          {
+            k: 'Suggestion source',
+            v: input.rangeSource === 'database' ? 'Canonical PMO database' : 'Uploaded workbook',
+          },
         ],
       },
       {
@@ -1054,6 +1063,9 @@ export function buildReportRangeCard(input: ReportRangeCardInput): ApprovalCard 
       argsPatch: {
         decision: 'approve',
         dateRange: input.suggestedDateRange,
+        dateRangeStrategy: input.rangeSource === 'database' ? 'manual_database' : 'sheet_derived',
+        databaseDateBounds: input.databaseDateBounds,
+        rangeSource: input.rangeSource,
       },
     },
     alternates: [],
