@@ -164,6 +164,10 @@ export async function prepareChatIngestSession(
     }
   }
 
+  if (!row.source_file_key || !row.source_file_name || !row.mime_type) {
+    throw new Error('ingestion_session_source_file_missing');
+  }
+
   const intentMode: PmoIntentMode = input.generateReport
     ? 'publish_report_intent'
     : 'publish_intent';

@@ -9,6 +9,7 @@ import {
 function session(overrides: Partial<PmoPlanningSession> = {}): PmoPlanningSession {
   return {
     ingestion_session_id: '00000000-0000-0000-0000-000000000001',
+    source_kind: 'workbook',
     workbook_name: 'PMO June.xlsx',
     workbook_size_bytes: 1234,
     workbook_size: '1.2 KB',
@@ -27,6 +28,7 @@ function session(overrides: Partial<PmoPlanningSession> = {}): PmoPlanningSessio
     progress_text: '6 / 6 workflow steps',
     progress_pct: 100,
     goal: '',
+    intent: null,
     plan: null,
     plan_version: 0,
     feedback_history: [],

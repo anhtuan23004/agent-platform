@@ -206,6 +206,7 @@ export function PmoPage() {
   const {
     isUploading,
     isGenerating,
+    generatingSessionId,
     isApproving,
     isConfirmingIntent,
     isAppendingDocument,
@@ -572,7 +573,7 @@ export function PmoPage() {
             selectedSessionId={selectedSession?.ingestion_session_id ?? null}
             isLoadingSessions={isLoadingSessions}
             isCancellingWorkflowBySessionId={isCancellingWorkflowBySessionId}
-            isGenerating={isGenerating}
+            generatingSessionId={generatingSessionId}
             isWorkflowCancelable={isWorkflowCancelable}
             isSessionGeneratable={isSessionGeneratable}
             onSelectSession={setSelectedSessionId}
