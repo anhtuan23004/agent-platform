@@ -1,5 +1,6 @@
 import { appendCheckpoint, appendProposal, approveProposal, createProposal } from '@seta/ingestion';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { PMO_DOMAIN_CONFIG } from '../../../../src/backend/ingestion/pmo-domain-config.ts';
 import type {
   DbChangeSummaryResult,
   NormalizationResult,
@@ -7,6 +8,17 @@ import type {
 } from '../../../../src/backend/workflows/ingest-data-v2/handlers/common.ts';
 import { createDatabaseChangeSummaryHandler } from '../../../../src/backend/workflows/ingest-data-v2/handlers/database-change-summary.ts';
 import type { PmoDynamicHandlerInput } from '../../../../src/backend/workflows/ingest-data-v2/types.ts';
+
+// Mock the DB layer — reclassifyStagingChanges queries staging_changes directly.
+vi.mock('../../../../src/backend/db/client.ts', () => ({
+  pmoDb: () => ({
+    select: () => ({
+      from: () => ({
+        where: () => Promise.resolve([]),
+      }),
+    }),
+  }),
+}));
 
 const baseStep = {
   step_no: 4,
@@ -65,6 +77,7 @@ const deps = {
       rowsSkipped: {},
     })),
   },
+  domainConfig: PMO_DOMAIN_CONFIG,
   resolveCardIdentity: () => ({
     tenantId: '11111111-1111-1111-1111-111111111111',
     userId: '22222222-2222-2222-2222-222222222222',

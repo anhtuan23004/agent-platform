@@ -775,6 +775,7 @@ function buildStepRegistry(deps: DynamicHandlerDeps) {
     }),
     createDatabaseChangeSummaryHandler({
       domainAdapter: deps.domainAdapter,
+      domainConfig: deps.domainConfig,
       resolveCardIdentity: deps.resolveCardIdentity,
       readPlannerStepMeta: deps.readPlannerStepMeta,
     }),

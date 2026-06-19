@@ -51,6 +51,7 @@ export interface ClassifiedPmoIntent extends PmoIntentClassification {
 export interface PmoIntentValidationContext {
   hasUploadedFile: boolean;
   hasActiveStagingSession?: boolean;
+  planFeedback?: string;
 }
 
 function resolvePlanningModel(): string {
@@ -84,7 +85,8 @@ Rules:
 - writePolicy is read_only except publish and publish_then_report, which require approval.
 - Use confidence low when request reasonably fits multiple outcomes.
 - Extract date range and report types only when explicitly stated. Never invent dates.
-- Do not resolve dates or ask questions. Date resolution belongs to generate_report step.`;
+- Do not resolve dates or ask questions. Date resolution belongs to generate_report step.
+- If plan_feedback is provided, it overrides or refines the original goal. Treat it as the user's updated intent. For example, feedback like "also publish" should widen actionMode to include publish steps.`;
 }
 
 function derivedWritePolicy(actionMode: PmoActionMode): PmoWritePolicy {
@@ -189,13 +191,17 @@ export async function classifyPmoPlanningIntent(
   });
 
   try {
-    const result = await classifier.generate(
-      JSON.stringify({ goal, has_uploaded_file: context.hasUploadedFile }),
-      {
-        structuredOutput: { schema: PmoIntentClassificationSchema },
-        providerOptions: { openai: { reasoningSummary: 'auto', temperature: 0 } },
-      },
-    );
+    const classifierInput: Record<string, unknown> = {
+      goal,
+      has_uploaded_file: context.hasUploadedFile,
+    };
+    if (context.planFeedback) {
+      classifierInput.plan_feedback = context.planFeedback;
+    }
+    const result = await classifier.generate(JSON.stringify(classifierInput), {
+      structuredOutput: { schema: PmoIntentClassificationSchema },
+      providerOptions: { openai: { reasoningSummary: 'auto', temperature: 0 } },
+    });
     if (!result.object) return fallbackIntent(catalog, context, 'No structured intent output.');
     return validatePmoPlanningIntent(catalog, result.object, context);
   } catch (error) {

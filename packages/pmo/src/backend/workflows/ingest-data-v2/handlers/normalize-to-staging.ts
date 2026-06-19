@@ -566,23 +566,10 @@ export function createNormalizeToStagingHandler(
           }
         }
 
-        const activeRecords = await deps.domainAdapter.findActiveRecords({
-          tenantId: input.tenantId,
-          tableId,
-        });
-        for (const record of activeRecords) {
-          activeSourceHashByNaturalKey.set(
-            `${tableId}:${record.natural_key_hash}`,
-            record.source_row_hash,
-          );
-        }
-        const staged = classifyRows(
-          tableId,
-          input.tenantId,
-          rows,
-          activeRecords,
-          deps.domainConfig,
-        );
+        // Classify rows with empty active records — only detects duplicate_in_upload.
+        // DB comparison (new vs updated vs exact_duplicate) is deferred to
+        // database_change_summary step which has the proper diff context.
+        const staged = classifyRows(tableId, input.tenantId, rows, [], deps.domainConfig);
         allStaged.push(...staged);
         const firstRowByNaturalKey = new Map<string, StagedRow>();
         for (const stagedRow of staged) {
@@ -671,40 +658,7 @@ export function createNormalizeToStagingHandler(
           if (stagedRow.changeType === 'duplicate_in_upload') counts.duplicates_in_upload++;
         }
 
-        for (const stagedRow of staged) {
-          if (stagedRow.changeType !== 'exact_duplicate') continue;
-          const context = getReviewContext(reviewContexts, tableId, stagedRow.sourceSheet);
-          const key = `${reviewRowId(
-            tableId,
-            stagedRow.sourceRow,
-            stagedRow.sourceSheet,
-          )}:exact_duplicate`;
-          if (reviewRowKeys.has(key)) continue;
-          reviewRowKeys.add(key);
-          const rowId = reviewRowId(tableId, stagedRow.sourceRow, stagedRow.sourceSheet);
-          reviewRows.push({
-            id: rowId,
-            groupId: `${tableId}:exact_duplicate`,
-            groupLabel: 'Rows to skip',
-            tableId,
-            ...(stagedRow.sourceSheet ? { sourceSheet: stagedRow.sourceSheet } : {}),
-            sourceRow: stagedRow.sourceRow,
-            status: 'skipped',
-            issueType: 'exact_duplicate',
-            issueLabel: 'Skipped',
-            issueDetail: 'Exact duplicate already exists in PMO data',
-            values: reviewValuesForRow({
-              context,
-              sourceRow: stagedRow.sourceRow,
-              normalizedValues: stagedRow.values,
-              rowId,
-              rowOverrides,
-            }),
-            columns: context?.columns ?? [],
-            problemFields: [],
-            decision: 'skipped',
-          });
-        }
+        // exact_duplicate review rows are deferred to database_change_summary step.
 
         const sampleChanges = staged
           .filter((entry) => entry.changeType !== 'exact_duplicate')
@@ -948,23 +902,17 @@ export function createNormalizeToStagingHandler(
       if (allStaged.length > 0) {
         if (stagedForInsert.length > 0) {
           await db.insert(stagingChanges).values(
-            stagedForInsert.map((entry) => {
-              const activeSourceHash = activeSourceHashByNaturalKey.get(
-                `${entry.tableId}:${entry.naturalKeyHash}`,
-              );
-              return {
-                ingestion_session_id: input.ingestionSessionId,
-                table_id: entry.tableId,
-                natural_key_hash: entry.naturalKeyHash,
-                change_type: effectiveChangeTypeForReviewedRow({
-                  row: entry,
-                  activeSourceHash,
-                }),
-                new_values: entry.values,
-                natural_key_display: entry.naturalKeyDisplay,
-                old_values: entry.oldValues ?? null,
-              };
-            }),
+            stagedForInsert.map((entry) => ({
+              ingestion_session_id: input.ingestionSessionId,
+              table_id: entry.tableId,
+              natural_key_hash: entry.naturalKeyHash,
+              // All rows stored as new_record; DB comparison (updated_record,
+              // exact_duplicate) is determined by database_change_summary step.
+              change_type: 'new_record',
+              new_values: entry.values,
+              natural_key_display: entry.naturalKeyDisplay,
+              old_values: entry.oldValues ?? null,
+            })),
           );
         }
       }

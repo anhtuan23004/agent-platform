@@ -201,7 +201,9 @@ export function usePmoSessionActions(
         return;
       }
 
-      const goal = goalDraft.trim() || session.goal || 'Generate plan from uploaded workbook.';
+      const defaultGoal =
+        'Ingest this workbook, publish approved changes, and generate an idle/overbook report.';
+      const goal = goalDraft.trim() || session.goal || defaultGoal;
 
       setIsGenerating(true);
       setGeneratingSessionId(session.ingestion_session_id);
@@ -244,8 +246,9 @@ export function usePmoSessionActions(
       return;
     }
 
-    const goal =
-      goalDraft.trim() || selectedSession.goal || 'Generate plan from uploaded workbook.';
+    const defaultGoal =
+      'Ingest this workbook, publish approved changes, and generate an idle/overbook report.';
+    const goal = goalDraft.trim() || selectedSession.goal || defaultGoal;
     const feedback = (feedbackBySessionId[selectedSession.ingestion_session_id] ?? '').trim();
 
     setIsGenerating(true);

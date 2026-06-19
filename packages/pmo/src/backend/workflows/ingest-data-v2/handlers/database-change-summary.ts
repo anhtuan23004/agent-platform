@@ -7,6 +7,10 @@ import {
   getLatestProposal,
   type ReviewCheckpointState,
 } from '@seta/ingestion';
+import { and, eq } from 'drizzle-orm';
+import { pmoDb } from '../../../db/client.ts';
+import { stagingChanges } from '../../../db/schema.ts';
+import { computeSourceRowHash } from '../../../ingestion/stage-changes.ts';
 import { buildPublishReviewCard } from '../cards.ts';
 import { shouldBlockPublishApprove } from '../review-gates.ts';
 import type { DynamicIngestRuntimeContext, PmoDynamicStepHandler } from '../types.ts';
@@ -67,8 +71,105 @@ function assertApprovedNormalizationCheckpoint(staging: StagingResultState): voi
   }
 }
 
+/**
+ * Reclassify staging_changes rows by comparing with canonical DB active records.
+ * Updates change_type from the normalize step's provisional `new_record` to the
+ * correct `new_record` / `updated_record` / `exact_duplicate` based on DB state.
+ * Returns the reclassified change summary per table.
+ */
+async function reclassifyStagingChanges(
+  ingestionSessionId: string,
+  tenantId: string,
+  deps: Pick<DynamicHandlerDeps, 'domainAdapter' | 'domainConfig'>,
+): Promise<StagingChangeSummary> {
+  const db = pmoDb();
+  const rows = await db
+    .select({
+      id: stagingChanges.id,
+      table_id: stagingChanges.table_id,
+      natural_key_hash: stagingChanges.natural_key_hash,
+      new_values: stagingChanges.new_values,
+      change_type: stagingChanges.change_type,
+    })
+    .from(stagingChanges)
+    .where(eq(stagingChanges.ingestion_session_id, ingestionSessionId));
+
+  // Group by table_id
+  const byTable = new Map<string, typeof rows>();
+  for (const row of rows) {
+    const list = byTable.get(row.table_id) ?? [];
+    list.push(row);
+    byTable.set(row.table_id, list);
+  }
+
+  type ChangeSummaryTable = StagingChangeSummary[number];
+  const summary: ChangeSummaryTable[] = [];
+
+  for (const [tableId, tableRows] of byTable) {
+    const activeRecords = await deps.domainAdapter.findActiveRecords({ tenantId, tableId });
+    const activeMap = new Map<string, string>();
+    for (const rec of activeRecords) {
+      activeMap.set(rec.natural_key_hash, rec.source_row_hash);
+    }
+
+    const counts = {
+      new_records: 0,
+      updated_records: 0,
+      exact_duplicates: 0,
+      duplicates_in_upload: 0,
+    };
+    const sampleChanges: ChangeSummaryTable['sampleChanges'] = [];
+
+    for (const row of tableRows) {
+      const values = (row.new_values ?? {}) as Record<string, unknown>;
+      const existingHash = activeMap.get(row.natural_key_hash);
+      let resolvedType: string;
+
+      if (existingHash === undefined) {
+        resolvedType = 'new_record';
+        counts.new_records++;
+      } else {
+        const sourceHash = computeSourceRowHash(tableId, values, deps.domainConfig);
+        if (sourceHash === existingHash) {
+          resolvedType = 'exact_duplicate';
+          counts.exact_duplicates++;
+        } else {
+          resolvedType = 'updated_record';
+          counts.updated_records++;
+        }
+      }
+
+      if (resolvedType !== row.change_type) {
+        await db
+          .update(stagingChanges)
+          .set({ change_type: resolvedType })
+          .where(and(eq(stagingChanges.id, row.id)));
+      }
+
+      if (resolvedType !== 'exact_duplicate' && sampleChanges.length < 5) {
+        const display = (row as { natural_key_display?: unknown }).natural_key_display;
+        sampleChanges.push({
+          type: resolvedType as 'new_record' | 'updated_record',
+          naturalKey: (display && typeof display === 'object' ? display : {}) as Record<
+            string,
+            string
+          >,
+          newValues: values,
+        });
+      }
+    }
+
+    summary.push({ tableId, counts, sampleChanges });
+  }
+
+  return summary;
+}
+
 export function createDatabaseChangeSummaryHandler(
-  deps: Pick<DynamicHandlerDeps, 'domainAdapter' | 'resolveCardIdentity' | 'readPlannerStepMeta'>,
+  deps: Pick<
+    DynamicHandlerDeps,
+    'domainAdapter' | 'domainConfig' | 'resolveCardIdentity' | 'readPlannerStepMeta'
+  >,
 ): PmoDynamicStepHandler {
   return {
     actionId: 'database_change_summary',
@@ -86,21 +187,39 @@ export function createDatabaseChangeSummaryHandler(
       const staging = input.runtimeContext.staging_result;
       assertApprovedNormalizationCheckpoint(staging);
 
+      // Reclassify staging rows against canonical DB to determine
+      // new_record / updated_record / exact_duplicate.
+      const reclassifiedSummary = await reclassifyStagingChanges(
+        input.ingestionSessionId,
+        input.tenantId,
+        deps,
+      );
+      const hasUpdates = reclassifiedSummary.some(
+        (table) => table.counts.new_records + table.counts.updated_records > 0,
+      );
+
       const plannerStep = await deps.readPlannerStepMeta({
         ingestionSessionId: input.ingestionSessionId,
         tenantId: input.tenantId,
         step: input.step,
       });
 
+      // Enrich staging with reclassified change summary from DB comparison.
+      const enrichedStaging: StagingResultState = {
+        ...staging,
+        changeSummary: reclassifiedSummary,
+        hasUpdates,
+      };
+
       const blockedByGate = shouldBlockPublishApprove({
-        changeSummary: staging.changeSummary as StagingChangeSummary,
-        hasBlockingIssues: staging.hasBlockingIssues,
+        changeSummary: reclassifiedSummary,
+        hasBlockingIssues: enrichedStaging.hasBlockingIssues,
       });
-      const dbChangeResult = buildDbChangeSummaryResult(staging);
+      const dbChangeResult = buildDbChangeSummaryResult(enrichedStaging);
       const proposal =
         input.runtimeContext.staging_result?.review_proposals?.database_change_summary?.at(-1) ??
         createProposal({
-          state: staging,
+          state: enrichedStaging,
           stepId: 'database_change_summary',
           proposal: dbChangeResult,
           status: 'needs_review',
@@ -113,10 +232,10 @@ export function createDatabaseChangeSummaryHandler(
         });
       const proposedState = input.runtimeContext.staging_result?.review_proposals
         ?.database_change_summary?.length
-        ? staging
-        : appendProposal(staging, proposal);
+        ? enrichedStaging
+        : appendProposal(enrichedStaging, proposal);
       const proposedPayload = buildStagingPayload({
-        staging,
+        staging: enrichedStaging,
         checkpointState: proposedState,
       });
 
@@ -125,9 +244,9 @@ export function createDatabaseChangeSummaryHandler(
           kind: 'suspend',
           card: buildPublishReviewCard({
             ingestionSessionId: input.ingestionSessionId,
-            changeSummary: staging.changeSummary as StagingChangeSummary,
-            blockingIssues: staging.blockingIssues as BlockingIssue[],
-            mappingReviewRows: staging.mappingReviewRows,
+            changeSummary: reclassifiedSummary,
+            blockingIssues: enrichedStaging.blockingIssues as BlockingIssue[],
+            mappingReviewRows: enrichedStaging.mappingReviewRows,
             allowApprove: !blockedByGate,
             identity: deps.resolveCardIdentity(input.requestContext),
             toolCallId: `workflow:${input.runId}:pmo_confirmPublish`,
@@ -168,9 +287,9 @@ export function createDatabaseChangeSummaryHandler(
           kind: 'suspend',
           card: buildPublishReviewCard({
             ingestionSessionId: input.ingestionSessionId,
-            changeSummary: staging.changeSummary as StagingChangeSummary,
-            blockingIssues: staging.blockingIssues as BlockingIssue[],
-            mappingReviewRows: staging.mappingReviewRows,
+            changeSummary: reclassifiedSummary,
+            blockingIssues: enrichedStaging.blockingIssues as BlockingIssue[],
+            mappingReviewRows: enrichedStaging.mappingReviewRows,
             allowApprove: false,
             identity: deps.resolveCardIdentity(input.requestContext),
             toolCallId: `workflow:${input.runId}:pmo_confirmPublish`,
@@ -195,7 +314,7 @@ export function createDatabaseChangeSummaryHandler(
       });
       const approvedState = appendCheckpoint(proposedState, checkpoint);
       const approvedPayload = buildStagingPayload({
-        staging,
+        staging: enrichedStaging,
         checkpointState: approvedState,
       });
       return {

@@ -1066,7 +1066,7 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
       }
     };
 
-    const { goal, previous_plan, plan_feedback } = parsed.data;
+    const { goal, previous_plan } = parsed.data;
     const db = pmoDb();
     const existingSource = parsed.data.ingestion_session_id
       ? await db
@@ -1087,8 +1087,9 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
     if (parsed.data.ingestion_session_id && existingSource.length === 0) {
       return c.json({ error: 'not_found', message: 'ingestion session not found' }, 404);
     }
+    const effectivePlanFeedback = parsed.data.plan_feedback?.trim() || '';
     const storedIntent =
-      existingSource[0]?.planning_goal === goal
+      existingSource[0]?.planning_goal === goal && !effectivePlanFeedback
         ? IntentAnalysisSchema.safeParse(existingSource[0].planning_intent)
         : null;
     const intent =
@@ -1096,6 +1097,7 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
         ? storedIntent.data
         : await classifyPmoPlanningIntent(goal, {
             hasUploadedFile: Boolean(existingSource[0]?.source_file_key),
+            ...(effectivePlanFeedback ? { planFeedback: effectivePlanFeedback } : {}),
           });
     checkDeadline();
     let planningSessionId = parsed.data.ingestion_session_id;
@@ -1204,7 +1206,6 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
         ),
       );
 
-    const effectiveFeedback = plan_feedback?.trim() || '';
     const effectivePreviousPlan = previous_plan ?? null;
 
     try {
@@ -1234,14 +1235,14 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
           can_publish_after_user_approval: true,
         },
         previous_plan: effectivePreviousPlan,
-        ...(effectiveFeedback ? { plan_feedback: effectiveFeedback } : {}),
+        ...(effectivePlanFeedback ? { plan_feedback: effectivePlanFeedback } : {}),
       });
 
       const existingFeedback = Array.isArray(row.planning_feedback_history)
         ? row.planning_feedback_history
         : [];
-      const nextFeedback = effectiveFeedback
-        ? [...existingFeedback, effectiveFeedback]
+      const nextFeedback = effectivePlanFeedback
+        ? [...existingFeedback, effectivePlanFeedback]
         : existingFeedback;
       const nextVersion = (row.planning_plan_version ?? 0) + 1;
 
