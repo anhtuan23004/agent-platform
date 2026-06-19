@@ -10,6 +10,7 @@ import {
 } from '../api/client';
 import { workflowRuntimeApi } from '../api/workflow-runtime';
 import { shortId } from '../pages/pmo-page.logic';
+import { isPmoSessionCancelable } from './pmo-session-cancel';
 
 export interface UploadedWorkbookInfo {
   ingestionSessionId: string;
@@ -41,6 +42,7 @@ interface UsePmoSessionActionsOptions {
 interface UsePmoSessionActionsResult {
   isUploading: boolean;
   isGenerating: boolean;
+  generatingSessionId: string | null;
   isApproving: boolean;
   isConfirmingIntent: boolean;
   isAppendingDocument: boolean;
@@ -86,6 +88,7 @@ export function usePmoSessionActions(
 
   const [isUploading, setIsUploading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [generatingSessionId, setGeneratingSessionId] = useState<string | null>(null);
   const [isApproving, setIsApproving] = useState(false);
   const [isConfirmingIntent, setIsConfirmingIntent] = useState(false);
   const [isAppendingDocument, setIsAppendingDocument] = useState(false);
@@ -148,6 +151,7 @@ export function usePmoSessionActions(
     const goal = goalDraft.trim() || 'Generate ingestion workflow plan from uploaded workbook.';
 
     setIsGenerating(true);
+    setGeneratingSessionId(targetGenerateSessionId);
     try {
       const payload: GeneratePlanInput = {
         ...(targetGenerateSessionId ? { ingestion_session_id: targetGenerateSessionId } : {}),
@@ -172,6 +176,7 @@ export function usePmoSessionActions(
       toast.error('Generate failed', { description: message });
     } finally {
       setIsGenerating(false);
+      setGeneratingSessionId(null);
     }
   }, [goalDraft, isGenerating, loadSessions, setSelectedSessionId, targetGenerateSessionId]);
 
@@ -198,6 +203,7 @@ export function usePmoSessionActions(
       const goal = goalDraft.trim() || session.goal || 'Generate plan from uploaded workbook.';
 
       setIsGenerating(true);
+      setGeneratingSessionId(session.ingestion_session_id);
       try {
         await pmoApi.generatePlan({
           ingestion_session_id: session.ingestion_session_id,
@@ -215,6 +221,7 @@ export function usePmoSessionActions(
         toast.error('Generate failed', { description: message });
       } finally {
         setIsGenerating(false);
+        setGeneratingSessionId(null);
       }
     },
     [goalDraft, isGenerating, loadSessions, setIsReviewPanelOpen, setSelectedSessionId],
@@ -520,20 +527,15 @@ export function usePmoSessionActions(
   ]);
 
   const isRuntimeRunCancelable = useCallback((status: string | null | undefined): boolean => {
-    return status === 'running' || status === 'paused';
+    return status === 'pending' || status === 'running' || status === 'paused';
   }, []);
 
   const isWorkflowCancelable = useCallback(
     (run: PmoPlanningSession): boolean => {
       const runtimeStatus = runtimeRunBySessionId.get(run.ingestion_session_id)?.status;
-      return (
-        (run.planning_state === 'uploaded' && run.workflow_step_status !== 'cancelled') ||
-        isRuntimeRunCancelable(runtimeStatus) ||
-        run.workflow_step_status === 'in_progress' ||
-        run.workflow_step_status === 'needs_review'
-      );
+      return isPmoSessionCancelable(run, runtimeStatus);
     },
-    [isRuntimeRunCancelable, runtimeRunBySessionId],
+    [runtimeRunBySessionId],
   );
 
   const isSessionGeneratable = useCallback((run: PmoPlanningSession): boolean => {
@@ -544,7 +546,7 @@ export function usePmoSessionActions(
     async (run: PmoPlanningSession) => {
       if (!isWorkflowCancelable(run)) {
         toast.error('Cannot cancel workflow', {
-          description: 'Cancel is available only while the workflow is running.',
+          description: 'Session is already terminal and cannot be cancelled.',
         });
         return;
       }
@@ -561,10 +563,7 @@ export function usePmoSessionActions(
       try {
         const runtimeRun = runtimeRunBySessionId.get(run.ingestion_session_id);
         const shouldCancelRuntime = isRuntimeRunCancelable(runtimeRun?.status);
-        const shouldCancelPmo =
-          run.planning_state === 'uploaded' ||
-          run.workflow_step_status === 'in_progress' ||
-          run.workflow_step_status === 'needs_review';
+        const shouldCancelPmo = true;
 
         let canceledRuntime = false;
         let canceledPmo = false;
@@ -633,6 +632,7 @@ export function usePmoSessionActions(
   return {
     isUploading,
     isGenerating,
+    generatingSessionId,
     isApproving,
     isConfirmingIntent,
     isAppendingDocument,

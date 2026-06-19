@@ -36,6 +36,28 @@ jobs:
           SHA="${GITHUB_SHA::12}"
           echo "value=${INPUT:-$SHA}" >> "$GITHUB_OUTPUT"
 
+  validate:
+    name: Validate release source
+    runs-on: ubuntu-latest
+    needs: prepare
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+        env:
+          TESTCONTAINERS_RYUK_DISABLED: 'true'
+
   # ── 2. Ensure ECR repository exists ──────────────────────────────────────
   ensure-ecr:
     name: Ensure ECR repository exists
@@ -64,7 +86,7 @@ jobs:
   build:
     name: Build & push seta-${{ matrix.service }}
     runs-on: ubuntu-latest
-    needs: [prepare, ensure-ecr]
+    needs: [prepare, ensure-ecr, validate]
     timeout-minutes: 30
     strategy:
       fail-fast: false          # let the other image finish even if one fails

@@ -320,6 +320,12 @@ export interface PmoPlanningSession {
   file_type: string | null;
   uploaded_at: string;
   operator: string;
+  status: string;
+  is_published: boolean;
+  is_selectable: boolean;
+  reporting_period_key: string | null;
+  reporting_period_start: string | null;
+  reporting_period_end: string | null;
   planning_state:
     | 'uploaded'
     | 'intent_review'

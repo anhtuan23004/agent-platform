@@ -8,7 +8,7 @@ interface PmoSessionHistoryPanelProps {
   selectedSessionId: string | null;
   isLoadingSessions: boolean;
   isCancellingWorkflowBySessionId: Record<string, boolean>;
-  isGenerating: boolean;
+  generatingSessionId: string | null;
   isWorkflowCancelable: (session: PmoPlanningSession) => boolean;
   isSessionGeneratable: (session: PmoPlanningSession) => boolean;
   onSelectSession: (sessionId: string) => void;
@@ -23,7 +23,7 @@ export function PmoSessionHistoryPanel(props: PmoSessionHistoryPanelProps) {
     selectedSessionId,
     isLoadingSessions,
     isCancellingWorkflowBySessionId,
-    isGenerating,
+    generatingSessionId,
     isWorkflowCancelable,
     isSessionGeneratable,
     onSelectSession,
@@ -31,6 +31,7 @@ export function PmoSessionHistoryPanel(props: PmoSessionHistoryPanelProps) {
     onGeneratePlan,
     onCancelWorkflow,
   } = props;
+  const generationInProgress = generatingSessionId !== null;
 
   return (
     <section className="rounded-xl border border-hairline bg-canvas p-4 shadow-sm">
@@ -75,6 +76,7 @@ export function PmoSessionHistoryPanel(props: PmoSessionHistoryPanelProps) {
                 const canGenerate = isSessionGeneratable(run);
                 const isCancelling =
                   isCancellingWorkflowBySessionId[run.ingestion_session_id] ?? false;
+                const isGenerating = generatingSessionId === run.ingestion_session_id;
 
                 return (
                   <tr
@@ -129,7 +131,7 @@ export function PmoSessionHistoryPanel(props: PmoSessionHistoryPanelProps) {
                             type="button"
                             size="sm"
                             variant="primary"
-                            disabled={isGenerating}
+                            disabled={generationInProgress}
                             onClick={(event) => {
                               event.stopPropagation();
                               void onGeneratePlan(run);

@@ -38,7 +38,7 @@ export function hasCustomDateRange(settings: DemoAnalyticsSettings | undefined):
 export function buildSourceUploadOptions(sessions: PmoPlanningSession[]): SourceUploadOption[] {
   return sessions.map((session) => ({
     id: session.ingestion_session_id,
-    label: session.workbook_name,
+    label: session.workbook_name ?? 'Database report',
     statusLabel: session.is_published ? 'Published' : session.status_label,
     uploadedAtLabel: formatDisplayDate(session.uploaded_at),
     reportingPeriodLabel: formatReportingPeriod(session),
