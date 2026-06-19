@@ -2,6 +2,7 @@ import { toast } from '@seta/shared-ui';
 import { useCallback, useState } from 'react';
 import {
   type GeneratePlanInput,
+  type PmoPlan,
   type PmoPlanningSession,
   type PmoProfilingArea,
   type PmoProfilingSheetReviewOverride,
@@ -56,8 +57,8 @@ interface UsePmoSessionActionsResult {
   handleRegeneratePlan: () => Promise<void>;
   handleApprovePlanAndStart: () => Promise<void>;
   handleConfirmPlanIntent: (selection?: {
-    dateRangeStrategy?: 'sheet_derived' | 'manual_database';
-    dateRange?: { from: string; to: string };
+    dataSourceMode?: 'existing_db' | 'uploaded_file';
+    actionMode?: NonNullable<PmoPlan['intent_analysis']>['actionMode'];
   }) => Promise<void>;
   handleAppendDocument: (file: File) => Promise<void>;
   handleSaveProfilingReview: () => Promise<void>;
@@ -200,7 +201,9 @@ export function usePmoSessionActions(
         return;
       }
 
-      const goal = goalDraft.trim() || session.goal || 'Generate plan from uploaded workbook.';
+      const defaultGoal =
+        'Ingest this workbook, publish approved changes, and generate an idle/overbook report.';
+      const goal = goalDraft.trim() || session.goal || defaultGoal;
 
       setIsGenerating(true);
       setGeneratingSessionId(session.ingestion_session_id);
@@ -243,8 +246,9 @@ export function usePmoSessionActions(
       return;
     }
 
-    const goal =
-      goalDraft.trim() || selectedSession.goal || 'Generate plan from uploaded workbook.';
+    const defaultGoal =
+      'Ingest this workbook, publish approved changes, and generate an idle/overbook report.';
+    const goal = goalDraft.trim() || selectedSession.goal || defaultGoal;
     const feedback = (feedbackBySessionId[selectedSession.ingestion_session_id] ?? '').trim();
 
     setIsGenerating(true);
@@ -288,7 +292,8 @@ export function usePmoSessionActions(
     try {
       await pmoApi.approvePlan(selectedSession.ingestion_session_id);
       const isDatabaseReport =
-        selectedSession.plan?.intent_analysis?.intent_mode === 'generate_report_intent';
+        selectedSession.plan?.intent_analysis?.dataSourceMode === 'existing_db' &&
+        selectedSession.plan?.intent_analysis?.actionMode === 'generate_report';
       if (isDatabaseReport && !runtimeRunBySessionId.has(selectedSession.ingestion_session_id)) {
         await pmoApi.startIngestWorkflow({
           ingestionSessionId: selectedSession.ingestion_session_id,
@@ -311,8 +316,8 @@ export function usePmoSessionActions(
 
   const handleConfirmPlanIntent = useCallback(
     async (selection?: {
-      dateRangeStrategy?: 'sheet_derived' | 'manual_database';
-      dateRange?: { from: string; to: string };
+      dataSourceMode?: 'existing_db' | 'uploaded_file';
+      actionMode?: NonNullable<PmoPlan['intent_analysis']>['actionMode'];
     }) => {
       if (!selectedSession) {
         return;
@@ -333,8 +338,8 @@ export function usePmoSessionActions(
       try {
         await pmoApi.confirmPlanIntent({
           ingestionSessionId: selectedSession.ingestion_session_id,
-          dateRangeStrategy: selection?.dateRangeStrategy,
-          dateRange: selection?.dateRange,
+          dataSourceMode: selection?.dataSourceMode,
+          actionMode: selection?.actionMode,
         });
         await pmoApi.generatePlan({
           ingestion_session_id: selectedSession.ingestion_session_id,

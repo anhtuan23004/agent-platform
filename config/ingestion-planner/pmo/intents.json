@@ -1,59 +1,64 @@
 {
-  "version": "1.0.0",
-  "default_intent_mode": "review_only",
+  "version": "2.0.0",
+  "default_intent": {
+    "dataSourceMode": "uploaded_file",
+    "actionMode": "preview_changes"
+  },
   "low_confidence_requires_confirmation": true,
-  "intents": [
+  "valid_combinations": [
     {
-      "intent_mode": "review_only",
-      "label": "Review only",
-      "description": "The user wants to inspect, review, understand, summarize, or validate only the workbook structure/content without deciding whether it is ready for ingestion, mapping columns, staging records, comparing database changes, or publishing.",
-      "allowed_action_ids": ["workbook_profiling"]
+      "dataSourceMode": "uploaded_file",
+      "actionMode": "inspect_file",
+      "label": "Inspect file",
+      "description": "Inspect workbook sheets, columns, types, and structure only."
     },
     {
-      "intent_mode": "mapping_readiness",
-      "label": "Mapping readiness",
-      "description": "The user wants workbook review plus PMO schema fit, mapping preparation, or column alignment only. This intent answers whether columns can be mapped, but it does not answer whether the file is ready for ingestion, what will be skipped, or what records will be created or updated.",
-      "allowed_action_ids": ["workbook_profiling", "column_mapping"]
+      "dataSourceMode": "uploaded_file",
+      "actionMode": "review_staging",
+      "label": "Review staged data",
+      "description": "Profile, map, normalize, and review staged rows without canonical DB changes."
     },
     {
-      "intent_mode": "stage_preview",
-      "label": "Stage and preview",
-      "description": "The user wants to check ingestion readiness, determine whether the file is ready/suitable/valid/importable/ingestible, identify missing or extra data, see skipped/failed rows, normalize/stage records, or preview created/updated/overwritten database changes without explicitly publishing.",
-      "allowed_action_ids": [
-        "workbook_profiling",
-        "column_mapping",
-        "normalize_to_staging",
-        "database_change_summary"
-      ]
+      "dataSourceMode": "uploaded_file",
+      "actionMode": "validate",
+      "label": "Validate data quality",
+      "description": "Profile, map, and normalize with output focused on validation issues."
     },
     {
-      "intent_mode": "publish_intent",
+      "dataSourceMode": "uploaded_file",
+      "actionMode": "preview_changes",
+      "label": "Preview database changes",
+      "description": "Prepare a canonical DB change summary without publishing."
+    },
+    {
+      "dataSourceMode": "uploaded_file",
+      "actionMode": "publish",
       "label": "Publish after approval",
-      "description": "The user explicitly wants to publish, apply, commit, sync, update canonical PMO data, or otherwise write approved changes to target tables.",
-      "allowed_action_ids": [
-        "workbook_profiling",
-        "column_mapping",
-        "normalize_to_staging",
-        "database_change_summary"
-      ]
+      "description": "Publish approved workbook changes to canonical PMO tables."
     },
     {
-      "intent_mode": "generate_report_intent",
-      "label": "Generate report from database",
-      "description": "The user wants an idle, overbook, utilization, or PMO report from existing tenant-scoped canonical PMO data without uploading or ingesting a workbook.",
-      "allowed_action_ids": ["generate_report"]
+      "dataSourceMode": "uploaded_file",
+      "actionMode": "generate_report",
+      "label": "Report from uploaded data",
+      "description": "Profile, map, and normalize uploaded data, then generate a staging preview report without publishing."
     },
     {
-      "intent_mode": "publish_report_intent",
+      "dataSourceMode": "uploaded_file",
+      "actionMode": "publish_then_report",
       "label": "Publish and generate report",
-      "description": "The user explicitly wants to publish or update PMO data and then generate an idle, overbook, utilization, or PMO report from the published data.",
-      "allowed_action_ids": [
-        "workbook_profiling",
-        "column_mapping",
-        "normalize_to_staging",
-        "database_change_summary",
-        "generate_report"
-      ]
+      "description": "Publish approved workbook changes, then generate a PMO report."
+    },
+    {
+      "dataSourceMode": "existing_db",
+      "actionMode": "generate_report",
+      "label": "Generate report from database",
+      "description": "Generate a report from existing tenant-scoped canonical PMO data."
+    },
+    {
+      "dataSourceMode": "existing_db",
+      "actionMode": "preview_changes",
+      "label": "Review active staged changes",
+      "description": "Re-open a database change summary from an active staged ingestion session."
     }
   ]
 }

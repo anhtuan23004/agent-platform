@@ -104,6 +104,7 @@ function makeInput(overrides: Partial<PmoDynamicHandlerInput> = {}): PmoDynamicH
     resumeData: undefined,
     step: baseStep,
     planningPlan: null,
+    reportSource: 'published_batch',
     runtimeContext: {
       staging_result: approvedStagingResult(),
       confirmed_mapping: {
@@ -127,21 +128,13 @@ describe('createGenerateReportHandler', () => {
     deps.persistReportRun.mockClear();
   });
 
-  it('suspends for date range confirmation when the goal has no explicit range', async () => {
+  it('uses published-batch sheet dates without early intent confirmation', async () => {
     const result = await createGenerateReportHandler(deps).execute(makeInput());
 
-    expect(result.kind).toBe('suspend');
-    if (result.kind !== 'suspend') throw new Error('expected suspend');
-    expect(result.sessionStatus).toBe('awaiting_report_range');
-    expect(result.runtimeContextPatch?.report_request?.dateRange).toMatchObject({
-      from: '2026-06-01',
-      to: '2026-06-30',
-      source: 'sheet_suggested_pending',
-    });
-    expect(result.card.primary.argsPatch).toMatchObject({
-      decision: 'approve',
-      dateRange: { from: '2026-06-01', to: '2026-06-30' },
-    });
+    expect(result.kind).toBe('completed');
+    expect(generatePmoReport).toHaveBeenCalledWith(
+      expect.objectContaining({ dateRange: { from: '2026-06-01', to: '2026-06-30' } }),
+    );
   });
 
   it('generates the report after the user confirms a date range', async () => {
@@ -161,6 +154,7 @@ describe('createGenerateReportHandler', () => {
       ingestionSessionId: '33333333-3333-3333-3333-333333333333',
       dateRange: { from: '2026-06-01', to: '2026-06-30' },
       reportTypes: ['idle_members', 'overbook_members'],
+      reportSource: 'published_batch',
     });
     expect(result.runtimeContextPatch?.report_result?.summary).toMatchObject({
       overbookCount: 1,
@@ -170,18 +164,15 @@ describe('createGenerateReportHandler', () => {
     expect(result.terminalOutput?.report).toBeDefined();
   });
 
-  it('uses sheet-derived dates selected in intent card without suspending again', async () => {
+  it('uses classifier-extracted dates before derived ranges', async () => {
     const result = await createGenerateReportHandler(deps).execute(
       makeInput({
         planningPlan: {
           intent_analysis: {
-            intent_mode: 'publish_report_intent',
-            report_request: {
-              source: 'post_ingest_database',
-              date_range_strategy: 'sheet_derived',
-              date_range: null,
-              report_types: ['idle_members', 'overbook_members'],
-            },
+            dataSourceMode: 'uploaded_file',
+            actionMode: 'publish_then_report',
+            extractedDateRange: { from: '2026-06-05', to: '2026-06-20' },
+            extractedReportTypes: ['idle_members', 'overbook_members'],
           },
         },
       }),
@@ -189,7 +180,7 @@ describe('createGenerateReportHandler', () => {
 
     expect(result.kind).toBe('completed');
     expect(generatePmoReport).toHaveBeenCalledWith(
-      expect.objectContaining({ dateRange: { from: '2026-06-01', to: '2026-06-30' } }),
+      expect.objectContaining({ dateRange: { from: '2026-06-05', to: '2026-06-20' } }),
     );
   });
 
@@ -204,15 +195,13 @@ describe('createGenerateReportHandler', () => {
       makeInput({
         planningPlan: {
           intent_analysis: {
-            intent_mode: 'generate_report_intent',
-            report_request: {
-              source: 'database',
-              date_range_strategy: 'explicit',
-              date_range: { from: '2026-06-01', to: '2026-06-30' },
-              report_types: ['idle_members', 'overbook_members'],
-            },
+            dataSourceMode: 'existing_db',
+            actionMode: 'generate_report',
+            extractedDateRange: { from: '2026-06-01', to: '2026-06-30' },
+            extractedReportTypes: ['idle_members', 'overbook_members'],
           },
         },
+        reportSource: 'canonical_db',
         runtimeContext: {},
       }),
     );
@@ -234,15 +223,12 @@ describe('createGenerateReportHandler', () => {
       makeInput({
         planningPlan: {
           intent_analysis: {
-            intent_mode: 'generate_report_intent',
-            report_request: {
-              source: 'database',
-              date_range_strategy: 'database_confirmation',
-              date_range: null,
-              report_types: ['idle_members'],
-            },
+            dataSourceMode: 'existing_db',
+            actionMode: 'generate_report',
+            extractedReportTypes: ['idle_members'],
           },
         },
+        reportSource: 'canonical_db',
         runtimeContext: {},
       }),
     );
@@ -257,6 +243,91 @@ describe('createGenerateReportHandler', () => {
     expect(JSON.stringify(result.card.details)).toContain('2026-11-30');
   });
 
+  it('generates a staging-preview report using sheet-derived dates', async () => {
+    const result = await createGenerateReportHandler(deps).execute(
+      makeInput({
+        planningPlan: {
+          intent_analysis: {
+            dataSourceMode: 'uploaded_file',
+            actionMode: 'generate_report',
+            extractedDateRange: { from: '2026-06-01', to: '2026-06-30' },
+            extractedReportTypes: ['idle_members', 'overbook_members'],
+          },
+        },
+        reportSource: 'staging_preview',
+        runtimeContext: {
+          confirmed_mapping: {
+            confirmedMappings: [
+              {
+                tableId: 'timesheet',
+                sourceSheet: 'Timesheets',
+                mappings: [{ canonicalField: 'work_date', sourceColumn: 'Work Date' }],
+              },
+            ],
+            mappingReviewRows: [],
+          },
+        },
+      }),
+    );
+
+    expect(result.kind).toBe('completed');
+    expect(generatePmoReport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dateRange: { from: '2026-06-01', to: '2026-06-30' },
+        reportSource: 'staging_preview',
+      }),
+    );
+  });
+
+  it('suspends staging-preview report without explicit date range for user input', async () => {
+    const result = await createGenerateReportHandler({
+      ...deps,
+      getWorkbookParseResult: async () => ({
+        sheets: [
+          {
+            name: 'Members',
+            rowCount: 1,
+            colCount: 2,
+            headerRow: 1,
+            headers: ['Name', 'Role'],
+            columns: [],
+            rows: [{ Name: 'Alice', Role: 'Dev' }],
+            sampleDataRows: [],
+            warnings: [],
+          },
+        ],
+        excludedSheets: [],
+        parseErrors: [],
+      }),
+    }).execute(
+      makeInput({
+        planningPlan: {
+          intent_analysis: {
+            dataSourceMode: 'uploaded_file',
+            actionMode: 'generate_report',
+          },
+        },
+        reportSource: 'staging_preview',
+        runtimeContext: {
+          confirmed_mapping: {
+            confirmedMappings: [
+              {
+                tableId: 'member_master',
+                sourceSheet: 'Members',
+                mappings: [{ canonicalField: 'full_name', sourceColumn: 'Name' }],
+              },
+            ],
+            mappingReviewRows: [],
+          },
+        },
+      }),
+    );
+
+    expect(result.kind).toBe('suspend');
+    if (result.kind !== 'suspend') throw new Error('expected suspend');
+    expect(result.sessionStatus).toBe('awaiting_report_range');
+  });
+
   it('rejects an LLM-extracted range outside the tenant database bounds', async () => {
     await expect(
       createGenerateReportHandler({
@@ -269,15 +340,13 @@ describe('createGenerateReportHandler', () => {
         makeInput({
           planningPlan: {
             intent_analysis: {
-              intent_mode: 'generate_report_intent',
-              report_request: {
-                source: 'database',
-                date_range_strategy: 'explicit',
-                date_range: { from: '2026-01-01', to: '2026-12-31' },
-                report_types: ['idle_members'],
-              },
+              dataSourceMode: 'existing_db',
+              actionMode: 'generate_report',
+              extractedDateRange: { from: '2026-01-01', to: '2026-12-31' },
+              extractedReportTypes: ['idle_members'],
             },
           },
+          reportSource: 'canonical_db',
           runtimeContext: {},
         }),
       ),

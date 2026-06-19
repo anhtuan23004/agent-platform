@@ -5,19 +5,20 @@ overbook report generation.
 
 ## Intent-to-plan flow
 
-The PMO planner classifies the goal before generating a plan. Its structured intent result is the
-only input used to select allowed planner actions.
+The PMO planner classifies three intent axes before generating a plan:
+`dataSourceMode`, `actionMode`, and validator-derived `writePolicy`. The compiler converts these
+axes into a deterministic catalog step chain.
 
-- A goal with no workbook may use `generate_report_intent`; its plan contains only
-  `generate_report` and reads existing canonical data.
-- An uploaded workbook with an ingest-and-report goal uses `publish_report_intent`; report
-  generation runs after the approved ingest path.
+- `inspect_file`, `review_staging`, `validate`, and `preview_changes` are read-only outcomes with
+  progressively deeper workbook processing.
+- `publish` and `publish_then_report` require explicit approval before canonical DB writes.
+- `existing_db + generate_report` reads canonical data without workbook steps.
+- `uploaded_file + generate_report` suspends for a supported Phase 1 alternative; staging-preview
+  reports arrive in Phase 2.
 - The LLM extracts explicit report dates and report types. TypeScript validates date order,
   tenant-scoped database bounds, workflow prerequisites, and execution permissions.
-- When dates are missing, planning stops at the intent card before plan generation. Database-only
-  reports require a manual range within the minimum and maximum active canonical dates.
-  Ingest-and-report intents let the user choose sheet-derived dates or a manual database range.
-  The confirmed structured intent is persisted, then passed unchanged into plan generation.
+- Report dates resolve inside `generate_report`, after prior workflow steps provide maximum
+  context. Missing dates suspend with the existing report-range card.
 
 ## Public surface
 

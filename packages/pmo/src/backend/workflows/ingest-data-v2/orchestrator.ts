@@ -75,6 +75,18 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+function deriveReportSource(plan: unknown): PmoDynamicHandlerInput['reportSource'] {
+  if (!isObject(plan) || !isObject(plan.intent_analysis)) return 'canonical_db';
+  const intent = plan.intent_analysis;
+  if (intent.dataSourceMode === 'uploaded_file' && intent.actionMode === 'publish_then_report') {
+    return 'published_batch';
+  }
+  if (intent.dataSourceMode === 'uploaded_file' && intent.actionMode === 'generate_report') {
+    return 'staging_preview';
+  }
+  return 'canonical_db';
+}
+
 function asIsoOrNow(input: string | undefined): string {
   if (!input) return new Date().toISOString();
   const parsed = new Date(input);
@@ -689,6 +701,7 @@ function buildStatePatch(params: {
     workflow_started_at: asDateOrNull(params.state.started_at),
     workflow_updated_at: asDateOrNull(params.state.updated_at),
     finished_at:
+      params.status === 'reviewed' ||
       params.status === 'published' ||
       params.status === 'report_generated' ||
       params.status === 'failed' ||
@@ -762,6 +775,7 @@ function buildStepRegistry(deps: DynamicHandlerDeps) {
     }),
     createDatabaseChangeSummaryHandler({
       domainAdapter: deps.domainAdapter,
+      domainConfig: deps.domainConfig,
       resolveCardIdentity: deps.resolveCardIdentity,
       readPlannerStepMeta: deps.readPlannerStepMeta,
     }),
@@ -913,6 +927,7 @@ export async function runDynamicIngestOrchestrator(
       resumeData: decisionForStep as Record<string, unknown> | undefined,
       step: activeStep,
       planningPlan: row.planning_plan,
+      reportSource: deriveReportSource(row.planning_plan),
       runtimeContext,
     });
 

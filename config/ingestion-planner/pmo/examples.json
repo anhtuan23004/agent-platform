@@ -1,241 +1,198 @@
 {
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Few-shot examples for PMO ingestion intent classification. The classifier should choose the lowest-risk intent when the user's goal is ambiguous. Publishing must only be enabled when the user clearly asks to import, publish, write, or update PMO data, and even then publish still requires explicit approval.",
   "examples": [
     {
       "goal": "Generate an idle and overbook report from 2026-01-01 to 2026-03-31",
-      "intent_mode": "generate_report_intent",
-      "allowed_action_ids": ["generate_report"],
       "expected_title": "Plan to generate a PMO report from existing data",
-      "expected_goal_summary": "Generate an idle and overbook report from tenant-scoped PMO data for the requested date range."
+      "expected_goal_summary": "Generate an idle and overbook report from tenant-scoped PMO data for the requested date range.",
+      "dataSourceMode": "existing_db",
+      "actionMode": "generate_report",
+      "writePolicy": "read_only"
     },
     {
       "goal": "Generate a utilization report from the database",
-      "intent_mode": "generate_report_intent",
-      "allowed_action_ids": ["generate_report"],
       "expected_title": "Plan to confirm and generate a PMO report",
-      "expected_goal_summary": "Confirm a report date range within available PMO data and generate the requested report."
+      "expected_goal_summary": "Confirm a report date range within available PMO data and generate the requested report.",
+      "dataSourceMode": "existing_db",
+      "actionMode": "generate_report",
+      "writePolicy": "read_only"
     },
     {
       "goal": "Review this file",
-      "intent_mode": "review_only",
-      "allowed_action_ids": ["workbook_profiling"],
       "expected_title": "Plan to review uploaded PMO workbook",
-      "expected_goal_summary": "Review the uploaded workbook by profiling its structure and content fit before any mapping, staging, database comparison, or publish action."
+      "expected_goal_summary": "Profile, map, normalize, and preview the uploaded workbook database impact for review without publishing canonical PMO changes.",
+      "dataSourceMode": "uploaded_file",
+      "actionMode": "inspect_file",
+      "writePolicy": "read_only"
     },
     {
       "goal": "Analyze this file",
-      "intent_mode": "review_only",
-      "allowed_action_ids": ["workbook_profiling"],
       "expected_title": "Plan to analyze uploaded PMO workbook",
-      "expected_goal_summary": "Profile the workbook structure and summarize what it appears to contain before any mapping, staging, database comparison, or publishing."
+      "expected_goal_summary": "Profile, map, normalize, and preview the uploaded workbook database impact for review without publishing canonical PMO changes.",
+      "dataSourceMode": "uploaded_file",
+      "actionMode": "inspect_file",
+      "writePolicy": "read_only"
     },
     {
       "goal": "Check the sheets and tell me what this workbook contains",
-      "intent_mode": "review_only",
-      "allowed_action_ids": ["workbook_profiling"],
       "expected_title": "Plan to profile uploaded PMO workbook",
-      "expected_goal_summary": "Inspect workbook structure and explain detected sheets and likely data areas without mapping, staging, database comparison, or publishing."
+      "expected_goal_summary": "Profile, map, normalize, and preview the uploaded workbook database impact for review without publishing canonical PMO changes.",
+      "dataSourceMode": "uploaded_file",
+      "actionMode": "inspect_file",
+      "writePolicy": "read_only"
     },
     {
       "goal": "Kiểm tra file này gồm những sheet gì",
-      "intent_mode": "review_only",
-      "allowed_action_ids": ["workbook_profiling"],
       "expected_title": "Plan to inspect uploaded PMO workbook",
-      "expected_goal_summary": "Profile the workbook and explain its sheets and likely data areas without mapping, staging, database comparison, or publishing."
+      "expected_goal_summary": "Profile, map, normalize, and preview the uploaded workbook database impact for review without publishing canonical PMO changes.",
+      "dataSourceMode": "uploaded_file",
+      "actionMode": "inspect_file",
+      "writePolicy": "read_only"
     },
     {
       "goal": "Just upload and save this file for later",
-      "intent_mode": "review_only",
-      "allowed_action_ids": ["workbook_profiling"],
       "expected_title": "Plan to keep uploaded PMO workbook available for review",
-      "expected_goal_summary": "Register the uploaded workbook and optionally profile it, without mapping, staging, database comparison, or publishing."
+      "expected_goal_summary": "Profile, map, normalize, and preview the uploaded workbook database impact for review without publishing canonical PMO changes.",
+      "dataSourceMode": "uploaded_file",
+      "actionMode": "inspect_file",
+      "writePolicy": "read_only"
     },
     {
       "goal": "Review and map this file",
-      "intent_mode": "mapping_readiness",
-      "allowed_action_ids": ["workbook_profiling", "column_mapping"],
       "expected_title": "Plan to review and map uploaded PMO workbook",
-      "expected_goal_summary": "Review workbook structure and prepare a controlled mapping proposal for user approval."
+      "expected_goal_summary": "Profile, map, normalize, and preview the uploaded workbook database impact for review without publishing canonical PMO changes.",
+      "dataSourceMode": "uploaded_file",
+      "actionMode": "review_staging",
+      "writePolicy": "read_only"
     },
     {
       "goal": "Map the columns but don't write anything to the database",
-      "intent_mode": "mapping_readiness",
-      "allowed_action_ids": ["workbook_profiling", "column_mapping"],
       "expected_title": "Plan to profile and map PMO workbook columns",
-      "expected_goal_summary": "Profile the workbook and generate a controlled column mapping proposal without staging or database writes."
+      "expected_goal_summary": "Profile, map, normalize, and preview the uploaded workbook database impact for review without publishing canonical PMO changes.",
+      "dataSourceMode": "uploaded_file",
+      "actionMode": "review_staging",
+      "writePolicy": "read_only"
     },
     {
       "goal": "Check whether the columns can be mapped to PMO schema",
-      "intent_mode": "mapping_readiness",
-      "allowed_action_ids": ["workbook_profiling", "column_mapping"],
       "expected_title": "Plan to check PMO column mapping readiness",
-      "expected_goal_summary": "Profile the workbook and prepare a mapping proposal to determine whether source columns can align with the PMO schema."
+      "expected_goal_summary": "Profile, map, normalize, and preview the uploaded workbook database impact for review without publishing canonical PMO changes.",
+      "dataSourceMode": "uploaded_file",
+      "actionMode": "review_staging",
+      "writePolicy": "read_only"
     },
     {
       "goal": "Kiểm tra mapping cho file này",
-      "intent_mode": "mapping_readiness",
-      "allowed_action_ids": ["workbook_profiling", "column_mapping"],
       "expected_title": "Plan to review PMO column mapping",
-      "expected_goal_summary": "Profile the workbook and generate a mapping proposal for user review before any staging or database comparison."
+      "expected_goal_summary": "Profile, map, normalize, and preview the uploaded workbook database impact for review without publishing canonical PMO changes.",
+      "dataSourceMode": "uploaded_file",
+      "actionMode": "review_staging",
+      "writePolicy": "read_only"
     },
     {
       "goal": "Review this document and check whether it's ready for ingestion",
-      "intent_mode": "stage_preview",
-      "allowed_action_ids": [
-        "workbook_profiling",
-        "column_mapping",
-        "normalize_to_staging",
-        "database_change_summary"
-      ],
       "expected_title": "Plan to check PMO ingestion readiness",
-      "expected_goal_summary": "Profile, map, normalize, and preview database changes so the user can see missing data, skipped rows, and records that would be created or updated before publishing."
+      "expected_goal_summary": "Profile, map, normalize, and preview the uploaded workbook database impact for review without publishing canonical PMO changes.",
+      "dataSourceMode": "uploaded_file",
+      "actionMode": "validate",
+      "writePolicy": "read_only"
     },
     {
       "goal": "Kiểm tra file này đã đủ điều kiện import vào PMO chưa",
-      "intent_mode": "stage_preview",
-      "allowed_action_ids": [
-        "workbook_profiling",
-        "column_mapping",
-        "normalize_to_staging",
-        "database_change_summary"
-      ],
       "expected_title": "Plan to check PMO import readiness",
-      "expected_goal_summary": "Profile, map, normalize, and preview PMO database impact so the user can decide whether the file is ready to import without publishing changes."
+      "expected_goal_summary": "Profile, map, normalize, and preview the uploaded workbook database impact for review without publishing canonical PMO changes.",
+      "dataSourceMode": "uploaded_file",
+      "actionMode": "validate",
+      "writePolicy": "read_only"
     },
     {
       "goal": "Ingest and show DB changes, but do not publish",
-      "intent_mode": "stage_preview",
-      "allowed_action_ids": [
-        "workbook_profiling",
-        "column_mapping",
-        "normalize_to_staging",
-        "database_change_summary"
-      ],
       "expected_title": "Plan to stage PMO workbook and preview database changes",
-      "expected_goal_summary": "Prepare staged data and a database change summary for review without publishing changes."
+      "expected_goal_summary": "Profile, map, normalize, and preview the uploaded workbook database impact for review without publishing canonical PMO changes.",
+      "dataSourceMode": "uploaded_file",
+      "actionMode": "preview_changes",
+      "writePolicy": "read_only"
     },
     {
       "goal": "Show me what would be inserted or updated",
-      "intent_mode": "stage_preview",
-      "allowed_action_ids": [
-        "workbook_profiling",
-        "column_mapping",
-        "normalize_to_staging",
-        "database_change_summary"
-      ],
       "expected_title": "Plan to preview PMO database changes",
-      "expected_goal_summary": "Prepare staged PMO data and show insert, update, skip, and blocked-row impact without publishing."
+      "expected_goal_summary": "Profile, map, normalize, and preview the uploaded workbook database impact for review without publishing canonical PMO changes.",
+      "dataSourceMode": "uploaded_file",
+      "actionMode": "preview_changes",
+      "writePolicy": "read_only"
     },
     {
       "goal": "Chuẩn hóa file này nhưng chưa import",
-      "intent_mode": "stage_preview",
-      "allowed_action_ids": [
-        "workbook_profiling",
-        "column_mapping",
-        "normalize_to_staging",
-        "database_change_summary"
-      ],
       "expected_title": "Plan to normalize PMO workbook for review",
-      "expected_goal_summary": "Profile, map, normalize, and preview database impact without publishing changes."
+      "expected_goal_summary": "Profile, map, normalize, and preview the uploaded workbook database impact for review without publishing canonical PMO changes.",
+      "dataSourceMode": "uploaded_file",
+      "actionMode": "review_staging",
+      "writePolicy": "read_only"
     },
     {
       "goal": "Normalize this workbook and show skipped rows",
-      "intent_mode": "stage_preview",
-      "allowed_action_ids": [
-        "workbook_profiling",
-        "column_mapping",
-        "normalize_to_staging",
-        "database_change_summary"
-      ],
       "expected_title": "Plan to normalize PMO workbook and preview skipped rows",
-      "expected_goal_summary": "Profile, map, normalize, and summarize skipped or problematic rows before any publish action."
+      "expected_goal_summary": "Profile, map, normalize, and preview the uploaded workbook database impact for review without publishing canonical PMO changes.",
+      "dataSourceMode": "uploaded_file",
+      "actionMode": "review_staging",
+      "writePolicy": "read_only"
     },
     {
       "goal": "Validate this upload against existing PMO data",
-      "intent_mode": "stage_preview",
-      "allowed_action_ids": [
-        "workbook_profiling",
-        "column_mapping",
-        "normalize_to_staging",
-        "database_change_summary"
-      ],
       "expected_title": "Plan to validate PMO workbook against existing data",
-      "expected_goal_summary": "Profile, map, normalize, and compare staged records with existing PMO data without publishing changes."
+      "expected_goal_summary": "Profile, map, normalize, and preview the uploaded workbook database impact for review without publishing canonical PMO changes.",
+      "dataSourceMode": "uploaded_file",
+      "actionMode": "validate",
+      "writePolicy": "read_only"
     },
     {
       "goal": "Publish this workbook after approval",
-      "intent_mode": "publish_intent",
-      "allowed_action_ids": [
-        "workbook_profiling",
-        "column_mapping",
-        "normalize_to_staging",
-        "database_change_summary"
-      ],
       "expected_title": "Plan to publish PMO workbook after approval",
-      "expected_goal_summary": "Run the controlled ingestion chain and publish approved PMO changes only after explicit review."
+      "expected_goal_summary": "Run the controlled ingestion chain and publish approved PMO changes only after explicit review.",
+      "dataSourceMode": "uploaded_file",
+      "actionMode": "publish",
+      "writePolicy": "requires_approval"
     },
     {
       "goal": "Import file này vào PMO nếu không có lỗi",
-      "intent_mode": "publish_intent",
-      "allowed_action_ids": [
-        "workbook_profiling",
-        "column_mapping",
-        "normalize_to_staging",
-        "database_change_summary"
-      ],
       "expected_title": "Plan to import PMO workbook after validation and approval",
-      "expected_goal_summary": "Run the controlled ingestion chain and publish only after validation passes and the user explicitly approves the database changes."
+      "expected_goal_summary": "Run the controlled ingestion chain and publish only after validation passes and the user explicitly approves the database changes.",
+      "dataSourceMode": "uploaded_file",
+      "actionMode": "publish",
+      "writePolicy": "requires_approval"
     },
     {
       "goal": "Write this workbook into PMO after I approve the DB changes",
-      "intent_mode": "publish_intent",
-      "allowed_action_ids": [
-        "workbook_profiling",
-        "column_mapping",
-        "normalize_to_staging",
-        "database_change_summary"
-      ],
       "expected_title": "Plan to write approved PMO workbook changes",
-      "expected_goal_summary": "Profile, map, stage, preview database changes, and write to PMO only after explicit approval."
+      "expected_goal_summary": "Profile, map, stage, preview database changes, and write to PMO only after explicit approval.",
+      "dataSourceMode": "uploaded_file",
+      "actionMode": "publish",
+      "writePolicy": "requires_approval"
     },
     {
       "goal": "Update PMO data using this workbook",
-      "intent_mode": "publish_intent",
-      "allowed_action_ids": [
-        "workbook_profiling",
-        "column_mapping",
-        "normalize_to_staging",
-        "database_change_summary"
-      ],
       "expected_title": "Plan to update PMO data after approval",
-      "expected_goal_summary": "Run the controlled ingestion workflow and update PMO data only after mapping, staging, database change review, and explicit approval."
+      "expected_goal_summary": "Run the controlled ingestion workflow and update PMO data only after mapping, staging, database change review, and explicit approval.",
+      "dataSourceMode": "uploaded_file",
+      "actionMode": "publish",
+      "writePolicy": "requires_approval"
     },
     {
       "goal": "Publish this workbook and generate an idle/overbook report from 2026-06-01 to 2026-06-30",
-      "intent_mode": "publish_report_intent",
-      "allowed_action_ids": [
-        "workbook_profiling",
-        "column_mapping",
-        "normalize_to_staging",
-        "database_change_summary",
-        "generate_report"
-      ],
       "expected_title": "Plan to publish PMO workbook and generate report",
-      "expected_goal_summary": "Run controlled ingestion, publish approved PMO changes, then generate an idle and overbook report for the requested date range."
+      "expected_goal_summary": "Run controlled ingestion, publish approved PMO changes, then generate an idle and overbook report for the requested date range.",
+      "dataSourceMode": "uploaded_file",
+      "actionMode": "publish_then_report",
+      "writePolicy": "requires_approval"
     },
     {
       "goal": "Import file này vào PMO rồi tạo báo cáo idle và overbook",
-      "intent_mode": "publish_report_intent",
-      "allowed_action_ids": [
-        "workbook_profiling",
-        "column_mapping",
-        "normalize_to_staging",
-        "database_change_summary",
-        "generate_report"
-      ],
       "expected_title": "Plan to import PMO workbook and generate report",
-      "expected_goal_summary": "Run controlled ingestion, publish approved PMO changes, then ask for a report date range before generating idle and overbook findings."
+      "expected_goal_summary": "Run controlled ingestion, publish approved PMO changes, then ask for a report date range before generating idle and overbook findings.",
+      "dataSourceMode": "uploaded_file",
+      "actionMode": "publish_then_report",
+      "writePolicy": "requires_approval"
     }
   ]
 }

@@ -85,6 +85,7 @@ interface PublishCardInput {
   identity: CardIdentity;
   toolCallId: string;
   plannerStep?: PmoPlannerStepMetadata | null;
+  willPublish?: boolean;
 }
 
 interface NormalizationCardInput {
@@ -96,6 +97,7 @@ interface NormalizationCardInput {
   identity: CardIdentity;
   toolCallId: string;
   plannerStep?: PmoPlannerStepMetadata | null;
+  focus?: 'validation' | 'staging';
 }
 
 interface ReportRangeCardInput {
@@ -789,6 +791,7 @@ export function buildMappingReviewCard(input: MappingCardInput): ApprovalCard {
 }
 
 export function buildPublishReviewCard(input: PublishCardInput): ApprovalCard {
+  const willPublish = input.willPublish !== false;
   const totals = input.changeSummary.reduce(
     (acc, t) => {
       acc.newRecords += t.counts.new_records;
@@ -804,22 +807,32 @@ export function buildPublishReviewCard(input: PublishCardInput): ApprovalCard {
   );
 
   const summary = input.allowApprove
-    ? `Ready to publish ${totals.newRecords + totals.updatedRecords} change(s). ${totals.exactDuplicates} unchanged row(s) will be skipped.`
+    ? willPublish
+      ? `Ready to publish ${totals.newRecords + totals.updatedRecords} change(s). ${totals.exactDuplicates} unchanged row(s) will be skipped.`
+      : `Review complete for ${totals.newRecords + totals.updatedRecords} proposed change(s). ${totals.exactDuplicates} unchanged row(s) would be skipped. No canonical PMO data will be written.`
     : [
         input.blockingIssues.length > 0
           ? `Found ${input.blockingIssues.length} blocking data issue(s).`
           : null,
-        'Publish approval is disabled until issues are resolved.',
+        willPublish
+          ? 'Publish approval is disabled until issues are resolved.'
+          : 'Review completion is disabled until issues are resolved.',
       ]
         .filter(Boolean)
         .join(' ');
 
   const checklist = input.allowApprove
-    ? [
-        'New rows will be inserted.',
-        'Updated rows will overwrite existing PMO records with the same business key.',
-        'Unchanged rows already present in PMO data will be skipped.',
-      ]
+    ? willPublish
+      ? [
+          'New rows will be inserted.',
+          'Updated rows will overwrite existing PMO records with the same business key.',
+          'Unchanged rows already present in PMO data will be skipped.',
+        ]
+      : [
+          'New and updated rows are previewed only.',
+          'Canonical PMO records will not be inserted or overwritten.',
+          'Completing review records the approved summary checkpoint and ends the workflow.',
+        ]
     : [
         'Rows with parse/required errors must be corrected in the workbook.',
         'Reject this run and fix blocking rows before retrying.',
@@ -830,7 +843,9 @@ export function buildPublishReviewCard(input: PublishCardInput): ApprovalCard {
 
   return {
     toolCallId: input.toolCallId,
-    intent: 'Review staging changes before publish',
+    intent: willPublish
+      ? 'Review staging changes before publish'
+      : 'Review staged database changes',
     riskBadge: 'write',
     summary,
     details: [
@@ -838,7 +853,10 @@ export function buildPublishReviewCard(input: PublishCardInput): ApprovalCard {
         kind: 'kvTable',
         rows: [
           { k: 'Ingestion session', v: input.ingestionSessionId },
-          { k: 'Rows to publish', v: String(totals.newRecords + totals.updatedRecords) },
+          {
+            k: willPublish ? 'Rows to publish' : 'Proposed row changes',
+            v: String(totals.newRecords + totals.updatedRecords),
+          },
           { k: 'Rows to skip', v: String(totals.exactDuplicates) },
           { k: 'New rows', v: String(totals.newRecords) },
           { k: 'Rows to overwrite', v: String(totals.updatedRecords) },
@@ -881,15 +899,18 @@ export function buildPublishReviewCard(input: PublishCardInput): ApprovalCard {
     ],
     primary: input.allowApprove
       ? {
-          label: 'Approve publish',
+          label: willPublish ? 'Approve publish' : 'Complete review',
           argsPatch: { decision: 'approve' },
         }
       : {
-          label: 'Reject blocked publish',
+          label: willPublish ? 'Reject blocked publish' : 'Reject blocked review',
           argsPatch: { decision: 'reject' },
         },
     alternates: [],
-    decline: { label: 'Reject publish', argsPatch: { decision: 'reject' } },
+    decline: {
+      label: willPublish ? 'Reject publish' : 'Reject review',
+      argsPatch: { decision: 'reject' },
+    },
     meta: {
       tenantId: input.identity.tenantId,
       userId: input.identity.userId,
@@ -902,6 +923,7 @@ export function buildPublishReviewCard(input: PublishCardInput): ApprovalCard {
 }
 
 export function buildNormalizationReviewCard(input: NormalizationCardInput): ApprovalCard {
+  const validationFocused = input.focus === 'validation';
   const totals = input.changeSummary.reduce(
     (acc, t) => {
       acc.newRecords += t.counts.new_records;
@@ -928,7 +950,9 @@ export function buildNormalizationReviewCard(input: NormalizationCardInput): App
     input.blockingIssues.length - unresolvedReferenceCount - missingRequiredCount;
 
   const summary = input.allowApprove
-    ? `Normalized data is ready for staging review. Found ${totals.duplicatesInUpload} duplicate-in-upload row(s) and ${input.blockingIssues.length} blocking issue(s).`
+    ? validationFocused
+      ? `Validation complete. Found ${totals.duplicatesInUpload} duplicate-in-upload row(s) and ${input.blockingIssues.length} blocking issue(s).`
+      : `Normalized data is ready for staging review. Found ${totals.duplicatesInUpload} duplicate-in-upload row(s) and ${input.blockingIssues.length} blocking issue(s).`
     : [
         input.blockingIssues.length > 0
           ? `Found ${input.blockingIssues.length} blocking normalization issue(s).`
@@ -955,7 +979,9 @@ export function buildNormalizationReviewCard(input: NormalizationCardInput): App
 
   return {
     toolCallId: input.toolCallId,
-    intent: 'Review normalized data quality before staging',
+    intent: validationFocused
+      ? 'Review workbook validation results'
+      : 'Review normalized data quality before staging',
     riskBadge: 'write',
     summary,
     details: [
@@ -1000,7 +1026,7 @@ export function buildNormalizationReviewCard(input: NormalizationCardInput): App
     ],
     primary: input.allowApprove
       ? {
-          label: 'Approve normalization',
+          label: validationFocused ? 'Complete validation' : 'Approve normalization',
           argsPatch: { decision: 'approve' },
         }
       : {
@@ -1008,7 +1034,10 @@ export function buildNormalizationReviewCard(input: NormalizationCardInput): App
           argsPatch: { decision: 'approve' },
         },
     alternates: [],
-    decline: { label: 'Reject normalization', argsPatch: { decision: 'reject' } },
+    decline: {
+      label: validationFocused ? 'Reject validation' : 'Reject normalization',
+      argsPatch: { decision: 'reject' },
+    },
     meta: {
       tenantId: input.identity.tenantId,
       userId: input.identity.userId,

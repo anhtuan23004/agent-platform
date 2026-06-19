@@ -1,5 +1,6 @@
 import { appendCheckpoint, appendProposal, approveProposal, createProposal } from '@seta/ingestion';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { PMO_DOMAIN_CONFIG } from '../../../../src/backend/ingestion/pmo-domain-config.ts';
 import type {
   DbChangeSummaryResult,
   NormalizationResult,
@@ -7,6 +8,17 @@ import type {
 } from '../../../../src/backend/workflows/ingest-data-v2/handlers/common.ts';
 import { createDatabaseChangeSummaryHandler } from '../../../../src/backend/workflows/ingest-data-v2/handlers/database-change-summary.ts';
 import type { PmoDynamicHandlerInput } from '../../../../src/backend/workflows/ingest-data-v2/types.ts';
+
+// Mock the DB layer — reclassifyStagingChanges queries staging_changes directly.
+vi.mock('../../../../src/backend/db/client.ts', () => ({
+  pmoDb: () => ({
+    select: () => ({
+      from: () => ({
+        where: () => Promise.resolve([]),
+      }),
+    }),
+  }),
+}));
 
 const baseStep = {
   step_no: 4,
@@ -65,6 +77,7 @@ const deps = {
       rowsSkipped: {},
     })),
   },
+  domainConfig: PMO_DOMAIN_CONFIG,
   resolveCardIdentity: () => ({
     tenantId: '11111111-1111-1111-1111-111111111111',
     userId: '22222222-2222-2222-2222-222222222222',
@@ -100,6 +113,8 @@ describe('createDatabaseChangeSummaryHandler', () => {
 
     expect(result.kind).toBe('suspend');
     if (result.kind !== 'suspend') throw new Error('expected suspend');
+    expect(result.card.intent).toBe('Review staged database changes');
+    expect(result.card.primary.label).toBe('Complete review');
     const proposals = result.runtimeContextPatch?.staging_result?.review_proposals;
     expect(proposals?.database_change_summary).toHaveLength(1);
     expect(proposals?.database_change_summary?.[0]).toMatchObject({
@@ -110,7 +125,22 @@ describe('createDatabaseChangeSummaryHandler', () => {
     });
   });
 
-  it('approves the latest DB change proposal and publishes staged rows', async () => {
+  it('uses publish approval copy only for an explicit publish intent', async () => {
+    const result = await createDatabaseChangeSummaryHandler(deps).execute(
+      makeInput({
+        planningPlan: {
+          intent_analysis: { writePolicy: 'requires_approval' },
+        },
+      }),
+    );
+
+    expect(result.kind).toBe('suspend');
+    if (result.kind !== 'suspend') throw new Error('expected suspend');
+    expect(result.card.intent).toBe('Review staging changes before publish');
+    expect(result.card.primary.label).toBe('Approve publish');
+  });
+
+  it('approves the latest DB change proposal without publishing staged rows', async () => {
     const proposal = createProposal<DbChangeSummaryResult>({
       state: {},
       stepId: 'database_change_summary',
@@ -145,6 +175,7 @@ describe('createDatabaseChangeSummaryHandler', () => {
 
     expect(result.kind).toBe('completed');
     if (result.kind !== 'completed') throw new Error('expected completed');
+    expect(result.sessionStatus).toBe('reviewed');
     const checkpoints = result.runtimeContextPatch?.staging_result?.approved_checkpoints;
     expect(checkpoints?.database_change_summary).toHaveLength(1);
     expect(checkpoints?.database_change_summary?.[0]).toMatchObject({
@@ -153,20 +184,14 @@ describe('createDatabaseChangeSummaryHandler', () => {
       version: 1,
       approved_by: '22222222-2222-2222-2222-222222222222',
     });
-    expect(deps.domainAdapter.publish).toHaveBeenCalledOnce();
-    expect(deps.domainAdapter.publish).toHaveBeenCalledWith({
-      ingestionSessionId: '33333333-3333-3333-3333-333333333333',
-      tenantId: '11111111-1111-1111-1111-111111111111',
-    });
+    expect(deps.domainAdapter.publish).not.toHaveBeenCalled();
     expect(result.outputSummary).toMatchObject({
-      status: 'published',
-      rows_written: 1,
-      rows_updated: 0,
-      rows_skipped: 0,
+      status: 'reviewed',
+      checkpoint_version: 1,
     });
     expect(result.terminalOutput).toMatchObject({
-      status: 'published',
-      rowsWritten: { resource_allocation: 1 },
+      status: 'completed',
+      rowsWritten: {},
     });
   });
 
@@ -282,7 +307,7 @@ describe('createDatabaseChangeSummaryHandler', () => {
 
     expect(result.kind).toBe('suspend');
     if (result.kind !== 'suspend') throw new Error('expected suspend');
-    expect(result.card.primary.label).toBe('Approve publish');
+    expect(result.card.primary.label).toBe('Complete review');
   });
 
   it('does not create a checkpoint for blocked DB change summaries', async () => {

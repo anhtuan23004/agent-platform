@@ -2,6 +2,7 @@ import { getLatestApprovedCheckpoint } from '@seta/ingestion';
 import {
   type GeneratePmoReportOutput,
   generatePmoReport,
+  type PmoReportSource,
   type PmoReportType,
 } from '../../../analytics/report.ts';
 import {
@@ -45,9 +46,7 @@ function readDateRangeFromResume(resumeData: Record<string, unknown> | undefined
 }
 
 interface IntentReportRequest {
-  intentMode: 'generate_report_intent' | 'publish_report_intent';
   dateRange: { from: string; to: string } | null;
-  dateRangeStrategy: string;
   reportTypes: PmoReportType[];
 }
 
@@ -55,19 +54,13 @@ function readIntentReportRequest(plan: unknown): IntentReportRequest | null {
   if (!plan || typeof plan !== 'object' || Array.isArray(plan)) return null;
   const analysis = (plan as { intent_analysis?: unknown }).intent_analysis;
   if (!analysis || typeof analysis !== 'object' || Array.isArray(analysis)) return null;
-  const intentMode = (analysis as { intent_mode?: unknown }).intent_mode;
-  const request = (analysis as { report_request?: unknown }).report_request;
-  if (
-    (intentMode !== 'generate_report_intent' && intentMode !== 'publish_report_intent') ||
-    !request ||
-    typeof request !== 'object' ||
-    Array.isArray(request)
-  ) {
+  const actionMode = (analysis as { actionMode?: unknown }).actionMode;
+  if (actionMode !== 'generate_report' && actionMode !== 'publish_then_report') {
     return null;
   }
 
-  const raw = request as Record<string, unknown>;
-  const rawRange = raw.date_range;
+  const raw = analysis as Record<string, unknown>;
+  const rawRange = raw.extractedDateRange;
   const dateRange =
     rawRange && typeof rawRange === 'object' && !Array.isArray(rawRange)
       ? {
@@ -75,16 +68,14 @@ function readIntentReportRequest(plan: unknown): IntentReportRequest | null {
           to: String((rawRange as Record<string, unknown>).to ?? ''),
         }
       : null;
-  const reportTypes = Array.isArray(raw.report_types)
-    ? raw.report_types.filter(
+  const reportTypes = Array.isArray(raw.extractedReportTypes)
+    ? raw.extractedReportTypes.filter(
         (type): type is PmoReportType => type === 'idle_members' || type === 'overbook_members',
       )
     : [];
 
   return {
-    intentMode,
     dateRange,
-    dateRangeStrategy: String(raw.date_range_strategy ?? ''),
     reportTypes: reportTypes.length > 0 ? reportTypes : ['idle_members', 'overbook_members'],
   };
 }
@@ -235,8 +226,10 @@ export function createGenerateReportHandler(
     actionId: 'generate_report',
     execute: async (input) => {
       const intentRequest = readIntentReportRequest(input.planningPlan);
-      const databaseOnly = intentRequest?.intentMode === 'generate_report_intent';
-      if (!databaseOnly) assertPublishedCheckpoint(input.runtimeContext);
+      const reportSource: PmoReportSource =
+        (input.reportSource as PmoReportSource) ?? 'canonical_db';
+      const databaseOnly = reportSource === 'canonical_db';
+      if (reportSource === 'published_batch') assertPublishedCheckpoint(input.runtimeContext);
 
       const plannerStep = await deps.readPlannerStepMeta({
         ingestionSessionId: input.ingestionSessionId,
@@ -261,14 +254,21 @@ export function createGenerateReportHandler(
       );
       if (!databaseBounds) throw new Error('report_date_bounds_unavailable');
 
-      if (!dateRange && intentRequest?.dateRangeStrategy === 'sheet_derived') {
-        const sheetRange = await resolveSuggestedRange({
-          reportingPeriodStart: input.reportingPeriodStart,
-          reportingPeriodEnd: input.reportingPeriodEnd,
-          getWorkbookParseResult: () => deps.getWorkbookParseResult(input),
-          runtimeContext: input.runtimeContext,
-        });
-        dateRange = { ...sheetRange, source: 'sheet_derived' };
+      if (
+        !dateRange &&
+        (reportSource === 'published_batch' || reportSource === 'staging_preview')
+      ) {
+        try {
+          const sheetRange = await resolveSuggestedRange({
+            reportingPeriodStart: input.reportingPeriodStart,
+            reportingPeriodEnd: input.reportingPeriodEnd,
+            getWorkbookParseResult: () => deps.getWorkbookParseResult(input),
+            runtimeContext: input.runtimeContext,
+          });
+          dateRange = { ...sheetRange, source: 'sheet_derived' };
+        } catch {
+          // For staging_preview, sheet-derived range is best-effort; fall through to ask user.
+        }
       }
 
       if (!dateRange) {
@@ -289,15 +289,27 @@ export function createGenerateReportHandler(
           };
         }
 
-        const suggestedDateRange = databaseOnly
-          ? { from: databaseBounds.min, to: databaseBounds.max }
-          : (input.runtimeContext.report_request?.suggestedDateRange ??
-            (await resolveSuggestedRange({
-              reportingPeriodStart: input.reportingPeriodStart,
-              reportingPeriodEnd: input.reportingPeriodEnd,
-              getWorkbookParseResult: () => deps.getWorkbookParseResult(input),
-              runtimeContext: input.runtimeContext,
-            })));
+        let suggestedDateRange: { from: string; to: string };
+        if (databaseOnly) {
+          suggestedDateRange = { from: databaseBounds.min, to: databaseBounds.max };
+        } else {
+          const cached = input.runtimeContext.report_request?.suggestedDateRange;
+          if (cached) {
+            suggestedDateRange = cached;
+          } else {
+            try {
+              suggestedDateRange = await resolveSuggestedRange({
+                reportingPeriodStart: input.reportingPeriodStart,
+                reportingPeriodEnd: input.reportingPeriodEnd,
+                getWorkbookParseResult: () => deps.getWorkbookParseResult(input),
+                runtimeContext: input.runtimeContext,
+              });
+            } catch {
+              // Fallback to database bounds when sheet range is unavailable.
+              suggestedDateRange = { from: databaseBounds.min, to: databaseBounds.max };
+            }
+          }
+        }
 
         return {
           kind: 'suspend',
@@ -333,7 +345,10 @@ export function createGenerateReportHandler(
         };
       }
 
-      assertRangeWithinBounds(dateRange, databaseBounds);
+      // Skip bounds check for staging_preview — staged data may extend beyond canonical DB range.
+      if (reportSource !== 'staging_preview') {
+        assertRangeWithinBounds(dateRange, databaseBounds);
+      }
 
       const report = await generatePmoReport({
         tenantId: input.tenantId,
@@ -343,6 +358,7 @@ export function createGenerateReportHandler(
           to: dateRange.to,
         },
         reportTypes,
+        reportSource,
       });
       const reportRunId = await (deps.persistReportRun ?? persistReportRun)({
         tenantId: input.tenantId,

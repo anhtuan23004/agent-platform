@@ -4,12 +4,19 @@ import { buildTenantKey, getS3Client, presignedUploadUrl } from '@seta/shared-st
 import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { getPmoReportDateBounds } from '../analytics/report-date-bounds.ts';
 import { pmoDb } from '../db/client.ts';
 import { ingestionSessions } from '../db/schema.ts';
 import { createS3FileStore } from '../ingestion/s3-file-store.ts';
+import {
+  loadPmoPlannerCatalog,
+  PMO_ACTION_MODES,
+  PMO_DATA_SOURCE_MODES,
+} from '../planning/catalog.ts';
 import { generatePmoWorkflowPlan } from '../planning/generate-plan.ts';
-import { classifyPmoPlanningIntent } from '../planning/intent-classifier.ts';
+import {
+  classifyPmoPlanningIntent,
+  validatePmoPlanningIntent,
+} from '../planning/intent-classifier.ts';
 import { IntentAnalysisSchema } from '../planning/plan-schema.ts';
 import { readPlannerWorkflowSteps } from '../planning/step-metadata.ts';
 import {
@@ -143,7 +150,7 @@ function mapHistoryStatus(state: PlanningState): {
   if (state === 'intent_review') {
     return {
       label: 'Intent review',
-      active_gate: 'Confirm report date range',
+      active_gate: 'Confirm intent scope',
       progress_text: '1 / 3 (33%)',
       progress_pct: 33,
     };
@@ -193,7 +200,8 @@ function isDatabaseReportPlan(plan: unknown): boolean {
     Boolean(intentAnalysis) &&
     typeof intentAnalysis === 'object' &&
     !Array.isArray(intentAnalysis) &&
-    (intentAnalysis as { intent_mode?: unknown }).intent_mode === 'generate_report_intent'
+    (intentAnalysis as { dataSourceMode?: unknown }).dataSourceMode === 'existing_db' &&
+    (intentAnalysis as { actionMode?: unknown }).actionMode === 'generate_report'
   );
 }
 
@@ -632,13 +640,8 @@ const PlanApproveRequestSchema = z.object({
 
 const PlanConfirmIntentRequestSchema = z.object({
   ingestion_session_id: z.string().uuid(),
-  date_range_strategy: z.enum(['sheet_derived', 'manual_database']).optional(),
-  date_range: z
-    .object({
-      from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-      to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-    })
-    .optional(),
+  dataSourceMode: z.enum(PMO_DATA_SOURCE_MODES).optional(),
+  actionMode: z.enum(PMO_ACTION_MODES).optional(),
 });
 
 const WorkflowCancelRequestSchema = z.object({
@@ -1052,7 +1055,18 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
       return c.json({ error: 'invalid_request', details: parsed.error.issues }, 400);
     }
 
-    const { goal, previous_plan, plan_feedback } = parsed.data;
+    // Route-level deadline: respond before Cloudflare's 100s timeout.
+    const ROUTE_DEADLINE_MS = 90_000;
+    const routeStart = Date.now();
+    const checkDeadline = () => {
+      if (Date.now() - routeStart > ROUTE_DEADLINE_MS) {
+        throw Object.assign(new Error('Plan generation timed out. Please try again.'), {
+          code: 'route_timeout',
+        });
+      }
+    };
+
+    const { goal, previous_plan } = parsed.data;
     const db = pmoDb();
     const existingSource = parsed.data.ingestion_session_id
       ? await db
@@ -1073,40 +1087,23 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
     if (parsed.data.ingestion_session_id && existingSource.length === 0) {
       return c.json({ error: 'not_found', message: 'ingestion session not found' }, 404);
     }
+    const effectivePlanFeedback = parsed.data.plan_feedback?.trim() || '';
     const storedIntent =
-      existingSource[0]?.planning_goal === goal
+      existingSource[0]?.planning_goal === goal && !effectivePlanFeedback
         ? IntentAnalysisSchema.safeParse(existingSource[0].planning_intent)
         : null;
-    let intent =
+    const intent =
       storedIntent?.success && !storedIntent.data.requires_confirmation
         ? storedIntent.data
         : await classifyPmoPlanningIntent(goal, {
             hasUploadedFile: Boolean(existingSource[0]?.source_file_key),
+            ...(effectivePlanFeedback ? { planFeedback: effectivePlanFeedback } : {}),
           });
-    if (
-      intent.requires_confirmation &&
-      intent.report_request &&
-      !intent.report_request.date_range
-    ) {
-      const bounds = await getPmoReportDateBounds(session.tenant_id);
-      if (!bounds) {
-        return c.json(
-          {
-            error: 'report_date_bounds_unavailable',
-            message: 'No reportable PMO dates exist in the database.',
-          },
-          409,
-        );
-      }
-      intent = {
-        ...intent,
-        report_request: { ...intent.report_request, database_date_bounds: bounds },
-      };
-    }
+    checkDeadline();
     let planningSessionId = parsed.data.ingestion_session_id;
 
     if (!planningSessionId) {
-      if (intent.intent_mode !== 'generate_report_intent') {
+      if (intent.dataSourceMode !== 'existing_db' || intent.actionMode !== 'generate_report') {
         return c.json(
           {
             error: 'upload_required_for_intent',
@@ -1209,15 +1206,18 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
         ),
       );
 
-    const effectiveFeedback = plan_feedback?.trim() || '';
     const effectivePreviousPlan = previous_plan ?? null;
 
     try {
+      checkDeadline();
       const plan = await generatePmoWorkflowPlan({
         goal,
         intent,
         uploaded_file:
-          row.source_file_key && row.source_file_name && row.mime_type
+          intent.dataSourceMode === 'uploaded_file' &&
+          row.source_file_key &&
+          row.source_file_name &&
+          row.mime_type
             ? {
                 file_name: row.source_file_name,
                 file_size: formatFileSize(row.source_file_size_bytes ?? 0),
@@ -1235,14 +1235,14 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
           can_publish_after_user_approval: true,
         },
         previous_plan: effectivePreviousPlan,
-        ...(effectiveFeedback ? { plan_feedback: effectiveFeedback } : {}),
+        ...(effectivePlanFeedback ? { plan_feedback: effectivePlanFeedback } : {}),
       });
 
       const existingFeedback = Array.isArray(row.planning_feedback_history)
         ? row.planning_feedback_history
         : [];
-      const nextFeedback = effectiveFeedback
-        ? [...existingFeedback, effectiveFeedback]
+      const nextFeedback = effectivePlanFeedback
+        ? [...existingFeedback, effectivePlanFeedback]
         : existingFeedback;
       const nextVersion = (row.planning_plan_version ?? 0) + 1;
 
@@ -1284,9 +1284,13 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
           ),
         );
 
+      const isTimeout =
+        (err as { code?: string }).code === 'route_timeout' ||
+        (err instanceof Error && err.name === 'AbortError');
+      const status = isTimeout ? 504 : 500;
       const message = err instanceof Error ? err.message : String(err);
       console.error('[pmo/plan/generate] error:', message, err);
-      return c.json({ error: 'plan_generation_failed', message }, 500);
+      return c.json({ error: isTimeout ? 'timeout' : 'plan_generation_failed', message }, status);
     }
   });
 
@@ -1299,13 +1303,14 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
       return c.json({ error: 'invalid_request', details: parsed.error.issues }, 400);
     }
 
-    const { ingestion_session_id, date_range_strategy, date_range } = parsed.data;
+    const { ingestion_session_id, dataSourceMode, actionMode } = parsed.data;
     const db = pmoDb();
     const rows = await db
       .select({
         id: ingestionSessions.id,
         status: ingestionSessions.status,
         planning_intent: ingestionSessions.planning_intent,
+        source_file_key: ingestionSessions.source_file_key,
       })
       .from(ingestionSessions)
       .where(
@@ -1343,53 +1348,44 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
     }
 
     const intent = intentResult.data;
-    const reportRequest = intent.report_request;
-    let confirmedReportRequest = reportRequest;
-    if (reportRequest?.date_range_strategy === 'database_confirmation') {
-      if (date_range_strategy !== 'manual_database' || !date_range) {
-        return c.json(
-          { error: 'date_range_required', message: 'Select a database date range.' },
-          400,
-        );
-      }
-    }
-    if (reportRequest?.date_range_strategy === 'sheet_or_database_confirmation') {
-      if (!date_range_strategy || (date_range_strategy === 'manual_database' && !date_range)) {
+    if (intent.resolution_options?.length) {
+      const chosen = intent.resolution_options.find(
+        (option) => option.dataSourceMode === dataSourceMode && option.actionMode === actionMode,
+      );
+      if (!chosen) {
         return c.json(
           {
-            error: 'date_range_strategy_required',
-            message: 'Choose sheet-derived dates or a database date range.',
+            error: 'intent_resolution_required',
+            message: 'Choose one supported workflow scope before continuing.',
           },
           400,
         );
       }
     }
-    if (date_range) {
-      const bounds = reportRequest?.database_date_bounds;
-      if (
-        date_range.from > date_range.to ||
-        (bounds && (date_range.from < bounds.min || date_range.to > bounds.max))
-      ) {
-        return c.json(
-          {
-            error: 'invalid_date_range',
-            message: 'Date range must be ordered and remain within database bounds.',
-          },
-          400,
-        );
-      }
+
+    const validated = validatePmoPlanningIntent(
+      loadPmoPlannerCatalog(),
+      {
+        dataSourceMode: dataSourceMode ?? intent.dataSourceMode,
+        actionMode: actionMode ?? intent.actionMode,
+        writePolicy: intent.writePolicy,
+        confidence: intent.confidence,
+        rationale: intent.rationale,
+        extractedDateRange: intent.extractedDateRange,
+        extractedReportTypes: intent.extractedReportTypes,
+      },
+      { hasUploadedFile: Boolean(row.source_file_key) },
+    );
+    if (validated.resolution_options?.length) {
+      return c.json(
+        { error: 'intent_resolution_required', message: 'Choose one supported workflow scope.' },
+        400,
+      );
     }
-    if (reportRequest && date_range_strategy) {
-      confirmedReportRequest = {
-        ...reportRequest,
-        date_range_strategy,
-        date_range: date_range_strategy === 'manual_database' ? (date_range ?? null) : null,
-      };
-    }
+
     const nowIso = new Date().toISOString();
     const nextIntent = {
-      ...intent,
-      report_request: confirmedReportRequest,
+      ...validated,
       requires_confirmation: false,
       confirmed_at: nowIso,
       confirmed_by: session.user_id,

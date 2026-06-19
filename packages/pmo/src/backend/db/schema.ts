@@ -25,8 +25,8 @@ export const ingestionSessions = pmoSchema.table(
     // Status lifecycle:
     // uploaded → generating_plan → plan_review → approved_plan
     // → profiling → awaiting_confirmation → confirmed → normalizing
-    // → staging_normalized → awaiting_publish_review → published
-    // Terminal: failed, rejected
+    // → staging_normalized → awaiting_publish_review → reviewed | published
+    // Terminal: reviewed, published, failed, rejected
     source_file_key: text('source_file_key'),
     source_file_name: text('source_file_name'),
     source_file_size_bytes: integer('source_file_size_bytes'),

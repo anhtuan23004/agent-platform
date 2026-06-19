@@ -1,15 +1,16 @@
 import {
-  getIntentDefinition,
   getStepDefinition,
   loadPmoPlannerCatalog,
-  type PmoIntentMode,
+  type PmoActionMode,
+  type PmoDataSourceMode,
   type PmoPlannerCatalog,
 } from './catalog.ts';
 import type { PmoWorkflowPlan } from './plan-schema.ts';
 import type { PlannerStepLike, PmoPlanActionId, PmoReviewType } from './step-metadata.ts';
 
 export interface CompilePmoWorkflowInput {
-  intentMode: PmoIntentMode;
+  dataSourceMode: PmoDataSourceMode;
+  actionMode: PmoActionMode;
   candidateSteps: Array<
     PlannerStepLike & {
       agent_responsibility?: unknown;
@@ -34,6 +35,36 @@ export interface CompiledPmoWorkflowStep {
 export interface CompilePmoWorkflowResult {
   compiled_workflow: CompiledPmoWorkflowStep[];
   diagnostics: string[];
+}
+
+export function actionIdsForPmoIntent(
+  dataSourceMode: PmoDataSourceMode,
+  actionMode: PmoActionMode,
+): PmoPlanActionId[] {
+  if (dataSourceMode === 'existing_db') {
+    if (actionMode === 'generate_report') return ['generate_report'];
+    if (actionMode === 'preview_changes') return ['database_change_summary'];
+    return [];
+  }
+
+  const actions: PmoPlanActionId[] = ['workbook_profiling'];
+  if (actionMode !== 'inspect_file') {
+    actions.push('column_mapping', 'normalize_to_staging');
+  }
+  if (
+    actionMode === 'preview_changes' ||
+    actionMode === 'publish' ||
+    actionMode === 'publish_then_report'
+  ) {
+    actions.push('database_change_summary');
+  }
+  if (actionMode === 'publish' || actionMode === 'publish_then_report') {
+    actions.push('publish_after_approval');
+  }
+  if (actionMode === 'generate_report' || actionMode === 'publish_then_report') {
+    actions.push('generate_report');
+  }
+  return actions;
 }
 
 function isStringActionId(value: unknown): value is PmoPlanActionId {
@@ -75,11 +106,8 @@ function buildFallbackStep(
 
 export function compilePmoWorkflowSteps(input: CompilePmoWorkflowInput): CompilePmoWorkflowResult {
   const catalog = input.catalog ?? loadPmoPlannerCatalog();
-  const intent = getIntentDefinition(catalog, input.intentMode);
-  const allowed = new Set<PmoPlanActionId>(intent.allowed_action_ids);
-  const allowedOrder = new Map<PmoPlanActionId, number>(
-    intent.allowed_action_ids.map((actionId, index) => [actionId, index]),
-  );
+  const actionIds = actionIdsForPmoIntent(input.dataSourceMode, input.actionMode);
+  const allowed = new Set<PmoPlanActionId>(actionIds);
   const diagnostics: string[] = [];
   const byAction = new Map<
     PmoPlanActionId,
@@ -118,11 +146,6 @@ export function compilePmoWorkflowSteps(input: CompilePmoWorkflowInput): Compile
     byAction.set(step.action_id, step);
   }
 
-  const actionIds =
-    byAction.size > 0
-      ? [...byAction.keys()].sort((a, b) => (allowedOrder.get(a) ?? 0) - (allowedOrder.get(b) ?? 0))
-      : [...intent.allowed_action_ids];
-
   const compiled = actionIds
     .map((actionId, index): CompiledPmoWorkflowStep | null => {
       const definition = getStepDefinition(catalog, actionId);
@@ -159,9 +182,7 @@ export function compilePmoWorkflowSteps(input: CompilePmoWorkflowInput): Compile
     .filter((step): step is CompiledPmoWorkflowStep => Boolean(step));
 
   if (compiled.length === 0) {
-    const fallbackIntent = getIntentDefinition(catalog, catalog.default_intent_mode);
-    const fallbackAction = fallbackIntent.allowed_action_ids[0];
-    const fallback = fallbackAction ? buildFallbackStep(catalog, fallbackAction, 1) : null;
+    const fallback = buildFallbackStep(catalog, 'workbook_profiling', 1);
     if (fallback) compiled.push(fallback);
   }
 
@@ -174,11 +195,13 @@ export function compilePmoWorkflowSteps(input: CompilePmoWorkflowInput): Compile
 export function applyCompiledWorkflowToPlan(
   plan: PmoWorkflowPlan,
   params: {
-    intentMode: PmoIntentMode;
+    dataSourceMode: PmoDataSourceMode;
+    actionMode: PmoActionMode;
   },
 ): PmoWorkflowPlan {
   const compiled = compilePmoWorkflowSteps({
-    intentMode: params.intentMode,
+    dataSourceMode: params.dataSourceMode,
+    actionMode: params.actionMode,
     candidateSteps: plan.proposed_workflow,
   });
 

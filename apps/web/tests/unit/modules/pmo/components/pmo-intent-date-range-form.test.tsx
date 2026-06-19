@@ -1,40 +1,36 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { IntentReportDateRangeForm } from '../../../../../src/modules/pmo/components/pmo-workflow-cards-section';
+import { IntentResolutionOptions } from '../../../../../src/modules/pmo/components/pmo-workflow-cards-section';
 
-describe('IntentReportDateRangeForm', () => {
-  const request = {
-    source: 'post_ingest_database' as const,
-    date_range_strategy: 'sheet_or_database_confirmation' as const,
-    date_range: null,
-    report_types: ['idle_members' as const],
-    database_date_bounds: { min: '2026-01-01', max: '2026-03-31' },
-  };
+describe('IntentResolutionOptions', () => {
+  const options = [
+    {
+      id: 'report_existing_db' as const,
+      label: 'Report from existing data',
+      description: 'Use canonical PMO data.',
+      dataSourceMode: 'existing_db' as const,
+      actionMode: 'generate_report' as const,
+    },
+    {
+      id: 'publish_then_report' as const,
+      label: 'Publish, then report',
+      description: 'Publish approved changes first.',
+      dataSourceMode: 'uploaded_file' as const,
+      actionMode: 'publish_then_report' as const,
+    },
+  ];
 
-  it('confirms sheet-derived date strategy from intent card', () => {
+  it('confirms selected multi-axis scope', () => {
     const onConfirm = vi.fn();
     render(
-      <IntentReportDateRangeForm request={request} isSubmitting={false} onConfirm={onConfirm} />,
+      <IntentResolutionOptions options={options} isSubmitting={false} onConfirm={onConfirm} />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Use dates from sheet' }));
-
-    expect(onConfirm).toHaveBeenCalledWith({ dateRangeStrategy: 'sheet_derived' });
-  });
-
-  it('confirms manual database range within DB bounds', () => {
-    const onConfirm = vi.fn();
-    render(
-      <IntentReportDateRangeForm request={request} isSubmitting={false} onConfirm={onConfirm} />,
-    );
-
-    fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-02-01' } });
-    fireEvent.change(screen.getByLabelText('To'), { target: { value: '2026-02-28' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Use database range' }));
+    fireEvent.click(screen.getByRole('button', { name: /Publish, then report/ }));
 
     expect(onConfirm).toHaveBeenCalledWith({
-      dateRangeStrategy: 'manual_database',
-      dateRange: { from: '2026-02-01', to: '2026-02-28' },
+      dataSourceMode: 'uploaded_file',
+      actionMode: 'publish_then_report',
     });
   });
 });

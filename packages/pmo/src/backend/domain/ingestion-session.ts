@@ -10,6 +10,7 @@ export type IngestionStatus =
   | 'awaiting_normalization_review'
   | 'staging_normalized'
   | 'awaiting_publish_review'
+  | 'reviewed'
   | 'published'
   | 'failed'
   | 'rejected';
@@ -22,7 +23,8 @@ const VALID_TRANSITIONS: Record<IngestionStatus, IngestionStatus[]> = {
   normalizing: ['awaiting_normalization_review', 'staging_normalized', 'failed'],
   awaiting_normalization_review: ['staging_normalized', 'rejected', 'failed'],
   staging_normalized: ['awaiting_publish_review'],
-  awaiting_publish_review: ['published', 'rejected'],
+  awaiting_publish_review: ['reviewed', 'published', 'rejected'],
+  reviewed: [],
   published: [],
   failed: [],
   rejected: [],

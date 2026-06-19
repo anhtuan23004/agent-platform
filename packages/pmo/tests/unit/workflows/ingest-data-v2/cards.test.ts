@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildMappingItemReviewCard,
   buildMappingReviewCard,
+  buildNormalizationReviewCard,
   buildPublishReviewCard,
   buildReportRangeCard,
   collectMappingReviewItems,
@@ -23,6 +24,22 @@ function kvTables(details: unknown[]): KvTableBlock[] {
 }
 
 describe('PMO ingest review cards', () => {
+  it('keeps normalization card layout while framing validate outcome correctly', () => {
+    const card = buildNormalizationReviewCard({
+      ingestionSessionId: 'f56e9152-7856-44e9-b2d7-4f21d86cdffd',
+      changeSummary: [],
+      blockingIssues: [],
+      allowApprove: true,
+      focus: 'validation',
+      identity: { tenantId: 'tenant-1', userId: 'user-1' },
+      toolCallId: 'workflow:test:pmo_reviewNormalization',
+    });
+
+    expect(card.intent).toBe('Review workbook validation results');
+    expect(card.primary.label).toBe('Complete validation');
+    expect(card.details.some((detail) => detail.kind === 'kvTable')).toBe(true);
+  });
+
   it('builds mapping item card with per-item approve progress', () => {
     const tableMappings = [
       {

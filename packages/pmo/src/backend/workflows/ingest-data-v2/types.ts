@@ -16,6 +16,7 @@ export type DynamicRuntimeSessionStatus =
   | 'awaiting_normalization_review'
   | 'staging_normalized'
   | 'awaiting_publish_review'
+  | 'reviewed'
   | 'awaiting_report_range'
   | 'generating_report'
   | 'report_generated'
@@ -117,6 +118,7 @@ export interface PmoDynamicHandlerInput {
   resumeData: Record<string, unknown> | undefined;
   step: PlannerExecutionStepV2;
   planningPlan: unknown;
+  reportSource?: 'canonical_db' | 'staging_preview' | 'published_batch';
   runtimeContext: DynamicIngestRuntimeContext;
 }
 
