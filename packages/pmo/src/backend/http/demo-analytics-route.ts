@@ -16,6 +16,7 @@ const DemoAnalyticsQuerySchema = z
     from: dateString.optional(),
     to: dateString.optional(),
     configEffectiveDate: dateString.optional(),
+    ingestion_session_id: z.string().uuid().optional(),
     overbookThreshold: z.coerce.number().min(0).max(5).optional(),
     overbookRedThreshold: z.coerce.number().min(0).max(5).optional(),
     idleThreshold: z.coerce.number().min(0).max(5).optional(),
@@ -60,6 +61,7 @@ export function registerDemoAnalyticsRoutes(app: Hono<SessionEnv>): void {
         configEffectiveDate: q.configEffectiveDate
           ? dateFromQuery(q.configEffectiveDate)
           : undefined,
+        ingestionSessionId: q.ingestion_session_id,
         thresholdOverrides: {
           overbookThreshold: q.overbookThreshold,
           overbookRedThreshold: q.overbookRedThreshold,

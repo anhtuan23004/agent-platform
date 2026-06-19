@@ -1,4 +1,4 @@
-import type { ThreadSummary } from './schemas';
+import type { ChatAgentMode, ThreadSummary } from './schemas';
 import { ThreadsResponse } from './schemas';
 
 async function fetchJson<T>(
@@ -22,8 +22,9 @@ async function fetchJson<T>(
 }
 
 export const agentApi = {
-  async listThreads(): Promise<ThreadSummary[]> {
-    const out = await fetchJson('/api/agent/v1/threads', undefined, ThreadsResponse);
+  async listThreads(agent?: ChatAgentMode): Promise<ThreadSummary[]> {
+    const query = agent ? `?agent=${encodeURIComponent(agent)}` : '';
+    const out = await fetchJson(`/api/agent/v1/threads${query}`, undefined, ThreadsResponse);
     return out.threads;
   },
   async renameThread(id: string, title: string) {

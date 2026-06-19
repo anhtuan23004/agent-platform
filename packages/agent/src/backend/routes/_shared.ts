@@ -14,8 +14,8 @@ export const NO_BUFFER_HEADERS = {
 /**
  * Selectable chat runtimes in Agent Studio. Each turn picks one: 'staffing' is
  * the default agent-of-agents (tasks + people); 'pmo' is the read-only PMO
- * utilization analytics agent. apps/server binds a runtime per key into
- * AgentRouteDeps.chatOrchestrations.
+ * utilization analytics agent, plus chat-driven workbook ingest. apps/server binds a
+ * runtime per key into AgentRouteDeps.chatOrchestrations.
  */
 export type ChatAgent = 'staffing' | 'pmo';
 

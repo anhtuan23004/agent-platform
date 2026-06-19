@@ -10,6 +10,7 @@ import {
 import { LEAVE_TYPE_APPROVED_OT_COMP, LEAVE_TYPE_TRAINING } from './leave-type.ts';
 import type { CanonicalInputs } from './load-canonical.ts';
 import { loadCanonicalInputs } from './load-canonical.ts';
+import { buildMemberWeekFacts } from './member-week-facts.ts';
 import { loadMemberWeekFacts } from './persist-facts.ts';
 import { splitPmoPopulations } from './populations.ts';
 import { buildProjectMemberDependencies, type ProjectMemberDependency } from './project-members.ts';
@@ -172,6 +173,7 @@ export interface DemoAnalyticsResult {
 export interface DemoAnalyticsOptions {
   dateRange?: { from: Date; to: Date };
   configEffectiveDate?: Date;
+  ingestionSessionId?: string;
   thresholdOverrides?: Partial<Thresholds>;
 }
 
@@ -486,14 +488,17 @@ export async function runDemoAnalytics(
   tenantId: string,
   options: DemoAnalyticsOptions = {},
 ): Promise<DemoAnalyticsResult> {
-  const canonical = await loadCanonicalInputs(tenantId, { dateRange: options.dateRange });
+  const canonical = await loadCanonicalInputs(tenantId, {
+    dateRange: options.dateRange,
+    ingestionSessionId: options.ingestionSessionId,
+  });
   if (canonical.members.length === 0 || canonical.weeks.length === 0) {
     throw new DemoAnalyticsNoDataError();
   }
 
-  await ensureFactsComputed(tenantId);
-
-  const facts = await loadMemberWeekFacts(tenantId);
+  const facts = options.ingestionSessionId
+    ? buildSessionScopedFacts(canonical)
+    : await loadPersistedFacts(tenantId);
   if (facts.length === 0) {
     throw new DemoAnalyticsNoDataError();
   }
@@ -501,5 +506,23 @@ export async function runDemoAnalytics(
   return buildDemoAnalyticsResult(canonical, facts, {
     configEffectiveDate: options.configEffectiveDate ?? options.dateRange?.from,
     thresholdOverrides: options.thresholdOverrides,
+  });
+}
+
+async function loadPersistedFacts(tenantId: string): Promise<MemberWeekFact[]> {
+  await ensureFactsComputed(tenantId);
+  return loadMemberWeekFacts(tenantId);
+}
+
+function buildSessionScopedFacts(canonical: CanonicalInputs): MemberWeekFact[] {
+  const thresholds = resolveThresholds(canonical.configRows);
+  const { deliveryMembers } = splitPmoPopulations(canonical.members, canonical.projects);
+  return buildMemberWeekFacts({
+    members: deliveryMembers,
+    allocations: canonical.allocations,
+    timesheets: canonical.timesheets,
+    leaves: canonical.leaves,
+    weeks: canonical.weeks,
+    thresholds,
   });
 }

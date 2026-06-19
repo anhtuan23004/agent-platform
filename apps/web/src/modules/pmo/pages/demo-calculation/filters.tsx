@@ -20,8 +20,11 @@ import type { DemoAnalyticsSettings, DemoThresholds } from '../../api/demo-analy
 interface DemoCalculationFiltersProps {
   members: string[];
   projects: string[];
+  uploadOptions: Array<{ id: string; label: string; statusLabel: string }>;
   memberFilter: string | null;
   projectFilter: string | null;
+  selectedUploadId: string | null;
+  selectedUploadLabel: string | null;
   onMemberFilterChange: (id: string | null) => void;
   onProjectFilterChange: (id: string | null) => void;
   getProjectLabel: (id: string) => string;
@@ -50,6 +53,31 @@ interface CalculationSettingsFormProps {
   onAnalyticsSettingsChange: (settings: DemoAnalyticsSettings | undefined) => void;
 }
 
+function compactSettings(settings: DemoAnalyticsSettings): DemoAnalyticsSettings | undefined {
+  const thresholds = settings.thresholds;
+  const hasThresholds =
+    thresholds?.overbookThreshold !== undefined ||
+    thresholds?.overbookRedThreshold !== undefined ||
+    thresholds?.idleThreshold !== undefined ||
+    thresholds?.mismatchPctThreshold !== undefined;
+  if (
+    !settings.from &&
+    !settings.to &&
+    !settings.configEffectiveDate &&
+    !settings.ingestionSessionId &&
+    !hasThresholds
+  ) {
+    return undefined;
+  }
+  return {
+    ...(settings.from ? { from: settings.from } : {}),
+    ...(settings.to ? { to: settings.to } : {}),
+    ...(settings.configEffectiveDate ? { configEffectiveDate: settings.configEffectiveDate } : {}),
+    ...(settings.ingestionSessionId ? { ingestionSessionId: settings.ingestionSessionId } : {}),
+    ...(hasThresholds ? { thresholds } : {}),
+  };
+}
+
 function pctInput(value: number): string {
   return String(Math.round(value * 1000) / 10);
 }
@@ -62,8 +90,11 @@ function parsePctInput(value: string): number | undefined {
 export function DemoCalculationFilters({
   members,
   projects,
+  uploadOptions,
   memberFilter,
   projectFilter,
+  selectedUploadId,
+  selectedUploadLabel,
   onMemberFilterChange,
   onProjectFilterChange,
   getProjectLabel,
@@ -75,6 +106,7 @@ export function DemoCalculationFilters({
   onRefresh,
   isRefreshing,
 }: DemoCalculationFiltersProps) {
+  const [uploadOpen, setUploadOpen] = useState(false);
   const [memberOpen, setMemberOpen] = useState(false);
   const [projectOpen, setProjectOpen] = useState(false);
   const calculationSettingsKey = [
@@ -87,12 +119,62 @@ export function DemoCalculationFilters({
     thresholds.mismatchPctThreshold,
   ].join(':');
 
-  const hasFilter = Boolean(memberFilter || projectFilter);
+  const hasFilter = Boolean(selectedUploadId || memberFilter || projectFilter);
+  const setUploadFilter = (id: string | null) => {
+    onAnalyticsSettingsChange(
+      compactSettings({
+        ...(analyticsSettings ?? {}),
+        ingestionSessionId: id ?? undefined,
+      }),
+    );
+  };
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
+          <Popover open={uploadOpen} onOpenChange={setUploadOpen}>
+            <PopoverTrigger asChild>
+              <Button variant="secondary" size="sm">
+                <Filter className="size-4" />
+                Upload
+                <ChevronDown className="size-4" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-[360px] p-0">
+              <Command>
+                <CommandInput placeholder="Search upload…" />
+                <CommandList>
+                  <CommandEmpty>No uploads found.</CommandEmpty>
+                  <CommandGroup heading="Uploads">
+                    <CommandItem
+                      onSelect={() => {
+                        setUploadFilter(null);
+                        setUploadOpen(false);
+                      }}
+                    >
+                      All published data
+                    </CommandItem>
+                    {uploadOptions.map((upload) => (
+                      <CommandItem
+                        key={upload.id}
+                        onSelect={() => {
+                          setUploadFilter(upload.id);
+                          setUploadOpen(false);
+                        }}
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate">{upload.label}</div>
+                          <div className="text-caption text-ink-muted">{upload.statusLabel}</div>
+                        </div>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
+
           <Popover open={memberOpen} onOpenChange={setMemberOpen}>
             <PopoverTrigger asChild>
               <Button variant="secondary" size="sm">
@@ -155,6 +237,9 @@ export function DemoCalculationFilters({
             </PopoverContent>
           </Popover>
 
+          {selectedUploadId ? (
+            <Badge variant="secondary">Upload: {selectedUploadLabel ?? selectedUploadId}</Badge>
+          ) : null}
           {memberFilter ? <Badge variant="secondary">Member: {memberFilter}</Badge> : null}
           {projectFilter ? <Badge variant="secondary">Project: {projectFilter}</Badge> : null}
 
@@ -165,13 +250,14 @@ export function DemoCalculationFilters({
               onClick={() => {
                 onMemberFilterChange(null);
                 onProjectFilterChange(null);
+                setUploadFilter(null);
               }}
             >
               <X className="size-4" />
               Clear filters
             </Button>
           ) : (
-            <span className="text-body-sm text-ink-subtle">All members & projects</span>
+            <span className="text-body-sm text-ink-subtle">All uploads, members & projects</span>
           )}
         </div>
 
@@ -237,17 +323,20 @@ function CalculationSettingsForm({
   );
 
   const applyCalculationSettings = () => {
-    onAnalyticsSettingsChange({
-      from: from || undefined,
-      to: to || undefined,
-      configEffectiveDate: configEffectiveDate || undefined,
-      thresholds: {
-        overbookThreshold: parsePctInput(overbookY),
-        overbookRedThreshold: parsePctInput(overbookR),
-        idleThreshold: parsePctInput(idle),
-        mismatchPctThreshold: parsePctInput(mismatch),
-      },
-    });
+    onAnalyticsSettingsChange(
+      compactSettings({
+        ...(analyticsSettings ?? {}),
+        from: from || undefined,
+        to: to || undefined,
+        configEffectiveDate: configEffectiveDate || undefined,
+        thresholds: {
+          overbookThreshold: parsePctInput(overbookY),
+          overbookRedThreshold: parsePctInput(overbookR),
+          idleThreshold: parsePctInput(idle),
+          mismatchPctThreshold: parsePctInput(mismatch),
+        },
+      }),
+    );
   };
 
   const resetCalculationSettings = () => {
@@ -258,7 +347,9 @@ function CalculationSettingsForm({
     setOverbookR(pctInput(thresholds.overbookRedThreshold));
     setIdle(pctInput(thresholds.idleThreshold));
     setMismatch(pctInput(thresholds.mismatchPctThreshold));
-    onAnalyticsSettingsChange(undefined);
+    onAnalyticsSettingsChange(
+      compactSettings({ ingestionSessionId: analyticsSettings?.ingestionSessionId }),
+    );
   };
 
   return (

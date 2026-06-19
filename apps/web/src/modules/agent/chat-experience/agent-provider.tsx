@@ -123,6 +123,16 @@ interface PanelUIValue {
 
 const PageContextContext = createContext<PageContextValue | null>(null);
 const ChatAgentContext = createContext<ChatAgentValue | null>(null);
+
+export type PmoIngestSendPayload = {
+  ingestionSessionId?: string;
+  reportingDateFrom?: string;
+  reportingDateTo?: string;
+};
+
+const PmoIngestSendRefContext = createContext<React.MutableRefObject<PmoIngestSendPayload> | null>(
+  null,
+);
 const PanelUIContext = createContext<PanelUIValue | null>(null);
 
 function readStored(key: string, fallback: string): string {
@@ -254,14 +264,18 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     [panelOpen, setPanelOpen, pendingPrompt, setPendingPrompt],
   );
 
+  const pmoIngestSendRef = useRef<PmoIngestSendPayload>({});
+
   return (
     <DensityProvider>
       <SelectionContext.Provider value={selectionValue}>
         <PageContextContext.Provider value={pageCtxValue}>
           <ChatAgentContext.Provider value={chatAgentValue}>
-            <PanelUIContext.Provider value={panelUIValue}>
-              <AgentRuntimeHost>{children}</AgentRuntimeHost>
-            </PanelUIContext.Provider>
+            <PmoIngestSendRefContext.Provider value={pmoIngestSendRef}>
+              <PanelUIContext.Provider value={panelUIValue}>
+                <AgentRuntimeHost pmoIngestSendRef={pmoIngestSendRef}>{children}</AgentRuntimeHost>
+              </PanelUIContext.Provider>
+            </PmoIngestSendRefContext.Provider>
           </ChatAgentContext.Provider>
         </PageContextContext.Provider>
       </SelectionContext.Provider>
@@ -269,7 +283,13 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-function AgentRuntimeHost({ children }: { children: React.ReactNode }) {
+function AgentRuntimeHost({
+  children,
+  pmoIngestSendRef,
+}: {
+  children: React.ReactNode;
+  pmoIngestSendRef: React.MutableRefObject<PmoIngestSendPayload>;
+}) {
   const { selection, actions } = useAgentSelection();
   const { pageContext, suppressedFor } = usePageContext();
   const { chatAgent } = useChatAgent();
@@ -339,7 +359,7 @@ function AgentRuntimeHost({ children }: { children: React.ReactNode }) {
     data: history,
     isLoading,
     error,
-  } = useThreadMessages(messagesEnabled ? selection.threadId : undefined);
+  } = useThreadMessages(messagesEnabled ? selection.threadId : undefined, chatAgent);
   const treatAsFresh =
     selection.isThreadFresh || (error instanceof ThreadMessagesError && error.status === 404);
   const historyReady = treatAsFresh || (!isLoading && Boolean(history));
@@ -376,6 +396,7 @@ function AgentRuntimeHost({ children }: { children: React.ReactNode }) {
       historyLoading={false}
       pageContextRef={pageContextRef}
       chatAgentRef={chatAgentRef}
+      pmoIngestSendRef={pmoIngestSendRef}
     >
       {children}
     </AgentRuntimeHostInner>
@@ -389,6 +410,7 @@ function AgentRuntimeHostInner({
   historyLoading,
   pageContextRef,
   chatAgentRef,
+  pmoIngestSendRef,
   children,
 }: {
   threadId: string;
@@ -400,6 +422,7 @@ function AgentRuntimeHostInner({
     suppressedFor: string | null;
   }>;
   chatAgentRef: React.MutableRefObject<ChatAgentMode>;
+  pmoIngestSendRef: React.MutableRefObject<PmoIngestSendPayload>;
   children: React.ReactNode;
 }) {
   const [runError, setRunError] = useState<string | null>(null);
@@ -412,6 +435,7 @@ function AgentRuntimeHostInner({
     initialMessages,
     pageContextRef,
     chatAgentRef,
+    pmoIngestRef: pmoIngestSendRef,
     onError: handleError,
   });
 
@@ -448,6 +472,12 @@ export function usePageContext(): PageContextValue {
 export function useChatAgent(): ChatAgentValue {
   const ctx = useContext(ChatAgentContext);
   if (!ctx) throw new Error('useChatAgent must be used within <AgentProvider>');
+  return ctx;
+}
+
+export function usePmoIngestSendRef(): React.MutableRefObject<PmoIngestSendPayload> {
+  const ctx = useContext(PmoIngestSendRefContext);
+  if (!ctx) throw new Error('usePmoIngestSendRef must be used within <AgentProvider>');
   return ctx;
 }
 

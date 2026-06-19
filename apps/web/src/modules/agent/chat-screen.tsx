@@ -49,7 +49,7 @@ export function ChatScreen({ threadId, chatAgent = 'staffing' }: ChatScreenProps
   return (
     <div className="flex h-full min-h-0 flex-1">
       <div className="hidden lg:flex">
-        <AgentThreadRail activeThreadId={selection.threadId} />
+        <AgentThreadRail activeThreadId={selection.threadId} chatAgent={chatAgent} />
       </div>
       <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
         <SheetContent
@@ -59,13 +59,14 @@ export function ChatScreen({ threadId, chatAgent = 'staffing' }: ChatScreenProps
         >
           <AgentThreadRail
             activeThreadId={selection.threadId}
+            chatAgent={chatAgent}
             onAfterNavigate={() => setMobileNavOpen(false)}
             className="w-full border-r-0 lg:w-full"
           />
         </SheetContent>
       </Sheet>
       <div className="flex min-w-0 flex-1 flex-col">
-        <AgentHeader onOpenMobileNav={() => setMobileNavOpen(true)} />
+        <AgentHeader chatAgent={chatAgent} onOpenMobileNav={() => setMobileNavOpen(true)} />
         <AgentTranscript />
         <AgentComposer />
       </div>

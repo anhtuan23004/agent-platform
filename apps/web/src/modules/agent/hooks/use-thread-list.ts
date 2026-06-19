@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { agentApi } from '../api/client';
-import type { ThreadSummary } from '../api/schemas';
+import type { ChatAgentMode, ThreadSummary } from '../api/schemas';
 
 function bucket(updatedAt: Date): 'Today' | 'Earlier this week' | 'Older' {
   const now = new Date();
@@ -38,10 +38,13 @@ function shouldPollForTitle(threads: ThreadSummary[] | undefined): boolean {
   });
 }
 
-export function useThreadList() {
+export const threadListQueryKey = (agent: ChatAgentMode | undefined) =>
+  ['agent', 'threads', agent ?? 'all'] as const;
+
+export function useThreadList(agent?: ChatAgentMode) {
   const q = useQuery({
-    queryKey: ['agent', 'threads'],
-    queryFn: () => agentApi.listThreads(),
+    queryKey: threadListQueryKey(agent),
+    queryFn: () => agentApi.listThreads(agent),
     refetchInterval: (query) =>
       shouldPollForTitle(query.state.data) ? TITLE_POLL_INTERVAL_MS : false,
   });

@@ -23,6 +23,12 @@ interface UseAgentRuntimeOpts {
    */
   chatAgentRef?: { current: 'staffing' | 'pmo' };
   /**
+   * PMO chat ingest session id from a workbook upload, read at send time.
+   */
+  pmoIngestRef?: {
+    current: { ingestionSessionId?: string; reportingDateFrom?: string; reportingDateTo?: string };
+  };
+  /**
    * Called when a run fails. The AI SDK transport throws `new Error(<response
    * body text>)` on a non-ok response, so `error.message` is the raw JSON body
    * (e.g. the chat 413 `{ "error": "context_overflow", "message": "…" }`).
@@ -37,6 +43,7 @@ export function useAgentRuntime({
   initialMessages,
   pageContextRef,
   chatAgentRef,
+  pmoIngestRef,
   onError,
 }: UseAgentRuntimeOpts) {
   const modelRef = useRef(modelKey);
@@ -55,8 +62,19 @@ export function useAgentRuntime({
   const readBody = useCallback(() => {
     const m = modelRef.current;
     const agent = chatAgentRef?.current ?? 'staffing';
-    return { ...(m ? { model: m } : {}), agent };
-  }, [chatAgentRef]);
+    const ingest = pmoIngestRef?.current;
+    return {
+      ...(m ? { model: m } : {}),
+      agent,
+      ...(agent === 'pmo' && ingest?.ingestionSessionId
+        ? {
+            ingestionSessionId: ingest.ingestionSessionId,
+            ...(ingest.reportingDateFrom ? { reportingDateFrom: ingest.reportingDateFrom } : {}),
+            ...(ingest.reportingDateTo ? { reportingDateTo: ingest.reportingDateTo } : {}),
+          }
+        : {}),
+    };
+  }, [chatAgentRef, pmoIngestRef]);
 
   const transport = useMemo(() => {
     // eslint-disable-next-line react-hooks/refs -- readBody captures modelRef and is only invoked when the transport sends; safe.

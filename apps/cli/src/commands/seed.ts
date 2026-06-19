@@ -35,6 +35,8 @@ const KNOWN_ROLES = new Set([
   'planner.admin',
   'planner.contributor',
   'planner.viewer',
+  'pmo.operator',
+  'pmo.viewer',
 ]);
 const VALID_GROUP_THEMES = new Set(['teal', 'purple', 'green', 'blue', 'pink', 'orange', 'red']);
 type GroupTheme = 'teal' | 'purple' | 'green' | 'blue' | 'pink' | 'orange' | 'red';
@@ -98,6 +100,23 @@ async function resolveUserIdByEmail(tenantId: string, email: string): Promise<st
 }
 
 const rbacRegistry = buildRegistry(inventoryToManifests(INVENTORY));
+
+async function grantTenantRole(userId: string, tenantId: string, roleSlug: string): Promise<void> {
+  try {
+    await grantRole(
+      {
+        user_id: userId,
+        tenant_id: tenantId,
+        role_slug: roleSlug,
+        scope_type: 'tenant',
+        scope_id: null,
+      },
+      { type: 'cli', user_id: null },
+    );
+  } catch {
+    // Already granted — idempotent skip
+  }
+}
 
 async function buildAdminSession(tenantId: string, adminEmail: string): Promise<SessionScope> {
   const userId = await resolveUserIdByEmail(tenantId, adminEmail);
@@ -192,19 +211,9 @@ export async function seedCommand(opts: SeedOpts): Promise<void> {
       idMap.set(row.user_id, user_id);
 
       if (row.rbac_role && KNOWN_ROLES.has(row.rbac_role)) {
-        try {
-          await grantRole(
-            {
-              user_id,
-              tenant_id: tenantId,
-              role_slug: row.rbac_role,
-              scope_type: 'tenant',
-              scope_id: null,
-            },
-            { type: 'cli', user_id: null },
-          );
-        } catch {
-          // Already granted — idempotent skip
+        await grantTenantRole(user_id, tenantId, row.rbac_role);
+        if (row.rbac_role.startsWith('planner.')) {
+          await grantTenantRole(user_id, tenantId, 'pmo.operator');
         }
       } else if (row.rbac_role) {
         log.warn(

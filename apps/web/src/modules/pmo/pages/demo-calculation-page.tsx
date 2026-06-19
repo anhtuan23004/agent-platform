@@ -1,18 +1,37 @@
 import { Badge, EmptyState, PageChrome, PageChromeToolbar, Skeleton } from '@seta/shared-ui';
+import { useQuery } from '@tanstack/react-query';
 import { Database } from 'lucide-react';
 import { useState } from 'react';
+import { type PmoPlanningSession, pmoApi } from '../api/client.ts';
 import type { DemoAnalyticsSettings } from '../api/demo-analytics.ts';
 import { useDemoAnalytics } from '../hooks/use-demo-analytics.ts';
 import { DemoCalculationFilters } from './demo-calculation/filters.tsx';
 import { DemoCalculationPipeline } from './demo-calculation/pipeline.tsx';
 import { useFilteredDemoAnalytics } from './demo-calculation/use-filtered-data.ts';
 
+function uploadLabel(session: PmoPlanningSession): string {
+  const date = new Date(session.uploaded_at);
+  const uploadedAt = Number.isNaN(date.getTime())
+    ? session.uploaded_at
+    : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  return `${session.workbook_name} · ${uploadedAt}`;
+}
+
 export function DemoCalculationPage() {
   const [analyticsSettings, setAnalyticsSettings] = useState<DemoAnalyticsSettings | undefined>();
   const { data, isLoading, isError, error, refetch, isFetching } =
     useDemoAnalytics(analyticsSettings);
+  const sessionsQuery = useQuery({
+    queryKey: ['pmo', 'ingestion-sessions', 'utilization-filter'],
+    queryFn: () => pmoApi.listPlanningSessions(),
+  });
   const [memberFilter, setMemberFilter] = useState<string | null>(null);
   const [projectFilter, setProjectFilter] = useState<string | null>(null);
+  const selectedUpload = analyticsSettings?.ingestionSessionId
+    ? (sessionsQuery.data?.items.find(
+        (item) => item.ingestion_session_id === analyticsSettings.ingestionSessionId,
+      ) ?? null)
+    : null;
 
   const { filtered, members, projects, getMemberLabel, getProjectLabel } = useFilteredDemoAnalytics(
     data,
@@ -73,6 +92,13 @@ export function DemoCalculationPage() {
               thresholds={filtered.thresholds}
               analyticsSettings={analyticsSettings}
               onAnalyticsSettingsChange={setAnalyticsSettings}
+              uploadOptions={(sessionsQuery.data?.items ?? []).map((session) => ({
+                id: session.ingestion_session_id,
+                label: uploadLabel(session),
+                statusLabel: session.status_label,
+              }))}
+              selectedUploadId={analyticsSettings?.ingestionSessionId ?? null}
+              selectedUploadLabel={selectedUpload ? uploadLabel(selectedUpload) : null}
               onRefresh={() => void refetch()}
               isRefreshing={isFetching}
             />

@@ -60,6 +60,8 @@ export const ingestionSessions = pmoSchema.table(
     publish_review_note: text('publish_review_note'),
     // Lifecycle
     created_by: uuid('created_by').notNull(),
+    /** PMO Agent chat thread that uploaded this workbook; null for workflow UI uploads. */
+    chat_thread_id: uuid('chat_thread_id'),
     created_at: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     confirmed_at: timestamp('confirmed_at', { withTimezone: true }),
     finished_at: timestamp('finished_at', { withTimezone: true }),
@@ -67,6 +69,7 @@ export const ingestionSessions = pmoSchema.table(
   (t) => [
     index('ingestion_sessions_tenant_status').on(t.tenant_id, t.status),
     index('ingestion_sessions_tenant_period').on(t.tenant_id, t.reporting_period_key),
+    index('ingestion_sessions_chat_thread').on(t.tenant_id, t.chat_thread_id),
   ],
 );
 

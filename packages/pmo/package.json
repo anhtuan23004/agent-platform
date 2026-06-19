@@ -18,6 +18,10 @@
     "./agent-tools/register": {
       "types": "./src/backend/agent-tools/register.ts",
       "default": "./src/backend/agent-tools/register.ts"
+    },
+    "./agent-tools/start-ingest": {
+      "types": "./src/backend/agent-tools/start-ingest.ts",
+      "default": "./src/backend/agent-tools/start-ingest.ts"
     }
   },
   "scripts": {

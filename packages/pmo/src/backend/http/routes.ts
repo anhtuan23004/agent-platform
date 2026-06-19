@@ -1,6 +1,6 @@
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { PutObjectCommand } from '@aws-sdk/client-s3';
 import type { SessionEnv } from '@seta/core';
-import { buildTenantKey, presignedUploadUrl } from '@seta/shared-storage';
+import { buildTenantKey, getS3Client, presignedUploadUrl } from '@seta/shared-storage';
 import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
@@ -618,6 +618,8 @@ const UploadRequestSchema = z.object({
     .string()
     .default('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'),
   reporting_period_key: z.string().optional(),
+  /** PMO Agent chat thread that owns this upload; scopes ingest to one conversation. */
+  chat_thread_id: z.string().uuid().optional(),
 });
 
 const AppendUploadRequestSchema = z.object({
@@ -734,7 +736,8 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
       return c.json({ error: 'Invalid request', details: parsed.error.issues }, 400);
     }
 
-    const { filename, file_size_bytes, mime_type, reporting_period_key } = parsed.data;
+    const { filename, file_size_bytes, mime_type, reporting_period_key, chat_thread_id } =
+      parsed.data;
     const sessionId = crypto.randomUUID();
 
     // Build S3 key
@@ -757,6 +760,7 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
       mime_type,
       reporting_period_key: reporting_period_key ?? null,
       created_by: session.user_id,
+      chat_thread_id: chat_thread_id ?? null,
     });
 
     // Generate presigned upload URL
@@ -854,8 +858,7 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
 
       // Upload to S3
       const bucket = process.env.S3_BUCKET ?? 'hackathon-team-2-assets-033484686020';
-      const region = process.env.S3_REGION ?? 'ap-southeast-1';
-      const s3 = new S3Client({ region });
+      const s3 = getS3Client();
       const buffer = Buffer.from(await file.arrayBuffer());
       await s3.send(
         new PutObjectCommand({
@@ -1551,8 +1554,7 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
       });
 
       const bucket = process.env.S3_BUCKET ?? 'hackathon-team-2-assets-033484686020';
-      const region = process.env.S3_REGION ?? 'ap-southeast-1';
-      const s3 = new S3Client({ region });
+      const s3 = getS3Client();
       const buffer = Buffer.from(await file.arrayBuffer());
       await s3.send(
         new PutObjectCommand({

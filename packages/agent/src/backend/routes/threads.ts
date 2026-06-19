@@ -2,11 +2,23 @@ import type { Hono } from 'hono';
 import {
   type AgentRouteDeps,
   type AgentRouteEnv,
+  type ChatAgent,
   checkPerm,
   getMemoryStore,
   toUIMessage,
   type UIMessageLike,
 } from './_shared.ts';
+
+const CHAT_AGENT_VALUES = new Set<ChatAgent>(['staffing', 'pmo']);
+
+function parseChatAgent(value: string | undefined): ChatAgent | null {
+  if (!value) return null;
+  return CHAT_AGENT_VALUES.has(value as ChatAgent) ? (value as ChatAgent) : null;
+}
+
+function threadChatAgent(thread: { metadata?: Record<string, unknown> }): ChatAgent {
+  return thread.metadata?.chatAgent === 'pmo' ? 'pmo' : 'staffing';
+}
 
 export function mountThreadRoutes(app: Hono<AgentRouteEnv>, deps: AgentRouteDeps): void {
   app.get('/api/agent/v1/threads', async (c) => {
@@ -15,17 +27,23 @@ export function mountThreadRoutes(app: Hono<AgentRouteEnv>, deps: AgentRouteDeps
       'agent.thread.read.self',
     );
     if (!check.ok) return c.json(check.denied.body, check.denied.status);
+    const agent = parseChatAgent(c.req.query('agent'));
+    if (c.req.query('agent') && !agent) {
+      return c.json({ error: 'validation_failed', message: 'invalid agent filter' }, 400);
+    }
     const storage = getMemoryStore(deps.mastra);
     if (!storage) return c.json({ threads: [] });
     const { threads } = await storage.listThreads({
       filter: { resourceId: `${check.session.tenant_id}:${check.session.user_id}` },
       perPage: 100,
     });
+    const visibleThreads = agent ? threads.filter((t) => threadChatAgent(t) === agent) : threads;
     return c.json({
-      threads: threads.map((t) => ({
+      threads: visibleThreads.map((t) => ({
         id: t.id,
         title: t.title ?? null,
         updatedAt: t.updatedAt ?? null,
+        chatAgent: threadChatAgent(t),
       })),
     });
   });
@@ -36,9 +54,16 @@ export function mountThreadRoutes(app: Hono<AgentRouteEnv>, deps: AgentRouteDeps
       'agent.thread.read.self',
     );
     if (!check.ok) return c.json(check.denied.body, check.denied.status);
+    const agent = parseChatAgent(c.req.query('agent'));
+    if (c.req.query('agent') && !agent) {
+      return c.json({ error: 'validation_failed', message: 'invalid agent filter' }, 400);
+    }
     const storage = getMemoryStore(deps.mastra);
     const thread = storage ? await storage.getThreadById({ threadId: c.req.param('id') }) : null;
     if (!thread || thread.resourceId !== `${check.session.tenant_id}:${check.session.user_id}`) {
+      return c.json({ error: 'not_found', message: 'thread not found' }, 404);
+    }
+    if (agent && threadChatAgent(thread) !== agent) {
       return c.json({ error: 'not_found', message: 'thread not found' }, 404);
     }
     const pageRaw = c.req.query('page');
@@ -52,7 +77,12 @@ export function mountThreadRoutes(app: Hono<AgentRouteEnv>, deps: AgentRouteDeps
       .map((m, i) => toUIMessage(m, i))
       .filter((m): m is UIMessageLike => m !== null);
     return c.json({
-      thread: { id: thread.id, title: thread.title ?? null, updatedAt: thread.updatedAt ?? null },
+      thread: {
+        id: thread.id,
+        title: thread.title ?? null,
+        updatedAt: thread.updatedAt ?? null,
+        chatAgent: threadChatAgent(thread),
+      },
       messages: uiMessages,
       page,
       perPage,

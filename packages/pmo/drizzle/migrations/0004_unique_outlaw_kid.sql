@@ -1,0 +1,2 @@
+ALTER TABLE "pmo"."ingestion_sessions" ADD COLUMN "chat_thread_id" uuid;--> statement-breakpoint
+CREATE INDEX "ingestion_sessions_chat_thread" ON "pmo"."ingestion_sessions" USING btree ("tenant_id","chat_thread_id");

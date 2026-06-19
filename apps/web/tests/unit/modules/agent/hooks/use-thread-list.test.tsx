@@ -43,6 +43,26 @@ describe('useThreadList', () => {
     expect(labels).toEqual(['Today', 'Earlier this week', 'Older']);
   });
 
+  it('scopes the query to the selected chat agent', async () => {
+    const fetchSpy = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ threads: [] }), {
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchSpy);
+    const qc = new QueryClient();
+    renderHook(() => useThreadList('pmo'), {
+      wrapper: ({ children }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>,
+    });
+    await waitFor(() =>
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/agent/v1/threads?agent=pmo',
+        expect.objectContaining({ credentials: 'include' }),
+      ),
+    );
+  });
+
   it('refetches on an interval while a recent thread is missing a title', async () => {
     const fetchSpy = vi.fn(
       async () =>

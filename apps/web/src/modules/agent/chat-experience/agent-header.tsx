@@ -11,19 +11,20 @@ import { useEffect, useRef, useState } from 'react';
 import { useThreadList } from '../hooks/use-thread-list';
 import { useDeleteThread, useRenameThread } from '../hooks/use-thread-mutations';
 import { CHAT_AGENT_COPY } from '../i18n';
-import { useAgentSelection, useChatAgent } from './agent-provider';
+import { type ChatAgentMode, useAgentSelection, useChatAgent } from './agent-provider';
 import { AgentThreadSwitcher } from './agent-thread-switcher';
 import { DensityToggle } from './density-toggle';
 
 interface AgentHeaderProps {
+  chatAgent?: ChatAgentMode;
   compact?: boolean;
   showThreadSwitcher?: boolean;
   onOpenMobileNav?: () => void;
   onClose?: () => void;
 }
 
-function useTitleFor(threadId: string | undefined): string {
-  const { groups } = useThreadList();
+function useTitleFor(threadId: string | undefined, chatAgent: ChatAgentMode): string {
+  const { groups } = useThreadList(chatAgent);
   if (!threadId) return 'New chat';
   const titleById = new Map(
     (groups ?? []).flatMap((g) => g.items.map((i) => [i.id, i.title] as const)),
@@ -35,6 +36,7 @@ function useTitleFor(threadId: string | undefined): string {
 }
 
 export function AgentHeader({
+  chatAgent: preferredChatAgent,
   compact = false,
   showThreadSwitcher = true,
   onOpenMobileNav,
@@ -42,15 +44,17 @@ export function AgentHeader({
 }: AgentHeaderProps) {
   const { selection, actions } = useAgentSelection();
   const { chatAgent } = useChatAgent();
-  const agentCopy = CHAT_AGENT_COPY[chatAgent];
+  const effectiveChatAgent = preferredChatAgent ?? chatAgent;
+  const agentCopy = CHAT_AGENT_COPY[effectiveChatAgent];
   const threadId = selection.threadId;
-  const title = useTitleFor(threadId);
-  const { groups } = useThreadList();
+  const title = useTitleFor(threadId, effectiveChatAgent);
+  const { groups } = useThreadList(effectiveChatAgent);
   const [draft, setDraft] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const rename = useRenameThread();
   const remove = useDeleteThread();
   const navigate = useNavigate();
+  const chatPath = effectiveChatAgent === 'pmo' ? '/pmo/agent' : '/agent/chat';
   // A freshly-minted client id isn't in the rail until the Mastra row is
   // created on first send. Gate rename/delete on that signal so we don't fire
   // PATCH/DELETE against an id the server doesn't know yet.
@@ -77,7 +81,7 @@ export function AgentHeader({
     remove.mutate(threadId, {
       onSuccess: () => {
         const nextId = actions.startFreshThread();
-        void navigate({ to: '/agent/chat', search: { thread: nextId }, replace: true });
+        void navigate({ to: chatPath, search: { thread: nextId }, replace: true });
       },
     });
   };
@@ -165,18 +169,18 @@ export function AgentHeader({
           <DropdownMenuContent align="end" className="min-w-[220px]">
             {compact && showThreadSwitcher && (
               <>
-                <AgentThreadSwitcher />
+                <AgentThreadSwitcher chatAgent={effectiveChatAgent} />
                 <DropdownMenuSeparator />
               </>
             )}
             {compact && !showThreadSwitcher && (
               <>
                 <DropdownMenuItem
-                  onSelect={() => void navigate({ to: '/agent/chat' })}
+                  onSelect={() => void navigate({ to: chatPath })}
                   className="gap-2"
                 >
                   <MessageSquare className="size-3.5" aria-hidden />
-                  View all chats
+                  {effectiveChatAgent === 'pmo' ? 'View PMO Agent' : 'View all chats'}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
               </>

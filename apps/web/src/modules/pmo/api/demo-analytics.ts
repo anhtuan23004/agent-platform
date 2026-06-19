@@ -11,6 +11,7 @@ export interface DemoAnalyticsSettings {
   from?: string;
   to?: string;
   configEffectiveDate?: string;
+  ingestionSessionId?: string;
   thresholds?: Partial<
     Pick<
       DemoThresholds,
@@ -158,6 +159,9 @@ function buildQuery(settings?: DemoAnalyticsSettings): string {
   }
   if (settings?.configEffectiveDate) {
     params.set('configEffectiveDate', settings.configEffectiveDate);
+  }
+  if (settings?.ingestionSessionId) {
+    params.set('ingestion_session_id', settings.ingestionSessionId);
   }
   const thresholds = settings?.thresholds;
   if (thresholds?.overbookThreshold !== undefined) {
