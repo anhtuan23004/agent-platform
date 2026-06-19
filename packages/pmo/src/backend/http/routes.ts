@@ -879,6 +879,7 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
 
       const filename = file.name || 'upload.xlsx';
       const reportingPeriodKey = (body.reporting_period_key as string) || undefined;
+      const chatThreadId = (body.chat_thread_id as string) || undefined;
       const sessionId = crypto.randomUUID();
       const mime_type =
         file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -917,6 +918,7 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
         mime_type,
         reporting_period_key: reportingPeriodKey ?? null,
         created_by: session.user_id,
+        chat_thread_id: chatThreadId ?? null,
       });
 
       return c.json({
