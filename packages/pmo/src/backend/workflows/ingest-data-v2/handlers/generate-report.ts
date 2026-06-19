@@ -4,20 +4,16 @@ import {
   generatePmoReport,
   type PmoReportType,
 } from '../../../analytics/report.ts';
+import {
+  getPmoReportDateBounds,
+  type PmoReportDateBounds,
+} from '../../../analytics/report-date-bounds.ts';
 import { pmoDb } from '../../../db/client.ts';
 import { reportRuns } from '../../../db/schema.ts';
 import type { ParsedSheet, WorkbookParseResult } from '../../../ingestion/parse-workbook.ts';
 import { buildReportRangeCard } from '../cards.ts';
 import type { DynamicIngestRuntimeContext, PmoDynamicStepHandler } from '../types.ts';
 import type { DbChangeSummaryResult, DynamicHandlerDeps } from './common.ts';
-
-type ReportDateRangeSource = 'goal_explicit' | 'user_confirmed' | 'sheet_suggested_pending';
-
-interface ResolvedReportDateRange {
-  from: string;
-  to: string;
-  source: ReportDateRangeSource;
-}
 
 const REPORT_DATE_FIELDS_BY_TABLE = new Map<string, string[]>([
   ['timesheet', ['work_date']],
@@ -38,16 +34,6 @@ function parseDateLike(value: unknown): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function readDateRangeFromGoal(goal: string | null | undefined): ResolvedReportDateRange | null {
-  if (!goal) return null;
-  const dates = [...goal.matchAll(/\b(\d{4}-\d{2}-\d{2})\b/g)].map((match) => match[1]);
-  if (dates.length < 2 || !dates[0] || !dates[1]) return null;
-  const from = parseDateLike(dates[0]);
-  const to = parseDateLike(dates[1]);
-  if (!from || !to || from.getTime() > to.getTime()) return null;
-  return { from: isoDate(from), to: isoDate(to), source: 'goal_explicit' };
-}
-
 function readDateRangeFromResume(resumeData: Record<string, unknown> | undefined) {
   const raw = resumeData?.dateRange;
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
@@ -58,13 +44,58 @@ function readDateRangeFromResume(resumeData: Record<string, unknown> | undefined
   return { from: isoDate(from), to: isoDate(to), source: 'user_confirmed' as const };
 }
 
-function resolveReportTypes(goal: string | null | undefined): PmoReportType[] {
-  const text = (goal ?? '').toLowerCase();
-  const wantsIdle = /idle|under-alloc|under\s*alloc/.test(text);
-  const wantsOverbook = /overbook|over-book/.test(text);
-  if (wantsIdle && !wantsOverbook) return ['idle_members'];
-  if (wantsOverbook && !wantsIdle) return ['overbook_members'];
-  return ['idle_members', 'overbook_members'];
+interface IntentReportRequest {
+  intentMode: 'generate_report_intent' | 'publish_report_intent';
+  dateRange: { from: string; to: string } | null;
+  dateRangeStrategy: string;
+  reportTypes: PmoReportType[];
+}
+
+function readIntentReportRequest(plan: unknown): IntentReportRequest | null {
+  if (!plan || typeof plan !== 'object' || Array.isArray(plan)) return null;
+  const analysis = (plan as { intent_analysis?: unknown }).intent_analysis;
+  if (!analysis || typeof analysis !== 'object' || Array.isArray(analysis)) return null;
+  const intentMode = (analysis as { intent_mode?: unknown }).intent_mode;
+  const request = (analysis as { report_request?: unknown }).report_request;
+  if (
+    (intentMode !== 'generate_report_intent' && intentMode !== 'publish_report_intent') ||
+    !request ||
+    typeof request !== 'object' ||
+    Array.isArray(request)
+  ) {
+    return null;
+  }
+
+  const raw = request as Record<string, unknown>;
+  const rawRange = raw.date_range;
+  const dateRange =
+    rawRange && typeof rawRange === 'object' && !Array.isArray(rawRange)
+      ? {
+          from: String((rawRange as Record<string, unknown>).from ?? ''),
+          to: String((rawRange as Record<string, unknown>).to ?? ''),
+        }
+      : null;
+  const reportTypes = Array.isArray(raw.report_types)
+    ? raw.report_types.filter(
+        (type): type is PmoReportType => type === 'idle_members' || type === 'overbook_members',
+      )
+    : [];
+
+  return {
+    intentMode,
+    dateRange,
+    dateRangeStrategy: String(raw.date_range_strategy ?? ''),
+    reportTypes: reportTypes.length > 0 ? reportTypes : ['idle_members', 'overbook_members'],
+  };
+}
+
+function assertRangeWithinBounds(
+  range: { from: string; to: string },
+  bounds: PmoReportDateBounds,
+): void {
+  if (range.from < bounds.min || range.to > bounds.max) {
+    throw new Error('report_date_range_outside_database_bounds');
+  }
 }
 
 function dateRangeFromDates(dates: Date[]): { from: string; to: string } | null {
@@ -197,27 +228,48 @@ export function createGenerateReportHandler(
     'resolveCardIdentity' | 'readPlannerStepMeta' | 'getWorkbookParseResult'
   > & {
     persistReportRun?: typeof persistReportRun;
+    getReportDateBounds?: typeof getPmoReportDateBounds;
   },
 ): PmoDynamicStepHandler {
   return {
     actionId: 'generate_report',
     execute: async (input) => {
-      assertPublishedCheckpoint(input.runtimeContext);
+      const intentRequest = readIntentReportRequest(input.planningPlan);
+      const databaseOnly = intentRequest?.intentMode === 'generate_report_intent';
+      if (!databaseOnly) assertPublishedCheckpoint(input.runtimeContext);
 
       const plannerStep = await deps.readPlannerStepMeta({
         ingestionSessionId: input.ingestionSessionId,
         tenantId: input.tenantId,
         step: input.step,
       });
-      const reportTypes =
-        input.runtimeContext.report_request?.reportTypes ?? resolveReportTypes(input.planningGoal);
+      const reportTypes = input.runtimeContext.report_request?.reportTypes ??
+        intentRequest?.reportTypes ?? ['idle_members', 'overbook_members'];
       const persistedRange = input.runtimeContext.report_request?.dateRange;
       const explicitRange =
-        persistedRange?.source === 'goal_explicit' || persistedRange?.source === 'user_confirmed'
+        persistedRange?.source === 'goal_explicit' ||
+        persistedRange?.source === 'user_confirmed' ||
+        persistedRange?.source === 'sheet_derived'
           ? persistedRange
-          : readDateRangeFromGoal(input.planningGoal);
+          : intentRequest?.dateRange
+            ? { ...intentRequest.dateRange, source: 'goal_explicit' as const }
+            : null;
       const resumedRange = readDateRangeFromResume(input.resumeData);
-      const dateRange = resumedRange ?? explicitRange;
+      let dateRange = resumedRange ?? explicitRange;
+      const databaseBounds = await (deps.getReportDateBounds ?? getPmoReportDateBounds)(
+        input.tenantId,
+      );
+      if (!databaseBounds) throw new Error('report_date_bounds_unavailable');
+
+      if (!dateRange && intentRequest?.dateRangeStrategy === 'sheet_derived') {
+        const sheetRange = await resolveSuggestedRange({
+          reportingPeriodStart: input.reportingPeriodStart,
+          reportingPeriodEnd: input.reportingPeriodEnd,
+          getWorkbookParseResult: () => deps.getWorkbookParseResult(input),
+          runtimeContext: input.runtimeContext,
+        });
+        dateRange = { ...sheetRange, source: 'sheet_derived' };
+      }
 
       if (!dateRange) {
         if (input.resumeData?.decision === 'reject') {
@@ -237,20 +289,23 @@ export function createGenerateReportHandler(
           };
         }
 
-        const suggestedDateRange =
-          input.runtimeContext.report_request?.suggestedDateRange ??
-          (await resolveSuggestedRange({
-            reportingPeriodStart: input.reportingPeriodStart,
-            reportingPeriodEnd: input.reportingPeriodEnd,
-            getWorkbookParseResult: () => deps.getWorkbookParseResult(input),
-            runtimeContext: input.runtimeContext,
-          }));
+        const suggestedDateRange = databaseOnly
+          ? { from: databaseBounds.min, to: databaseBounds.max }
+          : (input.runtimeContext.report_request?.suggestedDateRange ??
+            (await resolveSuggestedRange({
+              reportingPeriodStart: input.reportingPeriodStart,
+              reportingPeriodEnd: input.reportingPeriodEnd,
+              getWorkbookParseResult: () => deps.getWorkbookParseResult(input),
+              runtimeContext: input.runtimeContext,
+            })));
 
         return {
           kind: 'suspend',
           card: buildReportRangeCard({
             ingestionSessionId: input.ingestionSessionId,
             suggestedDateRange,
+            databaseDateBounds: databaseBounds,
+            rangeSource: databaseOnly ? 'database' : 'sheet_or_database',
             reportTypes,
             identity: deps.resolveCardIdentity(input.requestContext),
             toolCallId: `workflow:${input.runId}:pmo_confirmReportRange`,
@@ -266,7 +321,7 @@ export function createGenerateReportHandler(
               },
               suggestedDateRange: {
                 ...suggestedDateRange,
-                source: 'sheet',
+                source: databaseOnly ? 'database' : 'sheet',
               },
             },
           },
@@ -277,6 +332,8 @@ export function createGenerateReportHandler(
           },
         };
       }
+
+      assertRangeWithinBounds(dateRange, databaseBounds);
 
       const report = await generatePmoReport({
         tenantId: input.tenantId,

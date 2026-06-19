@@ -15,10 +15,37 @@ export const PmoIntentClassificationSchema = z.object({
     'mapping_readiness',
     'stage_preview',
     'publish_intent',
+    'generate_report_intent',
     'publish_report_intent',
   ]),
   confidence: IntentConfidenceSchema,
   rationale: z.string().min(1),
+  report_request: z
+    .object({
+      source: z.enum(['database', 'post_ingest_database']),
+      date_range_strategy: z.enum([
+        'explicit',
+        'database_confirmation',
+        'sheet_or_database_confirmation',
+        'sheet_derived',
+        'manual_database',
+      ]),
+      date_range: z
+        .object({
+          from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        })
+        .nullable(),
+      report_types: z.array(z.enum(['idle_members', 'overbook_members'])).min(1),
+      database_date_bounds: z
+        .object({
+          min: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          max: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        })
+        .optional(),
+    })
+    .nullable()
+    .optional(),
 });
 
 export type PmoIntentClassification = z.infer<typeof PmoIntentClassificationSchema>;
@@ -95,7 +122,12 @@ Rules:
 - Choose the narrowest intent that satisfies the user's requested outcome.
 - Do not expand the scope beyond what the user actually asked for.
 - Use confidence low when the goal is ambiguous or could reasonably fit more than one intent.
-- Low confidence means the user must confirm the intended scope before execution.`;
+- Low confidence means the user must confirm the intended scope before execution.
+- Use has_uploaded_file to distinguish a database-only report from ingest-and-report.
+- For report intents, populate report_request. Extract the requested dates semantically from the goal and normalize them to YYYY-MM-DD.
+- Never invent dates. Use database_confirmation when a database-only report has no complete range.
+- Use sheet_or_database_confirmation when an ingest-and-report goal has no complete range.
+- For non-report intents, return report_request as null.`;
 }
 
 function applyConfirmationPolicy(
@@ -107,7 +139,12 @@ function applyConfirmationPolicy(
     ...classification,
     allowed_action_ids: intent.allowed_action_ids,
     requires_confirmation:
-      catalog.low_confidence_requires_confirmation && classification.confidence === 'low',
+      (catalog.low_confidence_requires_confirmation && classification.confidence === 'low') ||
+      Boolean(
+        classification.report_request &&
+          (classification.report_request.date_range_strategy === 'database_confirmation' ||
+            classification.report_request.date_range_strategy === 'sheet_or_database_confirmation'),
+      ),
   };
 }
 
@@ -122,7 +159,10 @@ function lowConfidenceFallback(catalog: PmoPlannerCatalog, reason: string): Clas
   };
 }
 
-export async function classifyPmoPlanningIntent(goal: string): Promise<ClassifiedPmoIntent> {
+export async function classifyPmoPlanningIntent(
+  goal: string,
+  context: { hasUploadedFile: boolean } = { hasUploadedFile: true },
+): Promise<ClassifiedPmoIntent> {
   const catalog = loadPmoPlannerCatalog();
   const model = resolvePlanningModel();
   const classifier = new Agent({
@@ -136,6 +176,7 @@ export async function classifyPmoPlanningIntent(goal: string): Promise<Classifie
     const result = await classifier.generate(
       JSON.stringify({
         goal,
+        has_uploaded_file: context.hasUploadedFile,
         default_intent_mode: catalog.default_intent_mode,
       }),
       {
@@ -158,11 +199,13 @@ export async function classifyPmoPlanningIntent(goal: string): Promise<Classifie
 export function buildClassifiedPmoIntentForTests(
   intentMode: PmoIntentMode,
   confidence: 'low' | 'medium' | 'high' = 'high',
+  reportRequest?: NonNullable<PmoIntentClassification['report_request']>,
 ): ClassifiedPmoIntent {
   const catalog = loadPmoPlannerCatalog();
   return applyConfirmationPolicy(catalog, {
     intent_mode: intentMode,
     confidence,
     rationale: 'test classification',
+    report_request: reportRequest,
   });
 }

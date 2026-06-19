@@ -188,6 +188,15 @@ describe('PMO planner workflow compiler', () => {
     ]);
   });
 
+  it('compiles a database-only report intent without workbook ingestion steps', () => {
+    const result = compilePmoWorkflowSteps({
+      intentMode: 'generate_report_intent',
+      candidateSteps: [],
+    });
+
+    expect(result.compiled_workflow.map((step) => step.action_id)).toEqual(['generate_report']);
+  });
+
   it('loads planner intent and step definitions from JSON catalog', () => {
     const catalog = loadPmoPlannerCatalog();
     expect(catalog.default_intent_mode).toBe('review_only');

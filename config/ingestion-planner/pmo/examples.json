@@ -3,6 +3,20 @@
   "description": "Few-shot examples for PMO ingestion intent classification. The classifier should choose the lowest-risk intent when the user's goal is ambiguous. Publishing must only be enabled when the user clearly asks to import, publish, write, or update PMO data, and even then publish still requires explicit approval.",
   "examples": [
     {
+      "goal": "Generate an idle and overbook report from 2026-01-01 to 2026-03-31",
+      "intent_mode": "generate_report_intent",
+      "allowed_action_ids": ["generate_report"],
+      "expected_title": "Plan to generate a PMO report from existing data",
+      "expected_goal_summary": "Generate an idle and overbook report from tenant-scoped PMO data for the requested date range."
+    },
+    {
+      "goal": "Generate a utilization report from the database",
+      "intent_mode": "generate_report_intent",
+      "allowed_action_ids": ["generate_report"],
+      "expected_title": "Plan to confirm and generate a PMO report",
+      "expected_goal_summary": "Confirm a report date range within available PMO data and generate the requested report."
+    },
+    {
       "goal": "Review this file",
       "intent_mode": "review_only",
       "allowed_action_ids": ["workbook_profiling"],

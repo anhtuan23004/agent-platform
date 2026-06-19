@@ -17,7 +17,10 @@
       "rule": "If the user clearly asks to publish, import into PMO, write to database, update PMO records, or apply changes and also asks to generate a report, utilization report, idle report, overbook report, báo cáo idle, báo cáo overbook, or báo cáo utilization, classify as publish_report_intent."
     },
     {
-      "rule": "If a report is requested without an explicit date range, still classify as publish_report_intent; the runtime will ask the user to confirm a date range before generating the report."
+      "rule": "If no workbook is attached and the user asks for a report from existing PMO data, classify as generate_report_intent. Extract an explicit from/to range when present; otherwise request database date-range confirmation."
+    },
+    {
+      "rule": "If a workbook is attached and the user asks to ingest it and generate a report without an explicit date range, classify as publish_report_intent and request a choice between the sheet-derived range and a manual database range after ingest."
     },
     {
       "rule": "If the user goal is ambiguous, choose the lowest-risk intent that satisfies the request."

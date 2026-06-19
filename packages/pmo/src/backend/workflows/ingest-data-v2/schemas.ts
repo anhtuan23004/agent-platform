@@ -5,7 +5,7 @@ import { z } from 'zod';
 
 export const IngestInputSchema = z.object({
   ingestionSessionId: z.string().uuid(),
-  fileKey: z.string(),
+  fileKey: z.string().optional(),
   tenantId: z.string().uuid().optional(),
   /** Domain identifier (e.g. 'pmo'). Defaults to 'pmo' when omitted. */
   domainId: z.string().optional(),
@@ -214,6 +214,7 @@ export const DynamicPlannerResumeSchema = z
     mappingOverrides: z.array(MappingOverrideSchema).optional(),
     memberMasterAdditions: z.array(MemberMasterAdditionSchema).optional(),
     dateRange: ReportDateRangeSchema.optional(),
+    dateRangeStrategy: z.enum(['sheet_derived', 'manual_database']).optional(),
     note: z.string().optional(),
   })
   .passthrough();

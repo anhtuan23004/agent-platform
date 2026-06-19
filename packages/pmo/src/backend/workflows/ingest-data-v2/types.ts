@@ -84,12 +84,12 @@ export interface DynamicIngestRuntimeContext {
     dateRange?: {
       from: string;
       to: string;
-      source: 'goal_explicit' | 'user_confirmed' | 'sheet_suggested_pending';
+      source: 'goal_explicit' | 'user_confirmed' | 'sheet_derived' | 'sheet_suggested_pending';
     };
     suggestedDateRange?: {
       from: string;
       to: string;
-      source: 'sheet';
+      source: 'sheet' | 'database';
     };
   };
   report_result?: {
@@ -106,7 +106,7 @@ export interface DynamicIngestRuntimeContext {
 
 export interface PmoDynamicHandlerInput {
   ingestionSessionId: string;
-  fileKey: string;
+  fileKey?: string;
   tenantId: string;
   userId: string;
   runId: string;

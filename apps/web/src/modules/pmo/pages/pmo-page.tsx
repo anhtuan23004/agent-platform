@@ -496,7 +496,7 @@ export function PmoPage() {
                     value={goalDraft}
                     onChange={(e) => setGoalDraft(e.target.value)}
                     className="resize-none"
-                    placeholder="Describe what the PMO assistant should generate for this workbook."
+                    placeholder="Describe an ingest workflow or a report to generate from PMO data."
                     disabled={isGenerating}
                   />
                 </div>
@@ -507,7 +507,7 @@ export function PmoPage() {
                     size="sm"
                     variant="primary"
                     onClick={handleAnalyzeGeneratePlan}
-                    disabled={!targetGenerateSessionId || isGenerating}
+                    disabled={(!targetGenerateSessionId && !goalDraft.trim()) || isGenerating}
                   >
                     {isGenerating ? (
                       <>
@@ -522,7 +522,7 @@ export function PmoPage() {
                   <span className="rounded-full border border-hairline bg-surface-1 px-2 py-0.5 text-caption text-ink-subtle">
                     {targetGenerateSessionId
                       ? 'Ready to generate plan'
-                      : 'Upload workbook or select an Uploaded run'}
+                      : 'Enter a database report goal or upload a workbook'}
                   </span>
                 </div>
               </section>

@@ -40,7 +40,7 @@ type DetectTableMapping = z.infer<typeof DetectOutputSchema>['tableMappings'][nu
 
 interface DynamicOrchestratorInput {
   ingestionSessionId: string;
-  fileKey: string;
+  fileKey?: string;
   tenantId: string;
   userId: string;
   runId: string;
@@ -810,6 +810,10 @@ export async function runDynamicIngestOrchestrator(
       return artifactsCache.workbookBuffer;
     }
 
+    if (!handlerInput.fileKey) {
+      throw new Error('workbook_file_key_required');
+    }
+
     const fileStore = resolvePmoFileStore(handlerInput.requestContext as never);
     artifactsCache.workbookBuffer = await fileStore.getBuffer(handlerInput.fileKey);
     return artifactsCache.workbookBuffer;
@@ -898,7 +902,7 @@ export async function runDynamicIngestOrchestrator(
 
     const result = await handler.execute({
       ingestionSessionId: input.ingestionSessionId,
-      fileKey: row.source_file_key,
+      fileKey: row.source_file_key ?? undefined,
       tenantId: input.tenantId,
       userId: input.userId,
       runId: input.runId,

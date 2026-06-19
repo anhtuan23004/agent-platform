@@ -61,6 +61,7 @@ export interface PmoPlan {
       | 'mapping_readiness'
       | 'stage_preview'
       | 'publish_intent'
+      | 'generate_report_intent'
       | 'publish_report_intent';
     confidence: 'low' | 'medium' | 'high';
     rationale: string;
@@ -74,6 +75,18 @@ export interface PmoPlan {
       | 'generate_report'
       | 'generic_review'
     >;
+    report_request?: {
+      source: 'database' | 'post_ingest_database';
+      date_range_strategy:
+        | 'explicit'
+        | 'database_confirmation'
+        | 'sheet_or_database_confirmation'
+        | 'sheet_derived'
+        | 'manual_database';
+      date_range: { from: string; to: string } | null;
+      report_types: Array<'idle_members' | 'overbook_members'>;
+      database_date_bounds?: { min: string; max: string };
+    } | null;
     confirmed_at?: string;
     confirmed_by?: string;
   };
@@ -84,7 +97,7 @@ export interface PmoPlan {
     file_size: string;
     uploaded_at: string;
     file_type: string;
-  };
+  } | null;
   scope_assumption: {
     likely_data_areas: Array<{
       data_area:
@@ -300,24 +313,25 @@ export interface PmoWorkflowExecutionState {
 
 export interface PmoPlanningSession {
   ingestion_session_id: string;
-  workbook_name: string;
+  source_kind: 'workbook' | 'database_report';
+  workbook_name: string | null;
   workbook_size_bytes: number;
   workbook_size: string;
-  file_type: string;
+  file_type: string | null;
   uploaded_at: string;
   operator: string;
-  status: string;
-  is_published: boolean;
-  is_selectable: boolean;
-  reporting_period_key: string | null;
-  reporting_period_start: string | null;
-  reporting_period_end: string | null;
-  planning_state: 'uploaded' | 'generating_plan' | 'plan_review' | 'approved_plan';
+  planning_state:
+    | 'uploaded'
+    | 'intent_review'
+    | 'generating_plan'
+    | 'plan_review'
+    | 'approved_plan';
   status_label: string;
   active_gate: string;
   progress_text: string;
   progress_pct: number;
   goal: string;
+  intent: PmoPlan['intent_analysis'] | null;
   plan: PmoPlan | null;
   plan_version: number;
   feedback_history: string[];
@@ -344,7 +358,7 @@ export interface ListPlanningSessionsResponse {
 }
 
 export interface GeneratePlanInput {
-  ingestion_session_id: string;
+  ingestion_session_id?: string;
   goal: string;
   previous_plan?: PmoPlan | null;
   plan_feedback?: string;
@@ -352,8 +366,9 @@ export interface GeneratePlanInput {
 
 export interface GeneratePlanResponse {
   ingestion_session_id: string;
-  planning_state: 'plan_review';
-  plan: PmoPlan;
+  planning_state: 'intent_review' | 'plan_review';
+  intent?: PmoPlan['intent_analysis'];
+  plan: PmoPlan | null;
   plan_version: number;
   feedback_history: string[];
 }
@@ -370,9 +385,15 @@ export interface ApprovePlanResponse {
 
 export interface ConfirmPlanIntentResponse {
   ingestion_session_id: string;
-  planning_state: 'plan_review';
-  plan: PmoPlan;
+  planning_state: 'uploaded';
+  intent: PmoPlan['intent_analysis'];
   confirmed_at: string;
+}
+
+export interface ConfirmPlanIntentInput {
+  ingestionSessionId: string;
+  dateRangeStrategy?: 'sheet_derived' | 'manual_database';
+  dateRange?: { from: string; to: string };
 }
 
 export interface AppendSessionDocumentResponse {
@@ -416,7 +437,7 @@ export interface CancelWorkflowResponse {
 
 export interface StartIngestWorkflowInput {
   ingestionSessionId: string;
-  fileKey: string;
+  fileKey?: string;
   reportingPeriodKey?: string;
 }
 
@@ -513,11 +534,15 @@ export const pmoApi = {
     return jsonOrThrow<ApprovePlanResponse>(res);
   },
 
-  async confirmPlanIntent(ingestionSessionId: string): Promise<ConfirmPlanIntentResponse> {
+  async confirmPlanIntent(input: ConfirmPlanIntentInput): Promise<ConfirmPlanIntentResponse> {
     const res = await fetch('/api/pmo/v1/plan/confirm-intent', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ingestion_session_id: ingestionSessionId }),
+      body: JSON.stringify({
+        ingestion_session_id: input.ingestionSessionId,
+        date_range_strategy: input.dateRangeStrategy,
+        date_range: input.dateRange,
+      }),
       credentials: 'include',
     });
     return jsonOrThrow<ConfirmPlanIntentResponse>(res);

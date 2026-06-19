@@ -1,6 +1,6 @@
 {
-  "id": "d5f4e769-2222-4b23-ab47-bb58e756492d",
-  "prevId": "94cf8a6c-aabb-4125-8e62-7147621a3fd3",
+  "id": "93bc9973-d0aa-4d8a-acd5-122a3e2a96c5",
+  "prevId": "d5f4e769-2222-4b23-ab47-bb58e756492d",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -254,6 +254,12 @@
         "planning_goal": {
           "name": "planning_goal",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "planning_intent": {
+          "name": "planning_intent",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },

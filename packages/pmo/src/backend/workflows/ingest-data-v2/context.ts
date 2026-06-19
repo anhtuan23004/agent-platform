@@ -9,8 +9,8 @@ export interface DynamicRuntimeSessionRow {
   id: string;
   tenant_id: string;
   status: string;
-  source_file_key: string;
-  source_file_name: string;
+  source_file_key: string | null;
+  source_file_name: string | null;
   planning_goal: string | null;
   reporting_period_start: Date | null;
   reporting_period_end: Date | null;

@@ -85,7 +85,9 @@ export function PmoSessionHistoryPanel(props: PmoSessionHistoryPanelProps) {
                     onClick={() => onSelectSession(run.ingestion_session_id)}
                   >
                     <td className="px-2 py-2 text-ink-subtle">{index + 1}</td>
-                    <td className="px-2 py-2 font-medium text-ink">{run.workbook_name}</td>
+                    <td className="px-2 py-2 font-medium text-ink">
+                      {run.workbook_name ?? 'Database report'}
+                    </td>
                     <td className="px-2 py-2 text-ink-subtle">
                       {formatLocalDate(run.uploaded_at)}
                     </td>

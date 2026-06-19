@@ -20,6 +20,7 @@ export const IntentModeSchema = z.enum([
   'mapping_readiness',
   'stage_preview',
   'publish_intent',
+  'generate_report_intent',
   'publish_report_intent',
 ]);
 
@@ -47,6 +48,32 @@ export const IntentAnalysisSchema = z.object({
   rationale: z.string().min(1),
   requires_confirmation: z.boolean(),
   allowed_action_ids: z.array(z.enum(PMO_PLAN_ACTION_IDS)).min(1),
+  report_request: z
+    .object({
+      source: z.enum(['database', 'post_ingest_database']),
+      date_range_strategy: z.enum([
+        'explicit',
+        'database_confirmation',
+        'sheet_or_database_confirmation',
+        'sheet_derived',
+        'manual_database',
+      ]),
+      date_range: z
+        .object({
+          from: z.string(),
+          to: z.string(),
+        })
+        .nullable(),
+      report_types: z.array(z.enum(['idle_members', 'overbook_members'])).min(1),
+      database_date_bounds: z
+        .object({
+          min: z.string(),
+          max: z.string(),
+        })
+        .optional(),
+    })
+    .nullable()
+    .optional(),
   confirmed_at: z.string().optional(),
   confirmed_by: z.string().optional(),
 });
@@ -99,12 +126,14 @@ export const PmoWorkflowPlanSchema = z.object({
   intent_analysis: IntentAnalysisSchema.optional(),
   title: z.string().min(1),
   goal_summary: z.string().min(1),
-  uploaded_file_summary: z.object({
-    file_name: z.string().min(1),
-    file_size: z.string().min(1),
-    uploaded_at: z.string().min(1),
-    file_type: z.string().min(1),
-  }),
+  uploaded_file_summary: z
+    .object({
+      file_name: z.string().min(1),
+      file_size: z.string().min(1),
+      uploaded_at: z.string().min(1),
+      file_type: z.string().min(1),
+    })
+    .nullable(),
   scope_assumption: ScopeAssumptionSchema,
   proposed_workflow: z.array(WorkflowStepSchema).min(1),
   compiled_workflow: z.array(WorkflowStepSchema).min(1).optional(),
