@@ -134,13 +134,24 @@ describe('createGenerateReportHandler', () => {
     mockGenerateReport.mockClear();
   });
 
-  it('uses published-batch sheet dates without early intent confirmation', async () => {
+  it('suspends for confirmation with published-batch sheet dates as the suggestion', async () => {
     const result = await createGenerateReportHandler(deps).execute(makeInput());
 
-    expect(result.kind).toBe('completed');
-    expect(mockGenerateReport).toHaveBeenCalledWith(
-      expect.objectContaining({ dateRange: { from: '2026-06-01', to: '2026-06-30' } }),
-    );
+    expect(result.kind).toBe('suspend');
+    if (result.kind !== 'suspend') throw new Error('expected suspend');
+    expect(result.card.primary.argsPatch).toMatchObject({
+      dateRange: { from: '2026-06-01', to: '2026-06-30' },
+      dateRangeStrategy: 'sheet_derived',
+      rangeSource: 'sheet_or_database',
+    });
+    expect(result.runtimeContextPatch?.report_request).toMatchObject({
+      dateRange: {
+        from: '2026-06-01',
+        to: '2026-06-30',
+        source: 'sheet_suggested_pending',
+      },
+    });
+    expect(mockGenerateReport).not.toHaveBeenCalled();
   });
 
   it('generates the report after the user confirms a date range', async () => {

@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { type Browser, type BrowserContext, chromium, type Page } from 'playwright-core';
 
 export interface RenderedReportPdf {
@@ -13,6 +16,40 @@ export interface PdfRenderOptions {
 
 const DEFAULT_MAX_ARTIFACT_BYTES = 25 * 1024 * 1024;
 
+export interface ChromiumRuntimeEnvironment {
+  homeDirectory: string;
+  env: NodeJS.ProcessEnv;
+  cleanup: () => Promise<void>;
+}
+
+/**
+ * Chromium's crashpad process needs writable HOME/XDG directories even when crash reporting is
+ * disabled. Production containers use a read-only root filesystem, so keep all browser state in
+ * the writable /tmp mount and remove it after every render.
+ */
+export async function createChromiumRuntimeEnvironment(): Promise<ChromiumRuntimeEnvironment> {
+  const homeDirectory = await mkdtemp(join(tmpdir(), 'pmo-chromium-home-'));
+  const configDirectory = join(homeDirectory, '.config');
+  const cacheDirectory = join(homeDirectory, '.cache');
+  await Promise.all([
+    mkdir(configDirectory, { recursive: true, mode: 0o700 }),
+    mkdir(cacheDirectory, { recursive: true, mode: 0o700 }),
+  ]);
+
+  return {
+    homeDirectory,
+    env: {
+      ...process.env,
+      HOME: homeDirectory,
+      XDG_CONFIG_HOME: configDirectory,
+      XDG_CACHE_HOME: cacheDirectory,
+    },
+    cleanup: async () => {
+      await rm(homeDirectory, { recursive: true, force: true });
+    },
+  };
+}
+
 export async function renderReportPdf(
   html: string,
   options: PdfRenderOptions = {},
@@ -20,7 +57,9 @@ export async function renderReportPdf(
   let browser: Browser | undefined;
   let context: BrowserContext | undefined;
   let page: Page | undefined;
+  let runtimeEnvironment: ChromiumRuntimeEnvironment | undefined;
   try {
+    runtimeEnvironment = await createChromiumRuntimeEnvironment();
     browser = await chromium.launch({
       executablePath:
         options.executablePath ??
@@ -28,6 +67,7 @@ export async function renderReportPdf(
         '/usr/bin/chromium-browser',
       headless: true,
       args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+      env: runtimeEnvironment.env,
     });
     context = await browser.newContext();
     await context.route('**/*', async (route) => route.abort('blockedbyclient'));
@@ -54,6 +94,7 @@ export async function renderReportPdf(
     await page?.close().catch(() => undefined);
     await context?.close().catch(() => undefined);
     await browser?.close().catch(() => undefined);
+    await runtimeEnvironment?.cleanup().catch(() => undefined);
   }
 }
 

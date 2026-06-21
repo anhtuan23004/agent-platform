@@ -217,25 +217,11 @@ export function createGenerateReportHandler(
             ? { ...intentRequest.dateRange, source: 'goal_explicit' as const }
             : null;
       const resumedRange = readDateRangeFromResume(input.resumeData);
-      let dateRange = resumedRange ?? explicitRange;
+      const dateRange = resumedRange ?? explicitRange;
       const databaseBounds = await (deps.getReportDateBounds ?? getPmoReportDateBounds)(
         input.tenantId,
       );
       if (!databaseBounds) throw new Error('report_date_bounds_unavailable');
-
-      if (!dateRange && reportSource === 'published_batch') {
-        try {
-          const sheetRange = await resolveSuggestedRange({
-            reportingPeriodStart: input.reportingPeriodStart,
-            reportingPeriodEnd: input.reportingPeriodEnd,
-            getWorkbookParseResult: () => deps.getWorkbookParseResult(input),
-            runtimeContext: input.runtimeContext,
-          });
-          dateRange = { ...sheetRange, source: 'sheet_derived' };
-        } catch {
-          // Sheet-derived range is best-effort; fall through to ask user.
-        }
-      }
 
       if (!dateRange) {
         if (input.resumeData?.decision === 'reject') {

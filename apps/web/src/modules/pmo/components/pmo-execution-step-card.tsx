@@ -259,7 +259,7 @@ function PmoReportRangeForm(props: {
   );
 }
 
-function PmoReportReviewPanel(props: {
+export function PmoReportReviewPanel(props: {
   step: ExecutionCard;
   selectedReportApproval: WorkflowApprovalRow | null;
   reportApprovalsCount: number;
@@ -300,7 +300,7 @@ function PmoReportReviewPanel(props: {
         ) : null}
       </div>
 
-      {selectedReportApproval && !step.output_summary ? (
+      {selectedReportApproval?.status === 'pending' ? (
         <PmoReportRangeForm
           key={`${selectedReportApproval.approvalId}-${rangeConfig?.suggested.from ?? ''}-${rangeConfig?.suggested.to ?? ''}`}
           stepNo={step.step_no}

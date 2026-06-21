@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
+  createChromiumRuntimeEnvironment,
   readMaxArtifactBytes,
   validatePdfArtifact,
 } from '../../../src/backend/reporting/render/render-report-pdf.ts';
@@ -40,5 +41,19 @@ describe('PDF artifact contract', () => {
   it('uses SHA-256-compatible bytes for uploaded HTML', () => {
     const bytes = Buffer.from('<!doctype html><title>PMO</title>');
     expect(createHash('sha256').update(bytes).digest('hex')).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('uses a writable temporary home for Chromium crashpad state', async () => {
+    const runtime = await createChromiumRuntimeEnvironment();
+    try {
+      expect(runtime.env.HOME).toBe(runtime.homeDirectory);
+      expect(runtime.env.XDG_CONFIG_HOME).toBe(`${runtime.homeDirectory}/.config`);
+      expect(runtime.env.XDG_CACHE_HOME).toBe(`${runtime.homeDirectory}/.cache`);
+      await expect(
+        import('node:fs/promises').then(({ access }) => access(runtime.homeDirectory, 2)),
+      ).resolves.toBeUndefined();
+    } finally {
+      await runtime.cleanup();
+    }
   });
 });
