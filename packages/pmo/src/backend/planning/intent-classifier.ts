@@ -154,30 +154,6 @@ export function validatePmoPlanningIntent(
   };
 }
 
-function fallbackIntent(
-  catalog: PmoPlannerCatalog,
-  context: PmoIntentValidationContext,
-  reason: string,
-): ClassifiedPmoIntent {
-  const dataSourceMode = context.hasUploadedFile
-    ? catalog.default_intent.dataSourceMode
-    : 'existing_db';
-  const actionMode = context.hasUploadedFile
-    ? catalog.default_intent.actionMode
-    : 'generate_report';
-  return validatePmoPlanningIntent(
-    catalog,
-    {
-      dataSourceMode,
-      actionMode,
-      writePolicy: derivedWritePolicy(actionMode),
-      confidence: 'low',
-      rationale: reason,
-    },
-    context,
-  );
-}
-
 export async function classifyPmoPlanningIntent(
   goal: string,
   context: PmoIntentValidationContext = { hasUploadedFile: true },
@@ -205,12 +181,10 @@ export async function classifyPmoPlanningIntent(
       structuredOutput: { schema: PmoIntentClassificationSchema },
       providerOptions: { openai: { reasoningSummary: 'auto', temperature: 0 } },
     });
-    if (!result.object) return fallbackIntent(catalog, context, 'No structured intent output.');
+    if (!result.object) {
+      throw new Error('Intent classifier returned no structured output');
+    }
     return validatePmoPlanningIntent(catalog, result.object, context);
-  } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') throw error;
-    const message = error instanceof Error ? error.message : String(error);
-    return fallbackIntent(catalog, context, `Intent classifier failed: ${message}`);
   } finally {
     clearTimeout(timer);
   }
