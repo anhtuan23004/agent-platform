@@ -142,6 +142,9 @@ services:
       S3_ENDPOINT: ${S3_ENDPOINT:-}
       S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      AGENT_MODELS: ${AGENT_MODELS:-}
+      AGENT_MODEL_DEFAULT: ${AGENT_MODEL_DEFAULT:-}
+      PMO_PLAN_MODEL: ${PMO_PLAN_MODEL:-}
     expose:
       - "9464"  # Prometheus metrics scrape port
     networks:
@@ -192,6 +195,9 @@ services:
       S3_ENDPOINT: ${S3_ENDPOINT:-}
       S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      AGENT_MODELS: ${AGENT_MODELS:-}
+      AGENT_MODEL_DEFAULT: ${AGENT_MODEL_DEFAULT:-}
+      PMO_PLAN_MODEL: ${PMO_PLAN_MODEL:-}
     networks:
       - seta-internal
       - seta-edge  # egress for OpenAI / external embedding APIs
