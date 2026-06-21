@@ -126,6 +126,8 @@ function buildWorkflowCards(params: {
   const intentRequiresConfirmation = intent?.requires_confirmation === true;
   const hasIntent = Boolean(intent);
   const hasPlan = Boolean(plan);
+  const planIsGenerating = session.planning_state === 'generating_plan';
+  const planGenerationFailed = session.planning_state === 'plan_generation_failed';
   const planApproved = session.planning_state === 'approved_plan';
   const cards: WorkflowCardModel[] = [
     {
@@ -134,27 +136,39 @@ function buildWorkflowCards(params: {
       kind: 'intent',
       label: 'Intent',
       statusLabel: !hasIntent
-        ? 'Pending'
+        ? planIsGenerating || planGenerationFailed
+          ? 'Submitted'
+          : 'Pending'
         : intentRequiresConfirmation
           ? 'Needs confirmation'
           : 'Confirmed',
-      access: !hasIntent || intentRequiresConfirmation ? 'current_actionable' : 'history_view_only',
+      access:
+        planIsGenerating || planGenerationFailed
+          ? 'history_view_only'
+          : !hasIntent || intentRequiresConfirmation
+            ? 'current_actionable'
+            : 'history_view_only',
     },
   ];
 
-  if (hasPlan) {
+  if (hasPlan || planIsGenerating || planGenerationFailed) {
     cards.push({
       id: 'plan',
       ordinal: 2,
       kind: 'plan',
       label: 'Plan',
-      statusLabel: planApproved ? 'Approved' : 'In review',
-      access:
-        intentRequiresConfirmation || !hasPlan
-          ? 'future_locked'
-          : planApproved
-            ? 'history_view_only'
-            : 'current_actionable',
+      statusLabel: planApproved
+        ? 'Approved'
+        : planIsGenerating
+          ? 'Generating'
+          : planGenerationFailed
+            ? 'Failed'
+            : 'In review',
+      access: intentRequiresConfirmation
+        ? 'future_locked'
+        : planApproved
+          ? 'history_view_only'
+          : 'current_actionable',
     });
   }
 
@@ -249,7 +263,7 @@ export function PmoWorkflowCardsSection(props: PmoWorkflowCardsSectionProps) {
     [executionCards, plan, runtime, selectedSession],
   );
   const currentCard =
-    cards.find((card) => card.access === 'current_actionable') ?? cards[0] ?? null;
+    cards.find((card) => card.access === 'current_actionable') ?? cards.at(-1) ?? null;
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const selectedCard = cards.find(
     (card) => card.id === selectedCardId && card.access !== 'future_locked',
@@ -428,6 +442,19 @@ export function PmoWorkflowCardsSection(props: PmoWorkflowCardsSectionProps) {
               </p>
             </div>
 
+            {selectedSession.planning_state === 'generating_plan' ? (
+              <div className="flex items-center gap-2 rounded-md border border-warning-border bg-warning-tint/70 px-3 py-2 text-warning-ink">
+                <Loader2 className="size-4 animate-spin" />
+                Generating plan in the background...
+              </div>
+            ) : null}
+
+            {selectedSession.planning_state === 'plan_generation_failed' ? (
+              <div className="rounded-md border border-danger-border bg-danger-tint/70 px-3 py-2 text-danger-ink">
+                {selectedSession.planning_generation_error ?? 'Plan generation failed.'}
+              </div>
+            ) : null}
+
             {plan ? (
               <div className="rounded-md border border-hairline bg-surface-1 px-3 py-2">
                 <p className="font-medium text-ink">Compiled workflow</p>
@@ -467,9 +494,15 @@ export function PmoWorkflowCardsSection(props: PmoWorkflowCardsSectionProps) {
                   size="sm"
                   variant="secondary"
                   onClick={onRegeneratePlan}
-                  disabled={selectedSession.planning_state !== 'plan_review' || isGenerating}
+                  disabled={
+                    (selectedSession.planning_state !== 'plan_review' &&
+                      selectedSession.planning_state !== 'plan_generation_failed') ||
+                    isGenerating
+                  }
                 >
-                  Regenerate plan
+                  {selectedSession.planning_state === 'plan_generation_failed'
+                    ? 'Retry generation'
+                    : 'Regenerate plan'}
                 </Button>
                 <Button
                   type="button"

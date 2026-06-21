@@ -131,6 +131,7 @@ jobs:
           S3_BUCKET:             ${{ vars.S3_BUCKET }}
           APP_DOMAIN:            ${{ vars.APP_DOMAIN }}
           OPENAI_API_KEY:        ${{ secrets.OPENAI_API_KEY }}
+          AGENT_MODELS:          ${{ vars.AGENT_MODELS || 'openai/gpt-4o:balanced' }}
           # ACME_EMAIL is optional — falls back to organizer address for cert notifications.
           ACME_EMAIL:            ${{ vars.ACME_EMAIL || 'devops@seta-international.vn' }}
           # Passed to EC2 so compose.yml / Traefik configs are fetched from the fork's own
@@ -142,7 +143,7 @@ jobs:
           username:        ${{ vars.EC2_USER || 'ubuntu' }}
           key:             ${{ secrets.EC2_SSH_PRIVATE_KEY }}
           command_timeout: 25m
-          envs:            ECR_REGISTRY,ECR_REPOSITORY,IMAGE_TAG,AWS_REGION,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,S3_BUCKET,APP_DOMAIN,OPENAI_API_KEY,ACME_EMAIL,GITHUB_REPO,GITHUB_REF_NAME
+          envs:            ECR_REGISTRY,ECR_REPOSITORY,IMAGE_TAG,AWS_REGION,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,S3_BUCKET,APP_DOMAIN,OPENAI_API_KEY,AGENT_MODELS,ACME_EMAIL,GITHUB_REPO,GITHUB_REF_NAME
           script: |
             set -euo pipefail
             echo "=== Deploying $GITHUB_REPO@$GITHUB_REF_NAME tag=$IMAGE_TAG ==="
@@ -208,6 +209,7 @@ jobs:
             S3_REGION=$AWS_REGION
             S3_BUCKET=$S3_BUCKET
             OPENAI_API_KEY=$OPENAI_API_KEY
+            AGENT_MODELS=$AGENT_MODELS
             CRYPTO_KEY_PROVIDER=env
             CRYPTO_LOCAL_MASTER_KEY=$CRYPTO_LOCAL_MASTER_KEY
             PMO_PLANNER_CATALOG_DIR=/app/config/ingestion-planner/pmo

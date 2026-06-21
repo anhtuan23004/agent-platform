@@ -1,4 +1,4 @@
-import { Button, Input, Label } from '@seta/shared-ui';
+import { Button, Input, Label, toast } from '@seta/shared-ui';
 import { useMemo, useState } from 'react';
 import type {
   PmoPlan,
@@ -10,6 +10,7 @@ import type {
   PmoWorkflowExecutionStepStatus,
 } from '../api/client';
 import type { WorkflowApprovalRow } from '../api/workflow-runtime';
+import { usePmoReport, useRetryPmoReport } from '../hooks/use-pmo-report';
 import type { GroupedMappingItemsBySheet } from '../hooks/use-pmo-workflow-runtime';
 import {
   type ExecutionCard,
@@ -29,6 +30,7 @@ import {
   type ProfilingOverrideEntry,
 } from './pmo-profiling-details-panel';
 import { PmoPublishReviewPanel } from './pmo-publish-review-panel';
+import { ReportStatusCard } from './pmo-report-panel';
 
 export interface PmoExecutionStepRuntimeProps {
   executionCurrentStepNo: number | null;
@@ -259,7 +261,32 @@ function PmoReportRangeForm(props: {
   );
 }
 
-function PmoReportReviewPanel(props: {
+function PmoReportRunStatus(props: { reportRunId: string }) {
+  const report = usePmoReport(props.reportRunId);
+  const retry = useRetryPmoReport();
+
+  if (report.isLoading || !report.data) {
+    return (
+      <p className="rounded-md border border-hairline bg-surface-1 px-3 py-2 text-ink-subtle">
+        Loading report status...
+      </p>
+    );
+  }
+
+  return (
+    <ReportStatusCard
+      report={report.data}
+      isRetrying={retry.isPending}
+      onRetry={() =>
+        retry.mutate(props.reportRunId, {
+          onError: (error) => toast.error('Retry failed', { description: error.message }),
+        })
+      }
+    />
+  );
+}
+
+export function PmoReportReviewPanel(props: {
   step: ExecutionCard;
   selectedReportApproval: WorkflowApprovalRow | null;
   reportApprovalsCount: number;
@@ -283,6 +310,10 @@ function PmoReportReviewPanel(props: {
     [selectedReportApproval],
   );
   const outputEntries = Object.entries(step.output_summary ?? {});
+  const reportRunId =
+    typeof step.output_summary?.report_run_id === 'string'
+      ? step.output_summary.report_run_id
+      : null;
 
   return (
     <div className="mt-2 space-y-2 rounded-md border border-hairline bg-canvas p-2.5">
@@ -300,7 +331,9 @@ function PmoReportReviewPanel(props: {
         ) : null}
       </div>
 
-      {selectedReportApproval && !step.output_summary ? (
+      {reportRunId ? (
+        <PmoReportRunStatus reportRunId={reportRunId} />
+      ) : selectedReportApproval?.status === 'pending' ? (
         <PmoReportRangeForm
           key={`${selectedReportApproval.approvalId}-${rangeConfig?.suggested.from ?? ''}-${rangeConfig?.suggested.to ?? ''}`}
           stepNo={step.step_no}

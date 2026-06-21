@@ -1288,7 +1288,7 @@ export function buildPlanningTimeline(
       return ['done', 'done', 'current', 'pending', 'pending'];
     }
 
-    if (s === 'generating_plan') {
+    if (s === 'generating_plan' || s === 'plan_generation_failed') {
       return ['done', 'current', 'pending', 'pending', 'pending'];
     }
 

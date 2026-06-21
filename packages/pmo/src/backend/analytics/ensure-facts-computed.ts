@@ -1,13 +1,18 @@
-import { and, desc, eq, max, sql } from 'drizzle-orm';
+import { countDistinct, eq, sql } from 'drizzle-orm';
 import { pmoDb } from '../db/client.ts';
-import { ingestionSessions, memberWeekFacts } from '../db/schema.ts';
-import { loadCanonicalInputs } from './load-canonical.ts';
+import { memberWeekFacts, memberWeekFactVersions } from '../db/schema.ts';
+import { mapReportRulesToLegacyThresholds } from '../reporting/rules/compatibility.ts';
+import { resolveReportRules } from '../reporting/rules/resolve.ts';
+import {
+  buildFactsVersion,
+  FACTS_SCHEMA_VERSION,
+  getCanonicalDataVersion,
+  getFactsRuleVersion,
+} from './fact-versions.ts';
 import { type ComputeFactsResult, computeAndPersistFacts } from './persist-facts.ts';
-import { splitPmoPopulations } from './populations.ts';
-import { resolveThresholds } from './thresholds.ts';
+import type { Thresholds } from './types.ts';
 
 export interface EnsureFactsComputedResult extends ComputeFactsResult {
-  computedAt: Date;
   ingestionSessionId: string | null;
   recomputed: boolean;
 }
@@ -18,107 +23,109 @@ export interface EnsureFactsComputedOptions {
   force?: boolean;
 }
 
-async function getLatestPublishReviewedAt(tenantId: string): Promise<Date | null> {
-  const db = pmoDb();
-  const rows = await db
-    .select({ publish_reviewed_at: ingestionSessions.publish_reviewed_at })
-    .from(ingestionSessions)
-    .where(
-      and(eq(ingestionSessions.tenant_id, tenantId), eq(ingestionSessions.status, 'published')),
-    )
-    .orderBy(desc(ingestionSessions.publish_reviewed_at))
-    .limit(1);
-
-  return rows[0]?.publish_reviewed_at ?? null;
-}
-
-async function getPersistedFactsMeta(tenantId: string): Promise<{
+interface PersistedFactsMeta {
   factCount: number;
+  memberCount: number;
+  weekIds: string[];
   computedAt: Date | null;
   ingestionSessionId: string | null;
-}> {
+  canonicalDataVersion: string | null;
+  factsVersion: string | null;
+  factsSchemaVersion: string | null;
+}
+
+async function getPersistedFactsMeta(tenantId: string): Promise<PersistedFactsMeta> {
   const db = pmoDb();
-  const [countRow, timeRow, sessionRow] = await Promise.all([
+  const [countRow, weekRows, versionRows] = await Promise.all([
     db
-      .select({ factCount: sql<number>`count(*)::int` })
+      .select({
+        factCount: sql<number>`count(*)::int`,
+        memberCount: countDistinct(memberWeekFacts.member_id),
+      })
       .from(memberWeekFacts)
       .where(eq(memberWeekFacts.tenant_id, tenantId)),
     db
-      .select({ computedAt: max(memberWeekFacts.computed_at) })
+      .selectDistinct({ weekId: memberWeekFacts.week_id })
       .from(memberWeekFacts)
       .where(eq(memberWeekFacts.tenant_id, tenantId)),
     db
-      .select({ ingestionSessionId: memberWeekFacts.last_ingestion_session_id })
-      .from(memberWeekFacts)
-      .where(eq(memberWeekFacts.tenant_id, tenantId))
+      .select()
+      .from(memberWeekFactVersions)
+      .where(eq(memberWeekFactVersions.tenant_id, tenantId))
       .limit(1),
   ]);
+  const version = versionRows[0];
 
   return {
     factCount: countRow[0]?.factCount ?? 0,
-    computedAt: timeRow[0]?.computedAt ?? null,
-    ingestionSessionId: sessionRow[0]?.ingestionSessionId ?? null,
+    memberCount: countRow[0]?.memberCount ?? 0,
+    weekIds: weekRows.map((row) => row.weekId).sort(),
+    computedAt: version?.computed_at ?? null,
+    ingestionSessionId: version?.last_ingestion_session_id ?? null,
+    canonicalDataVersion: version?.canonical_data_version ?? null,
+    factsVersion: version?.facts_version ?? null,
+    factsSchemaVersion: version?.facts_schema_version ?? null,
   };
 }
 
-async function shouldRecomputeFacts(tenantId: string, force: boolean): Promise<boolean> {
-  if (force) return true;
-
-  const meta = await getPersistedFactsMeta(tenantId);
-  if (meta.factCount === 0) return true;
-
-  const latestPublishReviewedAt = await getLatestPublishReviewedAt(tenantId);
-  if (!latestPublishReviewedAt) return false;
-
-  if (!meta.computedAt) return true;
-  return meta.computedAt < latestPublishReviewedAt;
-}
-
-async function loadExistingFactsSummary(tenantId: string): Promise<EnsureFactsComputedResult> {
-  const [meta, inputs] = await Promise.all([
-    getPersistedFactsMeta(tenantId),
-    loadCanonicalInputs(tenantId),
-  ]);
-  const thresholds = resolveThresholds(inputs.configRows);
-  const { deliveryMembers } = splitPmoPopulations(inputs.members, inputs.projects);
-
+async function resolveCurrentThresholds(tenantId: string): Promise<Thresholds> {
+  const rules = await resolveReportRules({ tenantId, effectiveAt: new Date() });
   return {
-    factCount: meta.factCount,
-    weekIds: inputs.weeks.map((w) => w.week_id),
-    memberCount: deliveryMembers.length,
-    thresholds,
-    computedAt: meta.computedAt ?? new Date(),
-    ingestionSessionId: meta.ingestionSessionId,
-    recomputed: false,
+    ...mapReportRulesToLegacyThresholds(rules),
+    requiredTrainingHours: 0,
   };
 }
 
-/**
- * Ensure member×week facts are persisted for a tenant.
- *
- * - `force: true` — always recompute (POST /compute-facts, ingest after publish).
- * - Lazy path — recompute when facts are empty, or when `computed_at` is older than the
- *   latest published session's `publish_reviewed_at`. When no published session exists
- *   (seed/mock), only recompute when facts are empty.
- */
+function versionsMatch(
+  meta: PersistedFactsMeta,
+  canonicalDataVersion: string,
+  expectedFactsVersion: string,
+): boolean {
+  return (
+    meta.canonicalDataVersion === canonicalDataVersion &&
+    meta.factsSchemaVersion === FACTS_SCHEMA_VERSION &&
+    meta.factsVersion === expectedFactsVersion
+  );
+}
+
+/** Ensure persisted member-week facts match current canonical input version. */
 export async function ensureFactsComputed(
   tenantId: string,
-  options?: EnsureFactsComputedOptions,
+  options: EnsureFactsComputedOptions = {},
 ): Promise<EnsureFactsComputedResult> {
-  const force = options?.force ?? false;
-  const needsRecompute = await shouldRecomputeFacts(tenantId, force);
+  const [meta, canonicalDataVersion, factsRuleVersion] = await Promise.all([
+    getPersistedFactsMeta(tenantId),
+    getCanonicalDataVersion(tenantId),
+    getFactsRuleVersion(tenantId),
+  ]);
+  const expectedFactsVersion = buildFactsVersion({
+    tenantId,
+    canonicalDataVersion,
+    factsRuleVersion,
+  });
+  const current =
+    meta.factCount > 0 && versionsMatch(meta, canonicalDataVersion, expectedFactsVersion);
 
-  if (!needsRecompute) {
-    return loadExistingFactsSummary(tenantId);
+  if (!options.force && current) {
+    return {
+      factCount: meta.factCount,
+      memberCount: meta.memberCount,
+      weekIds: meta.weekIds,
+      thresholds: await resolveCurrentThresholds(tenantId),
+      computedAt: meta.computedAt ?? new Date(0),
+      ingestionSessionId: meta.ingestionSessionId,
+      canonicalDataVersion,
+      factsVersion: expectedFactsVersion,
+      recomputed: false,
+    };
   }
 
-  const result = await computeAndPersistFacts(tenantId, options?.sessionId);
-  const meta = await getPersistedFactsMeta(tenantId);
-
+  const result = await computeAndPersistFacts(tenantId, options.sessionId, {
+    canonicalDataVersion,
+  });
   return {
     ...result,
-    computedAt: meta.computedAt ?? new Date(),
-    ingestionSessionId: options?.sessionId ?? meta.ingestionSessionId,
+    ingestionSessionId: options.sessionId ?? null,
     recomputed: true,
   };
 }

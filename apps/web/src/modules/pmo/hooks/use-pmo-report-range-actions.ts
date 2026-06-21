@@ -46,10 +46,10 @@ export function usePmoReportRangeActions(
         },
         {
           onSuccess: async () => {
-            toast.success('Report range confirmed', {
-              description: 'The workflow will generate the PMO report from published data.',
-            });
             await refreshAfterDecision();
+            toast.success('Report queued', {
+              description: 'PDF generation is running from published PMO data.',
+            });
           },
           onError: (err) => {
             toast.error('Failed to confirm report range', {

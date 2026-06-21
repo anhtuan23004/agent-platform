@@ -154,41 +154,20 @@ export function validatePmoPlanningIntent(
   };
 }
 
-function fallbackIntent(
-  catalog: PmoPlannerCatalog,
-  context: PmoIntentValidationContext,
-  reason: string,
-): ClassifiedPmoIntent {
-  const dataSourceMode = context.hasUploadedFile
-    ? catalog.default_intent.dataSourceMode
-    : 'existing_db';
-  const actionMode = context.hasUploadedFile
-    ? catalog.default_intent.actionMode
-    : 'generate_report';
-  return validatePmoPlanningIntent(
-    catalog,
-    {
-      dataSourceMode,
-      actionMode,
-      writePolicy: derivedWritePolicy(actionMode),
-      confidence: 'low',
-      rationale: reason,
-    },
-    context,
-  );
-}
-
 export async function classifyPmoPlanningIntent(
   goal: string,
   context: PmoIntentValidationContext = { hasUploadedFile: true },
 ): Promise<ClassifiedPmoIntent> {
   const catalog = loadPmoPlannerCatalog();
+  const model = resolvePlanningModel();
   const classifier = new Agent({
     id: 'pmo.workflowIntentClassifier',
     name: 'PMO Workflow Intent Classifier',
     instructions: buildIntentPrompt(catalog),
-    model: resolvePlanningModel(),
+    model,
   });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 55_000);
 
   try {
     const classifierInput: Record<string, unknown> = {
@@ -199,14 +178,20 @@ export async function classifyPmoPlanningIntent(
       classifierInput.plan_feedback = context.planFeedback;
     }
     const result = await classifier.generate(JSON.stringify(classifierInput), {
+      abortSignal: controller.signal,
+      modelSettings: { temperature: 0 },
       structuredOutput: { schema: PmoIntentClassificationSchema },
-      providerOptions: { openai: { reasoningSummary: 'auto', temperature: 0 } },
+      providerOptions: { openai: { reasoningSummary: 'auto' } },
     });
-    if (!result.object) return fallbackIntent(catalog, context, 'No structured intent output.');
+    if (!result.object) {
+      const preview = result.text?.slice(0, 500) ?? '(empty)';
+      throw new Error(
+        `Intent classifier (model=${model}) returned no structured output. Raw: ${preview}`,
+      );
+    }
     return validatePmoPlanningIntent(catalog, result.object, context);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return fallbackIntent(catalog, context, `Intent classifier failed: ${message}`);
+  } finally {
+    clearTimeout(timer);
   }
 }
 

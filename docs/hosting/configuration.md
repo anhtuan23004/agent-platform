@@ -301,6 +301,27 @@ Optional. String. Default: `seta-knowledge`.
 
 Bucket for tenant knowledge file uploads. Keys are prefixed `tenants/<id>/`.
 
+### PMO_REPORT_S3_BUCKET
+
+Optional. String. Default: value of `S3_BUCKET`.
+
+Private bucket for PMO report HTML/PDF artifacts. Objects use the prefix
+`tenants/<tenant-id>/pmo/reports/<report-run-id>/` and are never made public.
+
+### CHROMIUM_EXECUTABLE_PATH
+
+Optional. Absolute path. Docker default: `/usr/bin/chromium-browser`.
+
+System Chromium executable used only by the graphile worker for PMO HTML-to-PDF rendering. The
+container image installs this binary; health checks do not launch it.
+
+### PMO_REPORT_MAX_ARTIFACT_BYTES
+
+Optional. Positive integer. Default: `26214400` (25 MiB).
+
+Maximum accepted size for a generated PMO PDF artifact. Oversized output fails the report run
+instead of being persisted as completed.
+
 ### S3_ENDPOINT
 
 Optional. URL. No default.

@@ -17,3 +17,10 @@ export {
   type EnsureFactsComputedResult,
   ensureFactsComputed,
 } from './backend/analytics/ensure-facts-computed.ts';
+export type {
+  CreateReportRunInput,
+  ReportArtifactStatus,
+  ReportDateRange,
+  ReportOutputFormat,
+  ReportStatusResponse,
+} from './backend/reporting/contracts.ts';

@@ -1,5 +1,8 @@
+import { sql } from 'drizzle-orm';
 import {
+  bigint,
   boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -47,6 +50,10 @@ export const ingestionSessions = pmoSchema.table(
     planning_plan_version: integer('planning_plan_version').notNull().default(0),
     planning_feedback_history: jsonb('planning_feedback_history'),
     planning_last_generated_at: timestamp('planning_last_generated_at', { withTimezone: true }),
+    planning_generation_started_at: timestamp('planning_generation_started_at', {
+      withTimezone: true,
+    }),
+    planning_generation_error: text('planning_generation_error'),
     planning_approved_at: timestamp('planning_approved_at', { withTimezone: true }),
     workflow_execution_state: jsonb('workflow_execution_state'),
     profiling_documents: jsonb('profiling_documents'),
@@ -368,6 +375,76 @@ export const memberWeekFacts = pmoSchema.table(
   ],
 );
 
+/** One freshness/version record per tenant for the persisted member-week read-model. */
+export const memberWeekFactVersions = pmoSchema.table('member_week_fact_versions', {
+  tenant_id: uuid('tenant_id').primaryKey(),
+  facts_version: text('facts_version').notNull(),
+  canonical_data_version: text('canonical_data_version').notNull(),
+  facts_schema_version: text('facts_schema_version').notNull(),
+  last_ingestion_session_id: uuid('last_ingestion_session_id'),
+  computed_at: timestamp('computed_at', { withTimezone: true }).notNull(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ── Recommendation projections (synced from module public surfaces/events) ──
+
+export const memberSkillsProjection = pmoSchema.table(
+  'member_skills_projection',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenant_id: uuid('tenant_id').notNull(),
+    member_id: text('member_id').notNull(),
+    skill_key: text('skill_key').notNull(),
+    skill_name: text('skill_name').notNull(),
+    proficiency_level: integer('proficiency_level'),
+    evidence_confidence: real('evidence_confidence').notNull().default(1),
+    source: text('source').notNull(),
+    source_version: text('source_version').notNull(),
+    idempotency_key: text('idempotency_key').notNull(),
+    observed_at: timestamp('observed_at', { withTimezone: true }).notNull(),
+    synced_at: timestamp('synced_at', { withTimezone: true }).notNull(),
+    is_active: boolean('is_active').notNull().default(true),
+    created_at: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('member_skills_projection_idempotency').on(t.tenant_id, t.idempotency_key),
+    index('member_skills_projection_member').on(t.tenant_id, t.member_id, t.is_active),
+  ],
+);
+
+export const taskHistoryProjection = pmoSchema.table(
+  'task_history_projection',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenant_id: uuid('tenant_id').notNull(),
+    history_id: text('history_id').notNull(),
+    member_id: text('member_id').notNull(),
+    project_id: text('project_id'),
+    allocation_role: text('allocation_role'),
+    task_title: text('task_title').notNull(),
+    task_summary: text('task_summary'),
+    skill_tags: jsonb('skill_tags').$type<string[]>().notNull().default([]),
+    completed_at: timestamp('completed_at', { withTimezone: true }).notNull(),
+    evidence_confidence: real('evidence_confidence').notNull().default(1),
+    embedding: jsonb('embedding').$type<number[]>(),
+    embedding_model_id: text('embedding_model_id'),
+    embedding_source_hash: text('embedding_source_hash'),
+    source: text('source').notNull(),
+    source_version: text('source_version').notNull(),
+    idempotency_key: text('idempotency_key').notNull(),
+    synced_at: timestamp('synced_at', { withTimezone: true }).notNull(),
+    is_active: boolean('is_active').notNull().default(true),
+    created_at: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('task_history_projection_idempotency').on(t.tenant_id, t.idempotency_key),
+    index('task_history_projection_member_date').on(t.tenant_id, t.member_id, t.completed_at),
+    index('task_history_projection_project').on(t.tenant_id, t.project_id),
+  ],
+);
+
 // ── PMO report runs (generated after canonical publish) ─────────────────────
 
 export const reportRuns = pmoSchema.table(
@@ -376,17 +453,51 @@ export const reportRuns = pmoSchema.table(
     id: uuid('id').primaryKey().defaultRandom(),
     tenant_id: uuid('tenant_id').notNull(),
     ingestion_session_id: uuid('ingestion_session_id'),
+    source_mode: text('source_mode').notNull().default('canonical_db'),
+    granularity: text('granularity').notNull().default('member_week'),
+    filters: jsonb('filters').notNull().default({}),
     report_types: jsonb('report_types').notNull(),
     date_range_start: timestamp('date_range_start', { withTimezone: true }).notNull(),
     date_range_end: timestamp('date_range_end', { withTimezone: true }).notNull(),
     status: text('status').notNull(),
+    rule_set_id: text('rule_set_id'),
+    rule_version: text('rule_version'),
+    rule_sha256: text('rule_sha256'),
+    rule_snapshot: jsonb('rule_snapshot'),
+    facts_computed_at: timestamp('facts_computed_at', { withTimezone: true }),
+    facts_version: text('facts_version'),
+    canonical_data_version: text('canonical_data_version'),
+    recommendation_config_snapshot: jsonb('recommendation_config_snapshot'),
+    embedding_model_id: text('embedding_model_id'),
+    embedding_source_version: text('embedding_source_version'),
     result_summary: jsonb('result_summary'),
     result_payload: jsonb('result_payload'),
+    html_s3_key: text('html_s3_key'),
+    html_sha256: text('html_sha256'),
+    html_size_bytes: bigint('html_size_bytes', { mode: 'number' }),
+    pdf_s3_key: text('pdf_s3_key'),
+    pdf_sha256: text('pdf_sha256'),
+    pdf_size_bytes: bigint('pdf_size_bytes', { mode: 'number' }),
+    pdf_page_count: integer('pdf_page_count'),
+    failure_code: text('failure_code'),
+    failure_message: text('failure_message'),
+    started_at: timestamp('started_at', { withTimezone: true }),
+    completed_at: timestamp('completed_at', { withTimezone: true }),
     created_by: uuid('created_by'),
     created_at: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [
     index('report_runs_tenant_created').on(t.tenant_id, t.created_at),
     index('report_runs_ingestion_session').on(t.ingestion_session_id),
+    index('report_runs_tenant_status').on(t.tenant_id, t.status, t.updated_at),
+    check(
+      'report_runs_status_check',
+      sql`${t.status} IN ('queued','computing','rendering','completed','failed')`,
+    ),
+    check(
+      'report_runs_source_mode_check',
+      sql`${t.source_mode} IN ('canonical_db','after_upload_publish')`,
+    ),
   ],
 );

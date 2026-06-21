@@ -17,6 +17,7 @@ const ResumeBody = z.object({
   decision: z.enum(['approve', 'reject', 'modify']),
   overrideUserIds: z.array(z.string()).optional(),
   alternateIndices: z.array(z.number().int().min(0)).optional(),
+  payloadPatch: z.record(z.string(), z.unknown()).optional(),
   note: z.string().optional(),
 });
 
@@ -24,6 +25,7 @@ export type ResumeDecisionData = {
   decision: 'approve' | 'reject' | 'modify';
   overrideUserIds?: string[];
   alternateIndices?: number[];
+  payloadPatch?: Record<string, unknown>;
   note?: string;
 };
 
@@ -43,8 +45,9 @@ export function mapDecisionToResumeData(
   body: ResumeDecisionData,
 ): ResumeDecisionData {
   const note = body.note;
+  const payloadPatch = body.payloadPatch ?? {};
   const withNote = (d: ResumeDecisionData): ResumeDecisionData =>
-    note !== undefined ? { ...d, note } : d;
+    note !== undefined ? { ...d, ...payloadPatch, note } : { ...d, ...payloadPatch };
 
   if (body.decision === 'reject') {
     return withNote({ decision: 'reject' });
@@ -110,6 +113,7 @@ export function mountChatResumeRoute(app: Hono<AgentRouteEnv>, deps: AgentRouteD
         approvalId: body.approvalId,
         decision: body.decision,
         overrideUserIds: body.overrideUserIds,
+        payloadPatch: body.payloadPatch,
         note: body.note,
         // Reject a misrouted evented/canvas approval INSIDE the transaction
         // (before any write) so a non-resumable row never records a decision.
@@ -128,6 +132,7 @@ export function mountChatResumeRoute(app: Hono<AgentRouteEnv>, deps: AgentRouteD
       decision: body.decision,
       overrideUserIds: body.overrideUserIds,
       alternateIndices: body.alternateIndices,
+      payloadPatch: body.payloadPatch,
       note: body.note,
     });
 

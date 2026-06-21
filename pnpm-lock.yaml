@@ -1168,6 +1168,9 @@ importers:
       pino:
         specifier: ^10.3.1
         version: 10.3.1
+      playwright-core:
+        specifier: ^1.61.0
+        version: 1.61.0
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -9525,6 +9528,11 @@ packages:
 
   playwright-core@1.60.0:
     resolution: {integrity: sha512-9bW6zvX/m0lEbgTKJ6YppOKx8H3VOPBMOCFh2irXFOT4BbHgrx5hPjwJYLT40Lu+4qtD36qKc/Hn56StUW57IA==}
+    engines: {node: '>=18'}
+    hasBin: true
+
+  playwright-core@1.61.0:
+    resolution: {integrity: sha512-caX7TrY3Ml6egyDX0WUcTHDxodl/b51y5wJOdCEA36QviK/s2g081hvmGs8eaE3DWb6NYZQ6BjO/QkNRPenoPA==}
     engines: {node: '>=18'}
     hasBin: true
 
@@ -19112,6 +19120,8 @@ snapshots:
       pathe: 2.0.3
 
   playwright-core@1.60.0: {}
+
+  playwright-core@1.61.0: {}
 
   playwright@1.60.0:
     dependencies:

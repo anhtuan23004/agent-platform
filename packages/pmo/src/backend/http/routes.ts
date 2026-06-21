@@ -1,5 +1,5 @@
 import { PutObjectCommand } from '@aws-sdk/client-s3';
-import type { SessionEnv } from '@seta/core';
+import type { RouteBuildDeps, SessionEnv } from '@seta/core';
 import { buildTenantKey, getS3Client, presignedUploadUrl } from '@seta/shared-storage';
 import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
@@ -12,11 +12,8 @@ import {
   PMO_ACTION_MODES,
   PMO_DATA_SOURCE_MODES,
 } from '../planning/catalog.ts';
-import { generatePmoWorkflowPlan } from '../planning/generate-plan.ts';
-import {
-  classifyPmoPlanningIntent,
-  validatePmoPlanningIntent,
-} from '../planning/intent-classifier.ts';
+import { validatePmoPlanningIntent } from '../planning/intent-classifier.ts';
+import { enqueuePlanGeneration } from '../planning/jobs/enqueue-plan-generation.ts';
 import { IntentAnalysisSchema } from '../planning/plan-schema.ts';
 import { readPlannerWorkflowSteps } from '../planning/step-metadata.ts';
 import {
@@ -33,14 +30,17 @@ import {
   type WorkflowExecutionStep,
 } from '../profiling/workbook-profiling.ts';
 import { registerDemoAnalyticsRoutes } from './demo-analytics-route.ts';
+import { registerPmoReportRoutes } from './report-routes.ts';
 
 type PlanningState =
   | 'uploaded'
   | 'intent_review'
   | 'generating_plan'
+  | 'plan_generation_failed'
   | 'plan_review'
   | 'approved_plan';
 type ProfilingStepStatus = 'in_progress' | 'needs_review' | 'completed' | 'failed';
+const PLAN_GENERATION_STALE_MS = 10 * 60 * 1_000;
 
 interface ProposedWorkflowStep {
   step_no: number;
@@ -119,8 +119,15 @@ function readPlanningState(rawStatus: string): PlanningState {
   if (rawStatus === 'approved_plan') return 'approved_plan';
   if (rawStatus === 'plan_review') return 'plan_review';
   if (rawStatus === 'generating_plan') return 'generating_plan';
+  if (rawStatus === 'plan_generation_failed') return 'plan_generation_failed';
   // Any non-planning runtime status is already beyond plan generation.
   return 'approved_plan';
+}
+
+function isPlanGenerationStale(startedAt: Date | string | null | undefined): boolean {
+  if (!startedAt) return true;
+  const timestamp = startedAt instanceof Date ? startedAt.getTime() : new Date(startedAt).getTime();
+  return !Number.isFinite(timestamp) || Date.now() - timestamp > PLAN_GENERATION_STALE_MS;
 }
 
 function mapHistoryStatus(state: PlanningState): {
@@ -151,6 +158,15 @@ function mapHistoryStatus(state: PlanningState): {
     return {
       label: 'Intent review',
       active_gate: 'Confirm intent scope',
+      progress_text: '1 / 3 (33%)',
+      progress_pct: 33,
+    };
+  }
+
+  if (state === 'plan_generation_failed') {
+    return {
+      label: 'Plan generation failed',
+      active_gate: 'Retry plan generation',
       progress_text: '1 / 3 (33%)',
       progress_pct: 33,
     };
@@ -761,8 +777,10 @@ function readProfilingReviewState(raw: unknown): ProfilingReviewState | null {
 
 // ── Routes ───────────────────────────────────────────────────────────────────
 
-export function buildPmoRoutes(): Hono<SessionEnv> {
+export function buildPmoRoutes(deps: RouteBuildDeps): Hono<SessionEnv> {
   const app = new Hono<SessionEnv>();
+
+  registerPmoReportRoutes(app, { workers: deps.workers });
 
   // POST /api/pmo/v1/upload-url
   // Returns a presigned S3 URL for the client to upload the Excel file,
@@ -965,6 +983,8 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
         planning_plan: ingestionSessions.planning_plan,
         planning_plan_version: ingestionSessions.planning_plan_version,
         planning_feedback_history: ingestionSessions.planning_feedback_history,
+        planning_generation_error: ingestionSessions.planning_generation_error,
+        planning_generation_started_at: ingestionSessions.planning_generation_started_at,
         workflow_execution_state: ingestionSessions.workflow_execution_state,
         profiling_documents: ingestionSessions.profiling_documents,
         profiling_summary: ingestionSessions.profiling_summary,
@@ -988,7 +1008,12 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
       .reverse()
       .map((row) => {
         const executionState = readExecutionState(row.workflow_execution_state);
-        const planningState = readPlanningState(row.status);
+        const stalePlanGeneration =
+          row.status === 'generating_plan' &&
+          isPlanGenerationStale(row.planning_generation_started_at);
+        const planningState = stalePlanGeneration
+          ? 'plan_generation_failed'
+          : readPlanningState(row.status);
         const history =
           mapExecutionHistoryStatus(executionState) ?? mapHistoryStatus(planningState);
 
@@ -1019,6 +1044,9 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
           feedback_history: Array.isArray(row.planning_feedback_history)
             ? row.planning_feedback_history
             : [],
+          planning_generation_error: stalePlanGeneration
+            ? 'Plan generation stopped before completion. Retry generation.'
+            : row.planning_generation_error,
           execution_state: executionState,
           profiling_documents: readDocuments(row.profiling_documents),
           profiling_summary:
@@ -1046,7 +1074,7 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
   });
 
   // POST /api/pmo/v1/plan/generate
-  // Generates or regenerates a planning draft using Goal + file metadata.
+  // Queues plan generation so the request returns before reverse-proxy deadlines.
   app.post('/api/pmo/v1/plan/generate', async (c) => {
     const session = c.get('user');
     const body = await c.req.json().catch(() => ({}));
@@ -1055,63 +1083,31 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
       return c.json({ error: 'invalid_request', details: parsed.error.issues }, 400);
     }
 
-    // Route-level deadline: respond before Cloudflare's 100s timeout.
-    const ROUTE_DEADLINE_MS = 90_000;
-    const routeStart = Date.now();
-    const checkDeadline = () => {
-      if (Date.now() - routeStart > ROUTE_DEADLINE_MS) {
-        throw Object.assign(new Error('Plan generation timed out. Please try again.'), {
-          code: 'route_timeout',
-        });
-      }
-    };
-
     const { goal, previous_plan } = parsed.data;
     const db = pmoDb();
-    const existingSource = parsed.data.ingestion_session_id
+    let planningSessionId = parsed.data.ingestion_session_id;
+    const existingSource = planningSessionId
       ? await db
           .select({
-            source_file_key: ingestionSessions.source_file_key,
-            planning_goal: ingestionSessions.planning_goal,
-            planning_intent: ingestionSessions.planning_intent,
+            id: ingestionSessions.id,
+            status: ingestionSessions.status,
+            workflow_step_status: ingestionSessions.workflow_step_status,
+            planning_generation_started_at: ingestionSessions.planning_generation_started_at,
           })
           .from(ingestionSessions)
           .where(
             and(
-              eq(ingestionSessions.id, parsed.data.ingestion_session_id),
+              eq(ingestionSessions.id, planningSessionId),
               eq(ingestionSessions.tenant_id, session.tenant_id),
             ),
           )
           .limit(1)
       : [];
-    if (parsed.data.ingestion_session_id && existingSource.length === 0) {
+    if (planningSessionId && existingSource.length === 0) {
       return c.json({ error: 'not_found', message: 'ingestion session not found' }, 404);
     }
-    const effectivePlanFeedback = parsed.data.plan_feedback?.trim() || '';
-    const storedIntent =
-      existingSource[0]?.planning_goal === goal && !effectivePlanFeedback
-        ? IntentAnalysisSchema.safeParse(existingSource[0].planning_intent)
-        : null;
-    const intent =
-      storedIntent?.success && !storedIntent.data.requires_confirmation
-        ? storedIntent.data
-        : await classifyPmoPlanningIntent(goal, {
-            hasUploadedFile: Boolean(existingSource[0]?.source_file_key),
-            ...(effectivePlanFeedback ? { planFeedback: effectivePlanFeedback } : {}),
-          });
-    checkDeadline();
-    let planningSessionId = parsed.data.ingestion_session_id;
 
     if (!planningSessionId) {
-      if (intent.dataSourceMode !== 'existing_db' || intent.actionMode !== 'generate_report') {
-        return c.json(
-          {
-            error: 'upload_required_for_intent',
-            message: 'This goal requires an uploaded workbook before a plan can be generated.',
-          },
-          400,
-        );
-      }
       planningSessionId = crypto.randomUUID();
       await db.insert(ingestionSessions).values({
         id: planningSessionId,
@@ -1123,62 +1119,27 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
       });
     }
 
-    if (intent.requires_confirmation) {
-      await db
-        .update(ingestionSessions)
-        .set({ status: 'intent_review', planning_goal: goal, planning_intent: intent })
-        .where(
-          and(
-            eq(ingestionSessions.id, planningSessionId),
-            eq(ingestionSessions.tenant_id, session.tenant_id),
-          ),
-        );
-
-      return c.json({
-        ingestion_session_id: planningSessionId,
-        planning_state: 'intent_review' as const,
-        intent,
-        plan: null,
-        plan_version: 0,
-        feedback_history: [],
-      });
-    }
-
-    const rows = await db
-      .select({
-        id: ingestionSessions.id,
-        source_file_key: ingestionSessions.source_file_key,
-        source_file_name: ingestionSessions.source_file_name,
-        source_file_size_bytes: ingestionSessions.source_file_size_bytes,
-        mime_type: ingestionSessions.mime_type,
-        created_at: ingestionSessions.created_at,
-        status: ingestionSessions.status,
-        workflow_step_status: ingestionSessions.workflow_step_status,
-        planning_plan_version: ingestionSessions.planning_plan_version,
-        planning_feedback_history: ingestionSessions.planning_feedback_history,
-      })
-      .from(ingestionSessions)
-      .where(
-        and(
-          eq(ingestionSessions.id, planningSessionId),
-          eq(ingestionSessions.tenant_id, session.tenant_id),
-        ),
-      )
-      .limit(1);
-
-    const row = rows[0];
-    if (!row) {
-      return c.json({ error: 'not_found', message: 'ingestion session not found' }, 404);
-    }
-
-    const currentState = readPlanningState(row.status);
-    if (row.workflow_step_status === 'cancelled') {
+    const row = existingSource[0];
+    const currentState = row ? readPlanningState(row.status) : 'uploaded';
+    const enqueueFailureState =
+      currentState === 'generating_plan' ? 'plan_generation_failed' : currentState;
+    if (row?.workflow_step_status === 'cancelled') {
       return c.json(
         {
           error: 'invalid_state',
           message: 'Cancelled upload sessions cannot generate a plan.',
         },
         409,
+      );
+    }
+
+    if (
+      currentState === 'generating_plan' &&
+      !isPlanGenerationStale(row?.planning_generation_started_at)
+    ) {
+      return c.json(
+        { ingestion_session_id: planningSessionId, planning_state: 'generating_plan' as const },
+        202,
       );
     }
 
@@ -1192,70 +1153,14 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
       );
     }
 
-    await db
-      .update(ingestionSessions)
-      .set({
-        status: 'generating_plan',
-        planning_goal: goal,
-        planning_intent: intent,
-      })
-      .where(
-        and(
-          eq(ingestionSessions.id, planningSessionId),
-          eq(ingestionSessions.tenant_id, session.tenant_id),
-        ),
-      );
-
-    const effectivePreviousPlan = previous_plan ?? null;
-
     try {
-      checkDeadline();
-      const plan = await generatePmoWorkflowPlan({
-        goal,
-        intent,
-        uploaded_file:
-          intent.dataSourceMode === 'uploaded_file' &&
-          row.source_file_key &&
-          row.source_file_name &&
-          row.mime_type
-            ? {
-                file_name: row.source_file_name,
-                file_size: formatFileSize(row.source_file_size_bytes ?? 0),
-                uploaded_at: asIso(row.created_at),
-                file_type: row.mime_type,
-              }
-            : null,
-        workflow_capabilities: {
-          can_parse_excel_workbook: true,
-          can_detect_sheet_roles: true,
-          can_propose_column_mappings: true,
-          can_normalize_to_staging: true,
-          can_compare_with_existing_database: true,
-          can_generate_db_change_summary: true,
-          can_publish_after_user_approval: true,
-        },
-        previous_plan: effectivePreviousPlan,
-        ...(effectivePlanFeedback ? { plan_feedback: effectivePlanFeedback } : {}),
-      });
-
-      const existingFeedback = Array.isArray(row.planning_feedback_history)
-        ? row.planning_feedback_history
-        : [];
-      const nextFeedback = effectivePlanFeedback
-        ? [...existingFeedback, effectivePlanFeedback]
-        : existingFeedback;
-      const nextVersion = (row.planning_plan_version ?? 0) + 1;
-
       await db
         .update(ingestionSessions)
         .set({
-          status: 'plan_review',
+          status: 'generating_plan',
           planning_goal: goal,
-          planning_intent: intent,
-          planning_plan: plan,
-          planning_plan_version: nextVersion,
-          planning_feedback_history: nextFeedback,
-          planning_last_generated_at: new Date(),
+          planning_generation_started_at: new Date(),
+          planning_generation_error: null,
         })
         .where(
           and(
@@ -1263,19 +1168,23 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
             eq(ingestionSessions.tenant_id, session.tenant_id),
           ),
         );
-
-      return c.json({
-        ingestion_session_id: planningSessionId,
-        planning_state: 'plan_review' as const,
-        plan,
-        plan_version: nextVersion,
-        feedback_history: nextFeedback,
+      await enqueuePlanGeneration(deps.workers, {
+        tenantId: session.tenant_id,
+        userId: session.user_id,
+        sessionId: planningSessionId,
+        goal,
+        ...(parsed.data.plan_feedback?.trim()
+          ? { planFeedback: parsed.data.plan_feedback.trim() }
+          : {}),
+        ...(previous_plan !== undefined ? { previousPlan: previous_plan } : {}),
       });
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       await db
         .update(ingestionSessions)
         .set({
-          status: currentState,
+          status: enqueueFailureState,
+          planning_generation_error: message,
         })
         .where(
           and(
@@ -1283,15 +1192,13 @@ export function buildPmoRoutes(): Hono<SessionEnv> {
             eq(ingestionSessions.tenant_id, session.tenant_id),
           ),
         );
-
-      const isTimeout =
-        (err as { code?: string }).code === 'route_timeout' ||
-        (err instanceof Error && err.name === 'AbortError');
-      const status = isTimeout ? 504 : 500;
-      const message = err instanceof Error ? err.message : String(err);
-      console.error('[pmo/plan/generate] error:', message, err);
-      return c.json({ error: isTimeout ? 'timeout' : 'plan_generation_failed', message }, status);
+      return c.json({ error: 'plan_enqueue_failed', message }, 503);
     }
+
+    return c.json(
+      { ingestion_session_id: planningSessionId, planning_state: 'generating_plan' as const },
+      202,
+    );
   });
 
   // Resolves intent-card questions before plan generation.

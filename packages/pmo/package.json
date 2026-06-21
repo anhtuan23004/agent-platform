@@ -27,6 +27,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:unit": "vitest run --config vitest.unit.config.ts",
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
     "db:check": "drizzle-kit check"
@@ -55,6 +56,7 @@
     "hono": "^4.12.25",
     "pg": "^8.21.0",
     "pino": "^10.3.1",
+    "playwright-core": "^1.61.0",
     "zod": "^4.4.3"
   }
 }

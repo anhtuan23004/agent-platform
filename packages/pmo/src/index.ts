@@ -1,3 +1,6 @@
+export { buildFindingSuggestedActions } from './backend/analytics/findings.ts';
+export type { PmoActionCode, SuggestedAction } from './backend/analytics/types.ts';
+export { PMO_ACTION_CODES, PMO_ACTION_TEMPLATES } from './backend/analytics/types.ts';
 export type {
   DefaultThresholdConfig,
   SeedPmoDefaultThresholdConfigsInput,
@@ -17,3 +20,45 @@ export {
   ensurePmo02MockSqliteDb,
   seedPmo02FromMockDbForTenant,
 } from './backend/demo/seed-from-mock-db.ts';
+export type {
+  CreateReportRunInput,
+  GenerateReportResult,
+  ReportOutputFormat,
+  ReportRunEnvelope,
+  ReportSourceMode,
+} from './backend/reporting/contracts.ts';
+export { createReportRun } from './backend/reporting/generate-report.ts';
+export type { ReportRunRecord, ReportRunStatus } from './backend/reporting/report-repository.ts';
+export { getReportRun, retryReportRun } from './backend/reporting/report-repository.ts';
+export type {
+  LegacyKpiNormRow,
+  LegacyThresholdConfigRow,
+  LegacyThresholdValues,
+  LoadPmoReportRuleCatalogOptions,
+  PmoReportMetricId,
+  PmoReportRagColor,
+  PmoReportRuleSet,
+  ReportRange,
+  ReportRuleSource,
+  ResolvedReportRules,
+  ResolveReportRulesInput,
+  RuleCompatibilityLogger,
+  RuleCompatibilityMismatch,
+} from './backend/reporting/rules/index.ts';
+export {
+  auditLegacyRuleCompatibility,
+  canonicalizeReportRules,
+  classifyReportMetric,
+  fileReportRuleSource,
+  hashReportRules,
+  loadPmoReportRuleCatalog,
+  mapReportRulesToLegacyThresholds,
+  PMO_REPORT_METRIC_IDS,
+  PmoReportRuleSetSchema,
+  REPORT_METRIC_FORMULAS,
+  ReportRangeSchema,
+  resetPmoReportRuleCatalogCacheForTests,
+  resolvePmoReportRuleCatalogDir,
+  resolveReportRules,
+  validateRuleSet,
+} from './backend/reporting/rules/index.ts';

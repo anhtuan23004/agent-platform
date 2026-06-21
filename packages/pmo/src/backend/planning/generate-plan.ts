@@ -179,10 +179,9 @@ export async function generatePmoWorkflowPlan(
         allowed_action_ids: intent.allowed_action_ids,
       }),
       {
-        modelSettings: { maxOutputTokens: 4096 },
+        modelSettings: { maxOutputTokens: 4096, temperature: 0 },
         abortSignal: ac.signal,
         structuredOutput: { schema: PmoWorkflowPlanSchema },
-        providerOptions: { openai: { temperature: 0 } },
       },
     );
 

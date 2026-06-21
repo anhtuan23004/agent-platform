@@ -30,6 +30,8 @@ export interface DynamicRuntimeSessionPatch {
   workflow_updated_at?: Date | null;
   finished_at?: Date | null;
   publish_reviewed_at?: Date | null;
+  publish_decision?: string | null;
+  publish_reviewed_by?: string | null;
   detected_schema?: unknown;
   confirmed_mapping?: unknown;
   change_summary?: unknown;

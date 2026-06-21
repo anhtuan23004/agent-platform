@@ -11,7 +11,7 @@ import {
 } from '../api/client';
 import { workflowRuntimeApi } from '../api/workflow-runtime';
 import { shortId } from '../pages/pmo-page.logic';
-import { isPmoSessionCancelable } from './pmo-session-cancel';
+import { isPmoSessionCancelable, isPmoSessionGeneratable } from './pmo-session-cancel';
 
 export interface UploadedWorkbookInfo {
   ingestionSessionId: string;
@@ -163,15 +163,9 @@ export function usePmoSessionActions(
       await loadSessions(true);
       setSelectedSessionId(generated.ingestion_session_id);
 
-      toast.success(
-        generated.planning_state === 'intent_review' ? 'Intent ready' : 'Plan generated',
-        {
-          description:
-            generated.planning_state === 'intent_review'
-              ? 'Confirm report date range before plan generation.'
-              : 'Upload history status moved to Plan Review.',
-        },
-      );
+      toast.success('Plan queued', {
+        description: 'Generation continues in the background. This page will update automatically.',
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Plan generation failed.';
       toast.error('Generate failed', { description: message });
@@ -183,7 +177,10 @@ export function usePmoSessionActions(
 
   const handleGeneratePlanForSession = useCallback(
     async (session: PmoPlanningSession) => {
-      if (session.planning_state !== 'uploaded') {
+      if (
+        session.planning_state !== 'uploaded' &&
+        session.planning_state !== 'plan_generation_failed'
+      ) {
         toast.error('Cannot generate plan', {
           description: 'Plan generation is available only for uploaded sessions.',
         });
@@ -235,9 +232,12 @@ export function usePmoSessionActions(
       return;
     }
 
-    if (selectedSession.planning_state !== 'plan_review') {
+    if (
+      selectedSession.planning_state !== 'plan_review' &&
+      selectedSession.planning_state !== 'plan_generation_failed'
+    ) {
       toast.error('Cannot regenerate', {
-        description: 'Plan can be regenerated only in Plan Review state.',
+        description: 'Plan can be regenerated from Plan Review or after a generation failure.',
       });
       return;
     }
@@ -261,8 +261,8 @@ export function usePmoSessionActions(
       });
 
       await loadSessions(true);
-      toast.success('Plan regenerated', {
-        description: 'Workflow stayed at Plan Review with a new plan version.',
+      toast.success('Plan queued', {
+        description: 'Generation continues in the background. This page will update automatically.',
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Plan regeneration failed.';
@@ -544,7 +544,7 @@ export function usePmoSessionActions(
   );
 
   const isSessionGeneratable = useCallback((run: PmoPlanningSession): boolean => {
-    return run.planning_state === 'uploaded' && run.workflow_step_status !== 'cancelled';
+    return isPmoSessionGeneratable(run);
   }, []);
 
   const handleCancelWorkflow = useCallback(

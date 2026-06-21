@@ -5,7 +5,7 @@ export const pmoNavManifest: NavManifest = {
   id: 'pmo',
   label: 'Pmo',
   icon: Box,
-  requiredPermissions: [],
+  requiredPermissions: ['pmo.data.read'],
   useNavExtensions: noNavExtensions,
   nav: [
     {

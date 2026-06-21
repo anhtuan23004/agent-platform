@@ -8,6 +8,7 @@ import { useToolCatalog } from '../../hooks/use-tool-catalog';
 import { ServerTimeRenderer } from './core.server-time';
 import { ListMyRolesRenderer } from './identity.list-my-roles';
 import { WhoAmIRenderer } from './identity.who-am-i';
+import { PmoGenerateReportRenderer } from './pmo.generate-report';
 import { summarizeArgs } from './summarize-args';
 
 function toReadState(
@@ -18,7 +19,12 @@ function toReadState(
   return 'input-streaming';
 }
 
-const DEDICATED_TOOL_IDS = new Set(['core_serverTime', 'identity_whoAmI', 'identity_listMyRoles']);
+const DEDICATED_TOOL_IDS = new Set([
+  'core_serverTime',
+  'identity_whoAmI',
+  'identity_listMyRoles',
+  'pmo_generateReport',
+]);
 
 function ServerTimeRegistration({ name }: { name: string }) {
   useAssistantToolUI({
@@ -59,6 +65,22 @@ function ListMyRolesRegistration({ name }: { name: string }) {
         args={props.args}
         state={toReadState(props)}
         output={(props.result ?? undefined) as Parameters<typeof ListMyRolesRenderer>[0]['output']}
+      />
+    ),
+  });
+  return null;
+}
+
+function PmoGenerateReportRegistration({ name }: { name: string }) {
+  useAssistantToolUI({
+    toolName: 'pmo_generateReport',
+    render: (props) => (
+      <PmoGenerateReportRenderer
+        name={name}
+        state={toReadState(props)}
+        output={
+          (props.result ?? undefined) as Parameters<typeof PmoGenerateReportRenderer>[0]['output']
+        }
       />
     ),
   });
@@ -115,6 +137,7 @@ export function ToolUIRegistry() {
       <ServerTimeRegistration name={nameFor('core_serverTime')} />
       <WhoAmIRegistration name={nameFor('identity_whoAmI')} />
       <ListMyRolesRegistration name={nameFor('identity_listMyRoles')} />
+      <PmoGenerateReportRegistration name={nameFor('pmo_generateReport')} />
       {tools
         .filter((t) => !DEDICATED_TOOL_IDS.has(t.id))
         .map((t) => (

@@ -1,17 +1,15 @@
 import { getLatestApprovedCheckpoint } from '@seta/ingestion';
 import {
-  type GeneratePmoReportOutput,
-  generatePmoReport,
-  type PmoReportSource,
-  type PmoReportType,
-} from '../../../analytics/report.ts';
-import {
   getPmoReportDateBounds,
   type PmoReportDateBounds,
 } from '../../../analytics/report-date-bounds.ts';
-import { pmoDb } from '../../../db/client.ts';
-import { reportRuns } from '../../../db/schema.ts';
 import type { ParsedSheet, WorkbookParseResult } from '../../../ingestion/parse-workbook.ts';
+import type {
+  LegacyReportType as PmoReportType,
+  ReportSourceMode,
+} from '../../../reporting/contracts.ts';
+import { createReportRun } from '../../../reporting/generate-report.ts';
+import { enqueueReportRunFromPool } from '../../../reporting/jobs/enqueue-report.ts';
 import { buildReportRangeCard } from '../cards.ts';
 import type { DynamicIngestRuntimeContext, PmoDynamicStepHandler } from '../types.ts';
 import type { DbChangeSummaryResult, DynamicHandlerDeps } from './common.ts';
@@ -183,42 +181,13 @@ function assertPublishedCheckpoint(runtimeContext: DynamicIngestRuntimeContext):
   }
 }
 
-async function persistReportRun(input: {
-  tenantId: string;
-  userId: string;
-  ingestionSessionId: string;
-  reportTypes: PmoReportType[];
-  report: GeneratePmoReportOutput;
-}): Promise<string | null> {
-  const dateRangeStart = parseDateLike(input.report.dateRange.from);
-  const dateRangeEnd = parseDateLike(input.report.dateRange.to);
-  if (!dateRangeStart || !dateRangeEnd) {
-    throw new Error('invalid_report_run_date_range');
-  }
-
-  const [row] = await pmoDb()
-    .insert(reportRuns)
-    .values({
-      tenant_id: input.tenantId,
-      ingestion_session_id: input.ingestionSessionId,
-      report_types: input.reportTypes,
-      date_range_start: dateRangeStart,
-      date_range_end: dateRangeEnd,
-      status: 'completed',
-      result_summary: input.report.summary,
-      result_payload: input.report,
-      created_by: input.userId,
-    })
-    .returning({ id: reportRuns.id });
-  return row?.id ?? null;
-}
-
 export function createGenerateReportHandler(
   deps: Pick<
     DynamicHandlerDeps,
     'resolveCardIdentity' | 'readPlannerStepMeta' | 'getWorkbookParseResult'
   > & {
-    persistReportRun?: typeof persistReportRun;
+    createReportRun?: typeof createReportRun;
+    enqueueReportRun?: typeof enqueueReportRunFromPool;
     getReportDateBounds?: typeof getPmoReportDateBounds;
   },
 ): PmoDynamicStepHandler {
@@ -226,8 +195,10 @@ export function createGenerateReportHandler(
     actionId: 'generate_report',
     execute: async (input) => {
       const intentRequest = readIntentReportRequest(input.planningPlan);
-      const reportSource: PmoReportSource =
-        (input.reportSource as PmoReportSource) ?? 'canonical_db';
+      const reportSource = input.reportSource ?? 'canonical_db';
+      if (reportSource === 'staging_preview') {
+        throw new Error('report_staging_preview_not_supported');
+      }
       const databaseOnly = reportSource === 'canonical_db';
       if (reportSource === 'published_batch') assertPublishedCheckpoint(input.runtimeContext);
 
@@ -248,28 +219,11 @@ export function createGenerateReportHandler(
             ? { ...intentRequest.dateRange, source: 'goal_explicit' as const }
             : null;
       const resumedRange = readDateRangeFromResume(input.resumeData);
-      let dateRange = resumedRange ?? explicitRange;
+      const dateRange = resumedRange ?? explicitRange;
       const databaseBounds = await (deps.getReportDateBounds ?? getPmoReportDateBounds)(
         input.tenantId,
       );
       if (!databaseBounds) throw new Error('report_date_bounds_unavailable');
-
-      if (
-        !dateRange &&
-        (reportSource === 'published_batch' || reportSource === 'staging_preview')
-      ) {
-        try {
-          const sheetRange = await resolveSuggestedRange({
-            reportingPeriodStart: input.reportingPeriodStart,
-            reportingPeriodEnd: input.reportingPeriodEnd,
-            getWorkbookParseResult: () => deps.getWorkbookParseResult(input),
-            runtimeContext: input.runtimeContext,
-          });
-          dateRange = { ...sheetRange, source: 'sheet_derived' };
-        } catch {
-          // For staging_preview, sheet-derived range is best-effort; fall through to ask user.
-        }
-      }
 
       if (!dateRange) {
         if (input.resumeData?.decision === 'reject') {
@@ -345,28 +299,23 @@ export function createGenerateReportHandler(
         };
       }
 
-      // Skip bounds check for staging_preview — staged data may extend beyond canonical DB range.
-      if (reportSource !== 'staging_preview') {
-        assertRangeWithinBounds(dateRange, databaseBounds);
-      }
+      assertRangeWithinBounds(dateRange, databaseBounds);
 
-      const report = await generatePmoReport({
+      const sourceMode: ReportSourceMode =
+        reportSource === 'published_batch' ? 'after_upload_publish' : 'canonical_db';
+      const reportRunId = await (deps.createReportRun ?? createReportRun)({
         tenantId: input.tenantId,
+        actorId: input.userId,
+        sourceMode,
         ingestionSessionId: input.ingestionSessionId,
         dateRange: {
           from: dateRange.from,
           to: dateRange.to,
         },
         reportTypes,
-        reportSource,
+        outputFormat: 'pdf',
       });
-      const reportRunId = await (deps.persistReportRun ?? persistReportRun)({
-        tenantId: input.tenantId,
-        userId: input.userId,
-        ingestionSessionId: input.ingestionSessionId,
-        reportTypes,
-        report,
-      });
+      await (deps.enqueueReportRun ?? enqueueReportRunFromPool)(input.tenantId, reportRunId, 'pdf');
 
       return {
         kind: 'completed',
@@ -377,23 +326,17 @@ export function createGenerateReportHandler(
             dateRange,
             suggestedDateRange: input.runtimeContext.report_request?.suggestedDateRange,
           },
-          report_result: report,
         },
         outputSummary: {
-          status: 'generated',
+          status: 'queued',
           report_run_id: reportRunId,
-          from: report.dateRange.from,
-          to: report.dateRange.to,
-          member_count: report.summary.memberCount,
-          overbook_count: report.summary.overbookCount,
-          idle_count: report.summary.idleCount,
-          finding_count: report.findings.length,
+          from: dateRange.from,
+          to: dateRange.to,
         },
         terminalOutput: {
           ingestionSessionId: input.ingestionSessionId,
           status: 'completed',
           reportRunId,
-          report,
         },
       };
     },

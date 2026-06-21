@@ -59,6 +59,7 @@ export function resolveThresholds(
     overbookThreshold: latest.overbook_threshold ?? DEFAULT_THRESHOLDS.overbookThreshold,
     overbookRedThreshold: latest.overbook_red_threshold ?? DEFAULT_THRESHOLDS.overbookRedThreshold,
     idleThreshold: latest.idle_threshold ?? DEFAULT_THRESHOLDS.idleThreshold,
+    idleYellowThreshold: DEFAULT_THRESHOLDS.idleYellowThreshold,
     mismatchPctThreshold: latest.mismatch_pct_threshold ?? DEFAULT_THRESHOLDS.mismatchPctThreshold,
     otMaxHoursPerWeek: latest.ot_max_hours_per_week ?? DEFAULT_THRESHOLDS.otMaxHoursPerWeek,
     requiredTrainingHours:
