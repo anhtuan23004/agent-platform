@@ -45,10 +45,6 @@ export interface WeekMetrics {
  *   N04 Bench       = max(0, available − planned) / available
  *   N05 Overtime    = overtime / standard
  *   N06 Effort      = logged / planned
- *
- * Because Busy/Effort divide by availability/plan directly, a holiday or
- * leave week inflates these ratios — those weeks are excluded at the
- * member-level aggregation step (see findings.ts), not neutralised here.
  */
 export function computeWeekMetrics(inputs: WeekMetricInputs): WeekMetrics {
   const {
@@ -63,9 +59,14 @@ export function computeWeekMetrics(inputs: WeekMetricInputs): WeekMetrics {
   } = inputs;
 
   const availableHours = computeAvailableHours(memberId, stdHoursWeek, week, leaves);
-  const plannedHours = computePlannedHours(allocations, week);
+  const plannedHours = computePlannedHours({
+    allocations,
+    week,
+    availableHours,
+    stdHoursWeek,
+  });
   const loggedHours = computeLoggedHours(timesheets, week);
-  const expectedLoggedHours = stdHoursWeek > 0 ? plannedHours * (availableHours / stdHoursWeek) : 0;
+  const expectedLoggedHours = plannedHours;
   const billableHours = computeBillableHours(timesheets, week);
   const trainingHours = computeTrainingHours(timesheets, week);
   const benchHours = Math.max(0, availableHours - plannedHours);
@@ -77,7 +78,7 @@ export function computeWeekMetrics(inputs: WeekMetricInputs): WeekMetrics {
   const overtimeRatio = stdHoursWeek > 0 ? overtimeHours / stdHoursWeek : null;
   const effortConsumption = plannedHours > 0 ? loggedHours / plannedHours : null;
   const trainingCompliance =
-    requiredTrainingHours > 0 ? Math.min(trainingHours / requiredTrainingHours, 1) : null;
+    requiredTrainingHours > 0 ? trainingHours / requiredTrainingHours : null;
 
   return {
     availableHours,

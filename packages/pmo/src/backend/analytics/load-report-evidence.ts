@@ -85,6 +85,7 @@ export async function loadReportEvidence(
         member_id: resourceAllocations.member_id,
         project_id: resourceAllocations.project_id,
         role: resourceAllocations.role,
+        allocation_pct: resourceAllocations.allocation_pct,
         weekly_planned_hours: resourceAllocations.weekly_planned_hours,
         start_date: resourceAllocations.start_date,
         end_date: resourceAllocations.end_date,

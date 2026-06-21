@@ -77,6 +77,7 @@ function evidence(sourcePlanned = 48, targetPlanned = 32): RebalanceEvidence {
         member_id: 'SRC',
         project_id: 'PRJ-1',
         role: 'BE',
+        allocation_pct: 0.4,
         weekly_planned_hours: 16,
         start_date: week.week_start,
         end_date: week.week_end,

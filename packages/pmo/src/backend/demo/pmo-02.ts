@@ -73,11 +73,12 @@ function proj(id: string): ProjectRow {
   };
 }
 
-function alloc(member: string, project: string, hours: number): AllocationRow {
+function alloc(member: string, project: string, hours: number, stdHoursWeek = 40): AllocationRow {
   return {
     member_id: member,
     project_id: project,
     role: null,
+    allocation_pct: hours / stdHoursWeek,
     weekly_planned_hours: hours,
     start_date: PMO_02_WINDOW.start,
     end_date: PMO_02_WINDOW.end,
@@ -148,7 +149,7 @@ export function buildPmo02AnswerKeyFixture(): {
       alloc('EMP-005', 'PRJ-002', 12),
       alloc('EMP-008', 'PRJ-002', 20),
       alloc('EMP-006', 'PRJ-001', 38),
-      alloc('EMP-007', 'PRJ-002', 16),
+      alloc('EMP-007', 'PRJ-002', 16, 20),
       { ...alloc('EMP-009', 'PRJ-002', 32), start_date: d('2026-07-13') },
       alloc('EMP-010', 'PRJ-001', 24),
       alloc('EMP-010', 'PRJ-002', 20),

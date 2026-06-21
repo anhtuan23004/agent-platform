@@ -40,6 +40,7 @@ export interface AllocationRow {
   member_id: string;
   project_id: string;
   role?: string | null;
+  allocation_pct: number | null;
   weekly_planned_hours: number | null;
   start_date: Date;
   end_date: Date;
