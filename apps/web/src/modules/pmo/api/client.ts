@@ -397,6 +397,7 @@ export interface PmoPlanningSession {
     | 'uploaded'
     | 'intent_review'
     | 'generating_plan'
+    | 'plan_generation_failed'
     | 'plan_review'
     | 'approved_plan';
   status_label: string;
@@ -408,6 +409,7 @@ export interface PmoPlanningSession {
   plan: PmoPlan | null;
   plan_version: number;
   feedback_history: string[];
+  planning_generation_error?: string | null;
   execution_state: PmoWorkflowExecutionState | null;
   profiling_documents: PmoSessionDocumentProfileRecord[];
   profiling_summary: PmoWorkbookProfilingSessionSummary | null;
@@ -439,11 +441,7 @@ export interface GeneratePlanInput {
 
 export interface GeneratePlanResponse {
   ingestion_session_id: string;
-  planning_state: 'intent_review' | 'plan_review';
-  intent?: PmoPlan['intent_analysis'];
-  plan: PmoPlan | null;
-  plan_version: number;
-  feedback_history: string[];
+  planning_state: 'generating_plan';
 }
 
 export interface ApprovePlanResponse {

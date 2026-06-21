@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { PmoPlanningSession } from '../../../../../src/modules/pmo/api/client';
-import { isPmoSessionCancelable } from '../../../../../src/modules/pmo/hooks/pmo-session-cancel';
+import {
+  isPmoSessionCancelable,
+  isPmoSessionGeneratable,
+} from '../../../../../src/modules/pmo/hooks/pmo-session-cancel';
 
 function session(overrides: Partial<PmoPlanningSession> = {}): PmoPlanningSession {
   return {
@@ -60,5 +63,17 @@ describe('isPmoSessionCancelable', () => {
         'success',
       ),
     ).toBe(false);
+  });
+});
+
+describe('isPmoSessionGeneratable', () => {
+  it('allows a failed plan job to be retried', () => {
+    expect(isPmoSessionGeneratable(session({ planning_state: 'plan_generation_failed' }))).toBe(
+      true,
+    );
+  });
+
+  it('locks generation while the background job is active', () => {
+    expect(isPmoSessionGeneratable(session({ planning_state: 'generating_plan' }))).toBe(false);
   });
 });

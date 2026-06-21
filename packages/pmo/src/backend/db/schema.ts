@@ -50,6 +50,10 @@ export const ingestionSessions = pmoSchema.table(
     planning_plan_version: integer('planning_plan_version').notNull().default(0),
     planning_feedback_history: jsonb('planning_feedback_history'),
     planning_last_generated_at: timestamp('planning_last_generated_at', { withTimezone: true }),
+    planning_generation_started_at: timestamp('planning_generation_started_at', {
+      withTimezone: true,
+    }),
+    planning_generation_error: text('planning_generation_error'),
     planning_approved_at: timestamp('planning_approved_at', { withTimezone: true }),
     workflow_execution_state: jsonb('workflow_execution_state'),
     profiling_documents: jsonb('profiling_documents'),

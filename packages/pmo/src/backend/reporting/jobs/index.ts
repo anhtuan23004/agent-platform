@@ -1,3 +1,4 @@
+import { runPlanGenerationJob } from '../../planning/jobs/generate-plan.ts';
 import { computeReportPayload } from '../generate-report.ts';
 import { renderPdfReportJob } from './render-pdf.ts';
 
@@ -7,6 +8,9 @@ interface ComputeReportPayload {
 }
 
 export const pmoReportJobs = {
+  'pmo.plan.generate': async (rawPayload: unknown) => {
+    await runPlanGenerationJob(rawPayload);
+  },
   'pmo.report.compute': async (rawPayload: unknown) => {
     const payload = rawPayload as ComputeReportPayload;
     if (!payload.tenant_id || !payload.report_run_id) {

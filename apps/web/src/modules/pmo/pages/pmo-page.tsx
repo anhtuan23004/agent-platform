@@ -65,7 +65,8 @@ export function PmoPage() {
     : '';
 
   const selectedUploadedSessionId =
-    selectedSession?.planning_state === 'uploaded' &&
+    (selectedSession?.planning_state === 'uploaded' ||
+      selectedSession?.planning_state === 'plan_generation_failed') &&
     selectedSession.workflow_step_status !== 'cancelled'
       ? selectedSession.ingestion_session_id
       : null;
@@ -241,6 +242,8 @@ export function PmoPage() {
     refreshWorkflowRuntime,
     runtimeRunBySessionId,
   });
+  const planGenerationActive =
+    isGenerating || selectedSession?.planning_state === 'generating_plan';
 
   const {
     editingMappingKey,
@@ -306,6 +309,14 @@ export function PmoPage() {
       window.clearTimeout(timer);
     };
   }, [loadSessions]);
+
+  useEffect(() => {
+    if (!sessions.some((session) => session.planning_state === 'generating_plan')) return;
+    const timer = window.setInterval(() => {
+      void loadSessions(true);
+    }, 2_000);
+    return () => window.clearInterval(timer);
+  }, [loadSessions, sessions]);
 
   const handleSelectProfilingArea = useCallback(
     (documentId: string, sheetName: string, selectedArea: PmoProfilingArea) => {
@@ -481,7 +492,7 @@ export function PmoPage() {
                     value={reportingPeriodKey}
                     onChange={(e) => setReportingPeriodKey(e.target.value)}
                     placeholder="e.g. 2025-W35"
-                    disabled={isUploading || isGenerating}
+                    disabled={isUploading || planGenerationActive}
                   />
                 </div>
 
@@ -498,7 +509,7 @@ export function PmoPage() {
                     onChange={(e) => setGoalDraft(e.target.value)}
                     className="resize-none"
                     placeholder="Describe an ingest workflow or a report to generate from PMO data."
-                    disabled={isGenerating}
+                    disabled={planGenerationActive}
                   />
                 </div>
 
@@ -508,9 +519,11 @@ export function PmoPage() {
                     size="sm"
                     variant="primary"
                     onClick={handleAnalyzeGeneratePlan}
-                    disabled={(!targetGenerateSessionId && !goalDraft.trim()) || isGenerating}
+                    disabled={
+                      (!targetGenerateSessionId && !goalDraft.trim()) || planGenerationActive
+                    }
                   >
-                    {isGenerating ? (
+                    {planGenerationActive ? (
                       <>
                         <Loader2 className="size-4 animate-spin" />
                         Generating plan...
@@ -608,7 +621,7 @@ export function PmoPage() {
                       [selectedSession.ingestion_session_id]: nextValue,
                     }));
                   }}
-                  isGenerating={isGenerating}
+                  isGenerating={planGenerationActive}
                   isApproving={isApproving}
                   isConfirmingIntent={isConfirmingIntent}
                   onConfirmIntent={handleConfirmPlanIntent}

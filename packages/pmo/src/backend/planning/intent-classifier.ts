@@ -189,6 +189,8 @@ export async function classifyPmoPlanningIntent(
     instructions: buildIntentPrompt(catalog),
     model: resolvePlanningModel(),
   });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 55_000);
 
   try {
     const classifierInput: Record<string, unknown> = {
@@ -199,14 +201,18 @@ export async function classifyPmoPlanningIntent(
       classifierInput.plan_feedback = context.planFeedback;
     }
     const result = await classifier.generate(JSON.stringify(classifierInput), {
+      abortSignal: controller.signal,
       structuredOutput: { schema: PmoIntentClassificationSchema },
       providerOptions: { openai: { reasoningSummary: 'auto', temperature: 0 } },
     });
     if (!result.object) return fallbackIntent(catalog, context, 'No structured intent output.');
     return validatePmoPlanningIntent(catalog, result.object, context);
   } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') throw error;
     const message = error instanceof Error ? error.message : String(error);
     return fallbackIntent(catalog, context, `Intent classifier failed: ${message}`);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
