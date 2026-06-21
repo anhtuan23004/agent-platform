@@ -159,11 +159,12 @@ export async function classifyPmoPlanningIntent(
   context: PmoIntentValidationContext = { hasUploadedFile: true },
 ): Promise<ClassifiedPmoIntent> {
   const catalog = loadPmoPlannerCatalog();
+  const model = resolvePlanningModel();
   const classifier = new Agent({
     id: 'pmo.workflowIntentClassifier',
     name: 'PMO Workflow Intent Classifier',
     instructions: buildIntentPrompt(catalog),
-    model: resolvePlanningModel(),
+    model,
   });
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 55_000);
@@ -178,11 +179,15 @@ export async function classifyPmoPlanningIntent(
     }
     const result = await classifier.generate(JSON.stringify(classifierInput), {
       abortSignal: controller.signal,
+      modelSettings: { temperature: 0 },
       structuredOutput: { schema: PmoIntentClassificationSchema },
-      providerOptions: { openai: { reasoningSummary: 'auto', temperature: 0 } },
+      providerOptions: { openai: { reasoningSummary: 'auto' } },
     });
     if (!result.object) {
-      throw new Error('Intent classifier returned no structured output');
+      const preview = result.text?.slice(0, 500) ?? '(empty)';
+      throw new Error(
+        `Intent classifier (model=${model}) returned no structured output. Raw: ${preview}`,
+      );
     }
     return validatePmoPlanningIntent(catalog, result.object, context);
   } finally {
