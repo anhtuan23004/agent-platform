@@ -1,21 +1,28 @@
 import { appendCheckpoint, approveProposal, createProposal } from '@seta/ingestion';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { generatePmoReport } from '../../../../src/backend/analytics/report.ts';
 import type { DbChangeSummaryResult } from '../../../../src/backend/workflows/ingest-data-v2/handlers/common.ts';
 import { createGenerateReportHandler } from '../../../../src/backend/workflows/ingest-data-v2/handlers/generate-report.ts';
 import type { PmoDynamicHandlerInput } from '../../../../src/backend/workflows/ingest-data-v2/types.ts';
 
-vi.mock('../../../../src/backend/analytics/report.ts', () => ({
-  generatePmoReport: vi.fn(async () => ({
+const mockGenerateReport = vi.fn(async () => ({
+  reportRunId: '44444444-4444-4444-4444-444444444444',
+  report: {
     dateRange: { from: '2026-06-01', to: '2026-06-30' },
+    sourceVersion: {
+      factsVersion: 'facts-v1',
+      canonicalDataVersion: 'canonical-v1',
+      factsComputedAt: '2026-06-30T00:00:00.000Z',
+    },
     summary: {
       memberCount: 2,
       overbookCount: 1,
       idleCount: 1,
       excludedWeekCount: 0,
     },
+    members: [],
     findings: [],
-  })),
+    recommendations: [],
+  },
 }));
 
 const baseStep = {
@@ -68,7 +75,7 @@ const deps = {
     userId: '22222222-2222-2222-2222-222222222222',
   }),
   readPlannerStepMeta: async () => null,
-  persistReportRun: vi.fn(async () => '44444444-4444-4444-4444-444444444444'),
+  generateReport: mockGenerateReport,
   getWorkbookParseResult: async () => ({
     sheets: [
       {
@@ -124,15 +131,14 @@ function makeInput(overrides: Partial<PmoDynamicHandlerInput> = {}): PmoDynamicH
 
 describe('createGenerateReportHandler', () => {
   beforeEach(() => {
-    vi.mocked(generatePmoReport).mockClear();
-    deps.persistReportRun.mockClear();
+    mockGenerateReport.mockClear();
   });
 
   it('uses published-batch sheet dates without early intent confirmation', async () => {
     const result = await createGenerateReportHandler(deps).execute(makeInput());
 
     expect(result.kind).toBe('completed');
-    expect(generatePmoReport).toHaveBeenCalledWith(
+    expect(mockGenerateReport).toHaveBeenCalledWith(
       expect.objectContaining({ dateRange: { from: '2026-06-01', to: '2026-06-30' } }),
     );
   });
@@ -149,12 +155,13 @@ describe('createGenerateReportHandler', () => {
 
     expect(result.kind).toBe('completed');
     if (result.kind !== 'completed') throw new Error('expected completed');
-    expect(generatePmoReport).toHaveBeenCalledWith({
+    expect(mockGenerateReport).toHaveBeenCalledWith({
       tenantId: '11111111-1111-1111-1111-111111111111',
+      actorId: '22222222-2222-2222-2222-222222222222',
+      sourceMode: 'after_upload_publish',
       ingestionSessionId: '33333333-3333-3333-3333-333333333333',
       dateRange: { from: '2026-06-01', to: '2026-06-30' },
       reportTypes: ['idle_members', 'overbook_members'],
-      reportSource: 'published_batch',
     });
     expect(result.runtimeContextPatch?.report_result?.summary).toMatchObject({
       overbookCount: 1,
@@ -179,7 +186,7 @@ describe('createGenerateReportHandler', () => {
     );
 
     expect(result.kind).toBe('completed');
-    expect(generatePmoReport).toHaveBeenCalledWith(
+    expect(mockGenerateReport).toHaveBeenCalledWith(
       expect.objectContaining({ dateRange: { from: '2026-06-05', to: '2026-06-20' } }),
     );
   });
@@ -207,7 +214,7 @@ describe('createGenerateReportHandler', () => {
     );
 
     expect(result.kind).toBe('completed');
-    expect(generatePmoReport).toHaveBeenCalledWith(
+    expect(mockGenerateReport).toHaveBeenCalledWith(
       expect.objectContaining({ dateRange: { from: '2026-06-01', to: '2026-06-30' } }),
     );
   });
@@ -243,89 +250,13 @@ describe('createGenerateReportHandler', () => {
     expect(JSON.stringify(result.card.details)).toContain('2026-11-30');
   });
 
-  it('generates a staging-preview report using sheet-derived dates', async () => {
-    const result = await createGenerateReportHandler(deps).execute(
-      makeInput({
-        planningPlan: {
-          intent_analysis: {
-            dataSourceMode: 'uploaded_file',
-            actionMode: 'generate_report',
-            extractedDateRange: { from: '2026-06-01', to: '2026-06-30' },
-            extractedReportTypes: ['idle_members', 'overbook_members'],
-          },
-        },
-        reportSource: 'staging_preview',
-        runtimeContext: {
-          confirmed_mapping: {
-            confirmedMappings: [
-              {
-                tableId: 'timesheet',
-                sourceSheet: 'Timesheets',
-                mappings: [{ canonicalField: 'work_date', sourceColumn: 'Work Date' }],
-              },
-            ],
-            mappingReviewRows: [],
-          },
-        },
-      }),
-    );
-
-    expect(result.kind).toBe('completed');
-    expect(generatePmoReport).toHaveBeenCalledWith(
-      expect.objectContaining({
-        dateRange: { from: '2026-06-01', to: '2026-06-30' },
-        reportSource: 'staging_preview',
-      }),
-    );
-  });
-
-  it('suspends staging-preview report without explicit date range for user input', async () => {
-    const result = await createGenerateReportHandler({
-      ...deps,
-      getWorkbookParseResult: async () => ({
-        sheets: [
-          {
-            name: 'Members',
-            rowCount: 1,
-            colCount: 2,
-            headerRow: 1,
-            headers: ['Name', 'Role'],
-            columns: [],
-            rows: [{ Name: 'Alice', Role: 'Dev' }],
-            sampleDataRows: [],
-            warnings: [],
-          },
-        ],
-        excludedSheets: [],
-        parseErrors: [],
-      }),
-    }).execute(
-      makeInput({
-        planningPlan: {
-          intent_analysis: {
-            dataSourceMode: 'uploaded_file',
-            actionMode: 'generate_report',
-          },
-        },
-        reportSource: 'staging_preview',
-        runtimeContext: {
-          confirmed_mapping: {
-            confirmedMappings: [
-              {
-                tableId: 'member_master',
-                sourceSheet: 'Members',
-                mappings: [{ canonicalField: 'full_name', sourceColumn: 'Name' }],
-              },
-            ],
-            mappingReviewRows: [],
-          },
-        },
-      }),
-    );
-
-    expect(result.kind).toBe('suspend');
-    if (result.kind !== 'suspend') throw new Error('expected suspend');
-    expect(result.sessionStatus).toBe('awaiting_report_range');
+  it('rejects deprecated staging-preview report source', async () => {
+    await expect(
+      createGenerateReportHandler(deps).execute(
+        makeInput({ reportSource: 'staging_preview', runtimeContext: {} }),
+      ),
+    ).rejects.toThrow('report_staging_preview_not_supported');
+    expect(mockGenerateReport).not.toHaveBeenCalled();
   });
 
   it('rejects an LLM-extracted range outside the tenant database bounds', async () => {

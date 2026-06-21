@@ -94,12 +94,13 @@ RUN cp -R apps/server/src /out/apps/server/src \
 # ============================================================================
 FROM node:24-alpine AS runtime
 
-RUN apk add --no-cache tini sqlite \
+RUN apk add --no-cache chromium font-noto font-noto-cjk tini sqlite \
  && addgroup -g 10001 seta \
  && adduser -D -u 10001 -G seta seta
 
 ENV NODE_ENV=production \
     APP_HOME=/app \
+    CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser \
     PORT=3000
 
 WORKDIR /app

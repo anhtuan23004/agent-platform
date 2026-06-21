@@ -28,9 +28,24 @@ axes into a deterministic catalog step chain.
 - `@seta/pmo/contracts` — browser-safe DTOs + zod schemas
 - `@seta/pmo/register` — `ContributionRegistry` hook (Node)
 
+## Report delivery
+
+- `POST /api/pmo/v1/reports` creates a tenant-scoped canonical-data report and enqueues JSON or PDF
+  work. Caller supplies an explicit date range inside canonical bounds; tenant comes only from the
+  authenticated session.
+- `GET /api/pmo/v1/reports/:id` returns durable status, summary counts, failure detail, and artifact
+  availability. It never returns PDF bytes.
+- `GET /api/pmo/v1/reports/:id/download?format=pdf|html` redirects to a private S3 GET signed for
+  five minutes with a safe attachment filename.
+- `POST /api/pmo/v1/reports/:id/retry` requeues failed runs. Graphile job keys and S3 keys are stable
+  per report run, so retry is idempotent.
+- All report endpoints require `pmo.data.read` and scope every DB lookup to session tenant.
+
 ## Events emitted
 
-_(none yet)_
+- `pmo.report.requested`
+- `pmo.report.completed`
+- `pmo.report.failed`
 
 ## Events consumed
 

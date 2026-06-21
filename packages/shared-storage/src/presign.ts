@@ -14,6 +14,8 @@ export interface PresignedDownloadOptions {
   bucket: string;
   key: string;
   expiresInSeconds: number;
+  responseContentDisposition?: string;
+  responseContentType?: string;
 }
 
 export interface PresignDeps {
@@ -44,7 +46,14 @@ export async function presignedDownloadUrl(
 ): Promise<string> {
   const client = getS3Client();
   const signer = deps.getSignedUrl ?? defaultGetSignedUrl;
-  return signer(client, new GetObjectCommand({ Bucket: opts.bucket, Key: opts.key }), {
-    expiresIn: opts.expiresInSeconds,
-  });
+  return signer(
+    client,
+    new GetObjectCommand({
+      Bucket: opts.bucket,
+      Key: opts.key,
+      ResponseContentDisposition: opts.responseContentDisposition,
+      ResponseContentType: opts.responseContentType,
+    }),
+    { expiresIn: opts.expiresInSeconds },
+  );
 }

@@ -1,5 +1,5 @@
 import { PutObjectCommand } from '@aws-sdk/client-s3';
-import type { SessionEnv } from '@seta/core';
+import type { RouteBuildDeps, SessionEnv } from '@seta/core';
 import { buildTenantKey, getS3Client, presignedUploadUrl } from '@seta/shared-storage';
 import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
@@ -33,6 +33,7 @@ import {
   type WorkflowExecutionStep,
 } from '../profiling/workbook-profiling.ts';
 import { registerDemoAnalyticsRoutes } from './demo-analytics-route.ts';
+import { registerPmoReportRoutes } from './report-routes.ts';
 
 type PlanningState =
   | 'uploaded'
@@ -761,8 +762,10 @@ function readProfilingReviewState(raw: unknown): ProfilingReviewState | null {
 
 // ── Routes ───────────────────────────────────────────────────────────────────
 
-export function buildPmoRoutes(): Hono<SessionEnv> {
+export function buildPmoRoutes(deps: RouteBuildDeps): Hono<SessionEnv> {
   const app = new Hono<SessionEnv>();
+
+  registerPmoReportRoutes(app, { workers: deps.workers });
 
   // POST /api/pmo/v1/upload-url
   // Returns a presigned S3 URL for the client to upload the Excel file,

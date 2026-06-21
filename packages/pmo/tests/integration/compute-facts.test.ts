@@ -222,10 +222,10 @@ describe('pmo analytics — compute + detect (DB)', () => {
         const obi = detectOverbookIdle(persisted, ctx);
         const emp004 = obi.find((f) => f.memberId === 'EMP-004');
         expect(emp004?.issueType).toBe('overbook');
-        expect(emp004?.busyRate).toBeCloseTo(1.25, 2);
+        expect(emp004?.busyRate).toBeCloseTo(300 / 232, 2);
         const emp005 = obi.find((f) => f.memberId === 'EMP-005');
         expect(emp005?.issueType).toBe('idle');
-        expect(emp005?.busyRate).toBeCloseTo(0.6, 2);
+        expect(emp005?.busyRate).toBeCloseTo(144 / 232, 2);
 
         // ── Mismatch ───────────────────────────────────────────────────────
         const mm = detectMismatch(persisted, ctx);

@@ -36,6 +36,42 @@ export interface UploadWorkbookResponse {
   message?: string;
 }
 
+export type PmoReportRunStatus = 'queued' | 'computing' | 'rendering' | 'completed' | 'failed';
+
+export interface PmoReportStatusResponse {
+  reportRunId: string;
+  status: PmoReportRunStatus;
+  dateRange: { from: string; to: string };
+  outputFormat: 'json' | 'pdf';
+  summary: {
+    memberCount: number;
+    overbookCount: number;
+    idleCount: number;
+    excludedWeekCount: number;
+  } | null;
+  findingCounts: { red: number; yellow: number; idle: number; overbook: number } | null;
+  artifacts: Record<
+    'html' | 'pdf',
+    {
+      available: boolean;
+      sizeBytes: number | null;
+      sha256: string | null;
+      downloadUrl: string | null;
+    }
+  >;
+  failure: { code: string | null; message: string | null } | null;
+  retryAllowed: boolean;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+}
+
+export interface CreatePmoReportInput {
+  dateRange: { from: string; to: string };
+  reportTypes?: Array<'idle' | 'overbook'>;
+  recommendationCandidateCount?: number;
+}
+
 async function uploadWorkbookThroughProxy(
   file: File,
   options: UploadWorkbookOptions,
@@ -489,6 +525,31 @@ export interface UploadWorkbookOptions {
 }
 
 export const pmoApi = {
+  async createReport(input: CreatePmoReportInput): Promise<PmoReportStatusResponse> {
+    const res = await fetch('/api/pmo/v1/reports', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...input, outputFormat: 'pdf' }),
+    });
+    return jsonOrThrow<PmoReportStatusResponse>(res);
+  },
+
+  async getReport(reportRunId: string): Promise<PmoReportStatusResponse> {
+    const res = await fetch(`/api/pmo/v1/reports/${encodeURIComponent(reportRunId)}`, {
+      credentials: 'include',
+    });
+    return jsonOrThrow<PmoReportStatusResponse>(res);
+  },
+
+  async retryReport(reportRunId: string): Promise<PmoReportStatusResponse> {
+    const res = await fetch(`/api/pmo/v1/reports/${encodeURIComponent(reportRunId)}/retry`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+    return jsonOrThrow<PmoReportStatusResponse>(res);
+  },
+
   async uploadWorkbook(
     file: File,
     reportingPeriodKeyOrOptions?: string | UploadWorkbookOptions,

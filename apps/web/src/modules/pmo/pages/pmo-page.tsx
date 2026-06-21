@@ -7,6 +7,7 @@ import {
   type PmoProfilingArea,
   pmoApi,
 } from '../api/client';
+import { PmoReportPanel } from '../components/pmo-report-panel';
 import { PmoSessionHistoryPanel } from '../components/pmo-session-history-panel';
 import { PmoWorkflowCardsSection } from '../components/pmo-workflow-cards-section';
 import { usePmoMappingReviewActions } from '../hooks/use-pmo-mapping-review-actions';
@@ -567,6 +568,8 @@ export function PmoPage() {
               </section>
             ) : null}
           </section>
+
+          <PmoReportPanel />
 
           <PmoSessionHistoryPanel
             sessions={sessionsForHistory}

@@ -27,7 +27,7 @@ export function classifyRag(metrics: Metrics, thresholds: Thresholds): Classific
 
   // ── Overbook / idle (busy) ────────────────────────────────────────────────
   if (busyRate !== null) {
-    if (busyRate > thresholds.overbookRedThreshold) {
+    if (busyRate >= thresholds.overbookRedThreshold) {
       return { ragColor: 'red', issueType: 'overbook' };
     }
     if (busyRate > thresholds.overbookThreshold) {
@@ -35,6 +35,9 @@ export function classifyRag(metrics: Metrics, thresholds: Thresholds): Classific
     }
     if (busyRate < thresholds.idleThreshold) {
       return { ragColor: 'red', issueType: 'idle' };
+    }
+    if (busyRate < thresholds.idleYellowThreshold) {
+      return { ragColor: 'yellow', issueType: 'idle' };
     }
   }
 

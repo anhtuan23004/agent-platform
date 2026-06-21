@@ -122,7 +122,7 @@ describe('PMO_02 analytics — Answer_Key F-07..F-17', () => {
       thresholds: DEFAULT_THRESHOLDS,
     });
     const finding = maybeFinding(detectOverbookIdle(facts, ctx()), 'EMP-004');
-    expect(finding?.busyRate).toBe(1.25);
+    expect(finding?.busyRate).toBeCloseTo(300 / 232, 4);
     expect(finding?.issueType).toBe('overbook');
     expect(finding?.ragColor).toBe('red');
   });
@@ -137,7 +137,7 @@ describe('PMO_02 analytics — Answer_Key F-07..F-17', () => {
       thresholds: DEFAULT_THRESHOLDS,
     });
     const finding = maybeFinding(detectOverbookIdle(facts, ctx()), 'EMP-001');
-    expect(finding?.busyRate).toBeCloseTo(1.15, 5);
+    expect(finding?.busyRate).toBeCloseTo(276 / 232, 4);
     expect(finding?.issueType).toBe('overbook');
     expect(finding?.ragColor).toBe('yellow');
   });
@@ -157,9 +157,9 @@ describe('PMO_02 analytics — Answer_Key F-07..F-17', () => {
     });
     const findings = detectOverbookIdle(facts, ctx());
     expect(maybeFinding(findings, 'EMP-005')?.issueType).toBe('idle');
-    expect(maybeFinding(findings, 'EMP-005')?.busyRate).toBe(0.6);
+    expect(maybeFinding(findings, 'EMP-005')?.busyRate).toBeCloseTo(144 / 232, 4);
     expect(maybeFinding(findings, 'EMP-008')?.issueType).toBe('idle');
-    expect(maybeFinding(findings, 'EMP-008')?.busyRate).toBe(0.5);
+    expect(maybeFinding(findings, 'EMP-008')?.busyRate).toBeCloseTo(120 / 232, 4);
   });
 
   it('F-11 EMP-002: mismatch_under (EC ~53%)', () => {
@@ -179,7 +179,7 @@ describe('PMO_02 analytics — Answer_Key F-07..F-17', () => {
     expect(finding?.effortConsumption).toBeGreaterThan(0.45);
   });
 
-  it('F-12 EMP-006: mismatch_over, genuine (no approved OT; holiday week excluded)', () => {
+  it('F-12 EMP-006: mismatch_over, partial holiday remains in ratio-of-sums', () => {
     const facts = buildMemberWeekFacts({
       members: [ftMember('EMP-006')],
       allocations: [alloc('EMP-006', 'PRJ-001', 38)],
@@ -191,10 +191,10 @@ describe('PMO_02 analytics — Answer_Key F-07..F-17', () => {
     const finding = maybeFinding(detectMismatch(facts, ctx()), 'EMP-006');
     expect(finding?.issueType).toBe('mismatch_over');
     expect(finding?.effortConsumption).toBeGreaterThan(1.2);
-    expect(finding?.excludedWeeks).toEqual([{ weekId: 'W3', reason: 'holiday_week' }]);
+    expect(finding?.excludedWeeks).toEqual([]);
   });
 
-  it('F-13 EMP-003: leave + approved OT → NOT flagged; weeks excluded with reasons', () => {
+  it('F-13 EMP-003: full leave excluded; approved OT retained as annotation', () => {
     const leaves: LeaveRow[] = [
       ...['2026-07-06', '2026-07-07', '2026-07-08', '2026-07-09', '2026-07-10'].map((day) => ({
         member_id: 'EMP-003',
@@ -227,10 +227,10 @@ describe('PMO_02 analytics — Answer_Key F-07..F-17', () => {
     expect(maybeFinding(detectMismatch(facts, ctx(leaves)), 'EMP-003')).toBeUndefined();
     expect(maybeFinding(detectOverbookIdle(facts, ctx(leaves)), 'EMP-003')).toBeUndefined();
 
-    // Excluded weeks recorded with reasons
+    // Full leave excluded; approved OT retained as supporting context.
     const analysis = analyzeMembers(facts, ctx(leaves)).find((a) => a.memberId === 'EMP-003');
     expect(analysis?.excludedWeeks).toContainEqual({ weekId: 'W2', reason: 'approved_leave' });
-    expect(analysis?.excludedWeeks).toContainEqual({ weekId: 'W5', reason: 'approved_ot' });
+    expect(analysis?.annotations).toContainEqual({ weekId: 'W5', reason: 'approved_ot' });
   });
 
   it('F-14 W3 holiday week: proportional log is NOT flagged', () => {
@@ -244,10 +244,10 @@ describe('PMO_02 analytics — Answer_Key F-07..F-17', () => {
     });
     const w3 = factOf(facts, 'EMP-XX', 'W3');
     expect(w3.availableHours).toBe(32); // 40 × 4/5
-    // Per-week N06 is logged / planned; holiday weeks are excluded at member-level aggregation.
+    // Partial holiday adjusts available hours and remains in member-level aggregation.
     expect(w3.effortConsumption).toBeCloseTo(0.8, 5); // 32 / 40
     const analysis = analyzeMembers(facts, ctx()).find((a) => a.memberId === 'EMP-XX');
-    expect(analysis?.excludedWeeks).toContainEqual({ weekId: 'W3', reason: 'holiday_week' });
+    expect(analysis?.excludedWeeks).toEqual([]);
     expect(maybeFinding(detectMismatch(facts, ctx()), 'EMP-XX')).toBeUndefined();
   });
 
@@ -263,8 +263,8 @@ describe('PMO_02 analytics — Answer_Key F-07..F-17', () => {
     expect(factOf(facts, 'EMP-009', 'W1').scopeStatus).toBe('PRE_HIRE');
     expect(factOf(facts, 'EMP-009', 'W2').scopeStatus).toBe('PRE_HIRE');
     expect(factOf(facts, 'EMP-009', 'W3').scopeStatus).toBe('IN_SCOPE');
-    // busy 32/40 = 0.8 → not idle, not overbook
-    expect(maybeFinding(detectOverbookIdle(facts, ctx()), 'EMP-009')).toBeUndefined();
+    const finding = maybeFinding(detectOverbookIdle(facts, ctx()), 'EMP-009');
+    expect(finding).toMatchObject({ issueType: 'idle', ragColor: 'yellow' });
   });
 
   it('F-16 EMP-010: deduped RA sums to 44h (busy 110% OK), not 64h', () => {
@@ -278,11 +278,14 @@ describe('PMO_02 analytics — Answer_Key F-07..F-17', () => {
     });
     expect(factOf(facts, 'EMP-010', 'W1').plannedHours).toBe(44);
     expect(factOf(facts, 'EMP-010', 'W1').busyRate).toBeCloseTo(1.1, 5);
-    // 1.10 is not > 1.10 → no overbook finding
-    expect(maybeFinding(detectOverbookIdle(facts, ctx()), 'EMP-010')).toBeUndefined();
+    // W3 partial holiday reduces denominator; ratio-of-sums crosses yellow threshold.
+    expect(maybeFinding(detectOverbookIdle(facts, ctx()), 'EMP-010')).toMatchObject({
+      issueType: 'overbook',
+      ragColor: 'yellow',
+    });
   });
 
-  it('F-17 EMP-007: part-time normalized to 20h → busy 80% OK', () => {
+  it('F-17 EMP-007: part-time normalized to 20h → idle yellow', () => {
     const facts = buildMemberWeekFacts({
       members: [ftMember('EMP-007', '2020-01-01', 20)],
       allocations: [alloc('EMP-007', 'PRJ-002', 16)],
@@ -293,6 +296,9 @@ describe('PMO_02 analytics — Answer_Key F-07..F-17', () => {
     });
     expect(factOf(facts, 'EMP-007', 'W1').availableHours).toBe(20);
     expect(factOf(facts, 'EMP-007', 'W1').busyRate).toBe(0.8);
-    expect(maybeFinding(detectOverbookIdle(facts, ctx()), 'EMP-007')).toBeUndefined();
+    expect(maybeFinding(detectOverbookIdle(facts, ctx()), 'EMP-007')).toMatchObject({
+      issueType: 'idle',
+      ragColor: 'yellow',
+    });
   });
 });

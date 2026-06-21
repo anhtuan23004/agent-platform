@@ -400,6 +400,11 @@ function applyThresholdOverrides(base: Thresholds, overrides?: Partial<Threshold
       ? { overbookRedThreshold: overrides.overbookRedThreshold }
       : {}),
     ...(overrides.idleThreshold !== undefined ? { idleThreshold: overrides.idleThreshold } : {}),
+    ...(overrides.idleYellowThreshold !== undefined
+      ? { idleYellowThreshold: overrides.idleYellowThreshold }
+      : overrides.idleThreshold !== undefined
+        ? { idleYellowThreshold: Math.min(base.idleYellowThreshold, overrides.idleThreshold) }
+        : {}),
     ...(overrides.mismatchPctThreshold !== undefined
       ? { mismatchPctThreshold: overrides.mismatchPctThreshold }
       : {}),

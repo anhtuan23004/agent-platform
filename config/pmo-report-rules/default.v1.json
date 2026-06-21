@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 1,
+  "ruleSetId": "SETA-08-SOP-001",
+  "version": "2026-01-01",
+  "effectiveFrom": "2026-01-01",
+  "classification": {
+    "primaryMetric": "N01",
+    "idle": {
+      "red": { "lt": 0.75 },
+      "yellow": { "gte": 0.75, "lt": 0.85 }
+    },
+    "healthy": { "gte": 0.85, "lte": 1.1 },
+    "overbook": {
+      "yellow": { "gt": 1.1, "lt": 1.2 },
+      "red": { "gte": 1.2 }
+    }
+  },
+  "metrics": {
+    "N02": {
+      "formula": "worked_h / available_h",
+      "bands": {
+        "green": [{ "gte": 0.75, "lte": 0.9 }],
+        "yellow": [{ "gte": 0.6, "lt": 0.75 }, { "gt": 0.9, "lte": 1 }],
+        "red": [{ "lt": 0.6 }, { "gt": 1 }]
+      }
+    },
+    "N03": {
+      "formula": "billable_h / worked_h",
+      "bands": {
+        "green": [{ "gte": 0.8 }],
+        "yellow": [{ "gte": 0.7, "lt": 0.8 }],
+        "red": [{ "lt": 0.7 }]
+      }
+    },
+    "N04": {
+      "formula": "bench_h / available_h",
+      "bands": {
+        "green": [{ "lte": 0.1 }],
+        "yellow": [{ "gt": 0.1, "lte": 0.2 }],
+        "red": [{ "gt": 0.2 }]
+      }
+    },
+    "N05": {
+      "formula": "ot_h / standard_h",
+      "bands": {
+        "green": [{ "lte": 0.05 }],
+        "yellow": [{ "gt": 0.05, "lte": 0.15 }],
+        "red": [{ "gt": 0.15 }]
+      }
+    },
+    "N06": {
+      "formula": "actual_h / planned_h",
+      "bands": {
+        "green": [{ "gte": 0.85, "lte": 1.1 }],
+        "yellow": [{ "gt": 0.75, "lt": 0.85 }, { "gt": 1.1, "lt": 1.2 }],
+        "red": [{ "lte": 0.75 }, { "gte": 1.2 }]
+      }
+    },
+    "N12": {
+      "formula": "done / required",
+      "bands": {
+        "green": [{ "gte": 1 }],
+        "yellow": [{ "gte": 0.85, "lt": 1 }],
+        "red": [{ "lt": 0.85 }]
+      }
+    }
+  },
+  "limits": {
+    "mismatchPctThreshold": 0.2,
+    "otMaxHoursPerWeek": 48
+  },
+  "recommendation": {
+    "enabled": true,
+    "candidateCount": {
+      "default": 3,
+      "min": 1,
+      "max": 5
+    },
+    "historyWindowDays": 90,
+    "transferStepHours": 4,
+    "minimumSkillCoverage": 0.5,
+    "idealTargetBusyRate": 0.95,
+    "capacityFitTolerance": 0.25,
+    "maxScenariosPerSource": 100,
+    "taskHistoryTopK": 3,
+    "scoring": {
+      "skillCoverage": 0.35,
+      "taskHistorySimilarity": 0.35,
+      "capacityFit": 0.2,
+      "projectContext": 0.1
+    },
+    "confidence": {
+      "high": { "gte": 0.8 },
+      "medium": { "gte": 0.6 },
+      "low": { "gte": 0.5 }
+    },
+    "adjacentSkills": {}
+  },
+  "reportLimits": {
+    "maxWeeks": 26,
+    "maxMembersForPdf": 1000,
+    "maxFindingsForPdf": 2000
+  }
+}

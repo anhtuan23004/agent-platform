@@ -72,8 +72,9 @@ export interface WeekRow {
 
 export interface Thresholds {
   overbookThreshold: number; // busy > this → overbook (yellow)
-  overbookRedThreshold: number; // busy > this → overbook (red)
-  idleThreshold: number; // busy < this → idle
+  overbookRedThreshold: number; // busy >= this → overbook (red)
+  idleThreshold: number; // busy < this → idle (red)
+  idleYellowThreshold: number; // busy < this and >= idleThreshold → idle (yellow)
   mismatchPctThreshold: number; // |ec - 1| > this → mismatch
   otMaxHoursPerWeek: number;
   requiredTrainingHours: number; // N12 denominator (0 = not tracked)
@@ -83,10 +84,56 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
   overbookThreshold: 1.1,
   overbookRedThreshold: 1.2,
   idleThreshold: 0.75,
+  idleYellowThreshold: 0.85,
   mismatchPctThreshold: 0.2,
   otMaxHoursPerWeek: 48,
   requiredTrainingHours: 0,
 };
+
+// ── Stable non-rebalance action codes ────────────────────────────────────────
+// Phase 8: deterministic action codes with template text. LLM never invents or
+// modifies these; they work fully without LLM. Rebalance actions live in the
+// recommendation engine (Phase 2.5) and are not repeated here.
+
+export const PMO_ACTION_CODES = {
+  REBALANCE_ALLOCATION: 'REBALANCE_ALLOCATION',
+  REVIEW_WITH_LINE_MANAGER: 'REVIEW_WITH_LINE_MANAGER',
+  CHECK_MISSING_TIMESHEET: 'CHECK_MISSING_TIMESHEET',
+  CONFIRM_APPROVED_OT: 'CONFIRM_APPROVED_OT',
+  VALIDATE_TRAINING_TIME: 'VALIDATE_TRAINING_TIME',
+  REVIEW_RA_TIMESHEET_MISMATCH: 'REVIEW_RA_TIMESHEET_MISMATCH',
+  NO_ACTION: 'NO_ACTION',
+} as const;
+
+export type PmoActionCode = (typeof PMO_ACTION_CODES)[keyof typeof PMO_ACTION_CODES];
+
+/**
+ * Deterministic template text for each action code. Sufficient when LLM is
+ * unavailable. Each template is a concise instruction suitable for report
+ * display without further context.
+ */
+export const PMO_ACTION_TEMPLATES: Record<PmoActionCode, string> = {
+  REBALANCE_ALLOCATION:
+    'Review workload allocation with project leads and consider redistributing hours to under-utilised team members.',
+  REVIEW_WITH_LINE_MANAGER:
+    'Discuss allocation gap with line manager. Confirm whether member is available for additional project assignments.',
+  CHECK_MISSING_TIMESHEET:
+    'Logged hours are significantly below planned hours. Verify timesheet completeness and follow up with the member.',
+  CONFIRM_APPROVED_OT:
+    'Overtime hours detected in the reporting period. Confirm that overtime was pre-approved and within policy limits.',
+  VALIDATE_TRAINING_TIME:
+    'Training hours recorded during the reporting period. Validate training attendance and ensure it is reflected in the capacity plan.',
+  REVIEW_RA_TIMESHEET_MISMATCH:
+    'Logged hours exceed planned hours. Review resource allocation accuracy and confirm whether additional effort was authorised.',
+  NO_ACTION: 'No action required at this time.',
+};
+
+export interface SuggestedAction {
+  actionCode: PmoActionCode;
+  templateText: string;
+  /** Primary action is the first in the list and drives the finding's main suggestedActionCode. */
+  primary: boolean;
+}
 
 // ── Derived facts and findings ───────────────────────────────────────────────
 
@@ -119,6 +166,11 @@ export interface ExcludedWeek {
   reason: SuppressionReason;
 }
 
+export interface ContextAnnotation {
+  weekId: string;
+  reason: 'approved_ot' | 'training';
+}
+
 /**
  * Member-level finding (Answer_Key grain: entity = Member). Genuine issues only;
  * valid edge cases are represented by their absence plus `excludedWeeks`, which
@@ -132,4 +184,10 @@ export interface Finding {
   effortConsumption: number | null;
   detail: string;
   excludedWeeks: ExcludedWeek[];
+  annotations: ContextAnnotation[];
+  reviewRequired: boolean;
+  /** Primary action code (backward-compatible scalar). */
+  suggestedActionCode: PmoActionCode;
+  /** All applicable actions with deterministic template text (Phase 8). */
+  suggestedActions: SuggestedAction[];
 }

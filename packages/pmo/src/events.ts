@@ -36,4 +36,22 @@ export const PMO_EVENTS = {
     ingestion_session_id: z.string().uuid(),
     reason: z.string(),
   }),
+  'pmo.report.requested': z.object({
+    report_run_id: z.string().uuid(),
+    status: z.literal('queued'),
+    source_mode: z.enum(['canonical_db', 'after_upload_publish']),
+    rule_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  }),
+  'pmo.report.completed': z.object({
+    report_run_id: z.string().uuid(),
+    status: z.literal('completed'),
+    member_count: z.number().int().nonnegative(),
+    finding_count: z.number().int().nonnegative(),
+    facts_version: z.string(),
+  }),
+  'pmo.report.failed': z.object({
+    report_run_id: z.string().uuid(),
+    status: z.literal('failed'),
+    failure_code: z.string(),
+  }),
 } as const;

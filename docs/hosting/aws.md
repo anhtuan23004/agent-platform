@@ -115,6 +115,11 @@ Three scale tiers, calibrated to user counts and request rates.
 | `seta-worker` (dispatcher) | Pinned to **1 task** — never scales | 1 | 1 | n/a |
 | `seta-worker` (pool, Scale tier) | Job backlog (`graphile_worker.job_count`) > 100 | 1 | 4 | 120 s |
 
+PMO PDF jobs share the `pmo-report-pdf` graphile queue, which serializes Chromium work per worker
+pool to cap CPU and memory pressure. Keep at least 2 GB worker memory at the Starter tier, monitor
+peak RSS during large reports, and scale the worker pool from queue backlog rather than launching
+Chromium in server tasks. The readiness/health path never starts a browser.
+
 The dispatcher singleton is critical: more than one running task corrupts `LISTEN/NOTIFY` deduplication. Use ECS `service deploymentConfiguration.maximumPercent: 100` and `minimumHealthyPercent: 0` to ensure rolling updates never produce two active dispatcher tasks.
 
 ---

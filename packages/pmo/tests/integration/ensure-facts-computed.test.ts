@@ -69,10 +69,40 @@ describe('ensureFactsComputed (DB)', () => {
         const first = await ensureFactsComputed(tenant);
         expect(first.recomputed).toBe(true);
         expect(first.factCount).toBeGreaterThan(0);
+        expect(first.canonicalDataVersion).toMatch(/^[a-f0-9]{64}$/);
+        expect(first.factsVersion).toMatch(/^[a-f0-9]{64}$/);
 
         const second = await ensureFactsComputed(tenant);
         expect(second.recomputed).toBe(false);
         expect(second.factCount).toBe(first.factCount);
+        expect(second.factsVersion).toBe(first.factsVersion);
+      } finally {
+        await closePools();
+      }
+    });
+  });
+
+  it('recomputes when canonical watermark changes without a publish timestamp', async () => {
+    await withTestDb(dbCfg(), async ({ pool, databaseUrl }) => {
+      resetPmoDb();
+      initPools({ databaseUrl });
+      try {
+        const tenant = crypto.randomUUID();
+        await seedCanonicalMember(pool, tenant);
+        await seedWeek(pool, tenant);
+
+        const first = await ensureFactsComputed(tenant);
+        await pool.query(
+          `UPDATE pmo.member_master
+             SET full_name = 'Changed', updated_at = '2026-06-22T00:00:00.000Z'
+           WHERE tenant_id = $1 AND member_id = 'EMP-001'`,
+          [tenant],
+        );
+
+        const second = await ensureFactsComputed(tenant);
+        expect(second.recomputed).toBe(true);
+        expect(second.canonicalDataVersion).not.toBe(first.canonicalDataVersion);
+        expect(second.factsVersion).not.toBe(first.factsVersion);
       } finally {
         await closePools();
       }

@@ -31,4 +31,25 @@ describe('presigned URLs', () => {
     );
     expect(url).toContain('tenants/x/knowledge/y/file.pdf');
   });
+
+  it('signs safe download filename and response content type', async () => {
+    const fakeGetSignedUrl = vi.fn(async () => 'https://s3.example.com/signed');
+    await presignedDownloadUrl(
+      {
+        bucket: 'private',
+        key: 'tenants/t/pmo/reports/r/report.pdf',
+        expiresInSeconds: 300,
+        responseContentDisposition: 'attachment; filename="pmo-report.pdf"',
+        responseContentType: 'application/pdf',
+      },
+      { getSignedUrl: fakeGetSignedUrl as never },
+    );
+    const command = fakeGetSignedUrl.mock.calls[0]?.[1] as {
+      input: { ResponseContentDisposition?: string; ResponseContentType?: string };
+    };
+    expect(command.input).toMatchObject({
+      ResponseContentDisposition: 'attachment; filename="pmo-report.pdf"',
+      ResponseContentType: 'application/pdf',
+    });
+  });
 });
