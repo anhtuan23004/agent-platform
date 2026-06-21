@@ -141,6 +141,9 @@ export const workflowRuntimeApi = {
     if (!res.ok) {
       await jsonOrThrow<unknown>(res);
     }
+    // Native resume responds as SSE. Drain it so callers refresh only after the
+    // suspended workflow has consumed the decision and persisted its next state.
+    await res.text();
   },
 
   async cancelRun(runId: string): Promise<void> {

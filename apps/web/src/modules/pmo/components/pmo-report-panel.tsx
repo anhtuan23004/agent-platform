@@ -98,6 +98,11 @@ export function ReportStatusCard(props: {
           <span className="font-mono text-caption text-ink-subtle">{report.reportRunId}</span>
         </div>
         <div className="flex gap-2">
+          {active ? (
+            <Button size="sm" variant="primary" disabled>
+              <Loader2 className="animate-spin" /> Generating PDF...
+            </Button>
+          ) : null}
           {report.artifacts.pdf.downloadUrl ? (
             <Button size="sm" variant="primary" asChild>
               <a href={report.artifacts.pdf.downloadUrl}>

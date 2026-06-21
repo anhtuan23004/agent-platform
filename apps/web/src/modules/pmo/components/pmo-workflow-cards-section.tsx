@@ -249,7 +249,7 @@ export function PmoWorkflowCardsSection(props: PmoWorkflowCardsSectionProps) {
     [executionCards, plan, runtime, selectedSession],
   );
   const currentCard =
-    cards.find((card) => card.access === 'current_actionable') ?? cards[0] ?? null;
+    cards.find((card) => card.access === 'current_actionable') ?? cards.at(-1) ?? null;
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const selectedCard = cards.find(
     (card) => card.id === selectedCardId && card.access !== 'future_locked',

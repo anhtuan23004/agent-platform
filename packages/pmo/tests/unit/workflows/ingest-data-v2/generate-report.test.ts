@@ -4,26 +4,8 @@ import type { DbChangeSummaryResult } from '../../../../src/backend/workflows/in
 import { createGenerateReportHandler } from '../../../../src/backend/workflows/ingest-data-v2/handlers/generate-report.ts';
 import type { PmoDynamicHandlerInput } from '../../../../src/backend/workflows/ingest-data-v2/types.ts';
 
-const mockGenerateReport = vi.fn(async () => ({
-  reportRunId: '44444444-4444-4444-4444-444444444444',
-  report: {
-    dateRange: { from: '2026-06-01', to: '2026-06-30' },
-    sourceVersion: {
-      factsVersion: 'facts-v1',
-      canonicalDataVersion: 'canonical-v1',
-      factsComputedAt: '2026-06-30T00:00:00.000Z',
-    },
-    summary: {
-      memberCount: 2,
-      overbookCount: 1,
-      idleCount: 1,
-      excludedWeekCount: 0,
-    },
-    members: [],
-    findings: [],
-    recommendations: [],
-  },
-}));
+const mockCreateReportRun = vi.fn(async () => '44444444-4444-4444-4444-444444444444');
+const mockEnqueueReportRun = vi.fn(async () => undefined);
 
 const baseStep = {
   step_no: 5,
@@ -75,7 +57,8 @@ const deps = {
     userId: '22222222-2222-2222-2222-222222222222',
   }),
   readPlannerStepMeta: async () => null,
-  generateReport: mockGenerateReport,
+  createReportRun: mockCreateReportRun,
+  enqueueReportRun: mockEnqueueReportRun,
   getWorkbookParseResult: async () => ({
     sheets: [
       {
@@ -131,7 +114,8 @@ function makeInput(overrides: Partial<PmoDynamicHandlerInput> = {}): PmoDynamicH
 
 describe('createGenerateReportHandler', () => {
   beforeEach(() => {
-    mockGenerateReport.mockClear();
+    mockCreateReportRun.mockClear();
+    mockEnqueueReportRun.mockClear();
   });
 
   it('suspends for confirmation with published-batch sheet dates as the suggestion', async () => {
@@ -151,7 +135,7 @@ describe('createGenerateReportHandler', () => {
         source: 'sheet_suggested_pending',
       },
     });
-    expect(mockGenerateReport).not.toHaveBeenCalled();
+    expect(mockCreateReportRun).not.toHaveBeenCalled();
   });
 
   it('generates the report after the user confirms a date range', async () => {
@@ -166,20 +150,23 @@ describe('createGenerateReportHandler', () => {
 
     expect(result.kind).toBe('completed');
     if (result.kind !== 'completed') throw new Error('expected completed');
-    expect(mockGenerateReport).toHaveBeenCalledWith({
+    expect(mockCreateReportRun).toHaveBeenCalledWith({
       tenantId: '11111111-1111-1111-1111-111111111111',
       actorId: '22222222-2222-2222-2222-222222222222',
       sourceMode: 'after_upload_publish',
       ingestionSessionId: '33333333-3333-3333-3333-333333333333',
       dateRange: { from: '2026-06-01', to: '2026-06-30' },
       reportTypes: ['idle_members', 'overbook_members'],
+      outputFormat: 'pdf',
     });
-    expect(result.runtimeContextPatch?.report_result?.summary).toMatchObject({
-      overbookCount: 1,
-      idleCount: 1,
-    });
+    expect(mockEnqueueReportRun).toHaveBeenCalledWith(
+      '11111111-1111-1111-1111-111111111111',
+      '44444444-4444-4444-4444-444444444444',
+      'pdf',
+    );
+    expect(result.outputSummary?.status).toBe('queued');
     expect(result.outputSummary?.report_run_id).toBe('44444444-4444-4444-4444-444444444444');
-    expect(result.terminalOutput?.report).toBeDefined();
+    expect(result.terminalOutput?.reportRunId).toBe('44444444-4444-4444-4444-444444444444');
   });
 
   it('uses classifier-extracted dates before derived ranges', async () => {
@@ -197,8 +184,11 @@ describe('createGenerateReportHandler', () => {
     );
 
     expect(result.kind).toBe('completed');
-    expect(mockGenerateReport).toHaveBeenCalledWith(
-      expect.objectContaining({ dateRange: { from: '2026-06-05', to: '2026-06-20' } }),
+    expect(mockCreateReportRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dateRange: { from: '2026-06-05', to: '2026-06-20' },
+        outputFormat: 'pdf',
+      }),
     );
   });
 
@@ -225,8 +215,11 @@ describe('createGenerateReportHandler', () => {
     );
 
     expect(result.kind).toBe('completed');
-    expect(mockGenerateReport).toHaveBeenCalledWith(
-      expect.objectContaining({ dateRange: { from: '2026-06-01', to: '2026-06-30' } }),
+    expect(mockCreateReportRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dateRange: { from: '2026-06-01', to: '2026-06-30' },
+        outputFormat: 'pdf',
+      }),
     );
   });
 
@@ -267,7 +260,7 @@ describe('createGenerateReportHandler', () => {
         makeInput({ reportSource: 'staging_preview', runtimeContext: {} }),
       ),
     ).rejects.toThrow('report_staging_preview_not_supported');
-    expect(mockGenerateReport).not.toHaveBeenCalled();
+    expect(mockCreateReportRun).not.toHaveBeenCalled();
   });
 
   it('rejects an LLM-extracted range outside the tenant database bounds', async () => {

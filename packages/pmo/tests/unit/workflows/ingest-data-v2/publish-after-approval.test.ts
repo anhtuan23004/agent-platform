@@ -129,6 +129,9 @@ describe('createPublishAfterApprovalHandler', () => {
       status: 'published',
       db_change_checkpoint_version: 1,
     });
+    expect(result.kind === 'completed' ? result.sessionPatch : {}).toMatchObject({
+      publish_reviewed_at: expect.any(Date),
+    });
   });
 
   it('blocks publish when a DB change proposal has not been approved', async () => {

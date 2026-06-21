@@ -62,7 +62,7 @@ export async function verifyPublishedSession(
       and(
         eq(ingestionSessions.id, ingestionSessionId),
         eq(ingestionSessions.tenant_id, tenantId),
-        eq(ingestionSessions.status, 'published'),
+        eq(ingestionSessions.publish_decision, 'approved'),
       ),
     )
     .limit(1);

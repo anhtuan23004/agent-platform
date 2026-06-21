@@ -8,7 +8,8 @@ import type {
   LegacyReportType as PmoReportType,
   ReportSourceMode,
 } from '../../../reporting/contracts.ts';
-import { generateReport } from '../../../reporting/generate-report.ts';
+import { createReportRun } from '../../../reporting/generate-report.ts';
+import { enqueueReportRunFromPool } from '../../../reporting/jobs/enqueue-report.ts';
 import { buildReportRangeCard } from '../cards.ts';
 import type { DynamicIngestRuntimeContext, PmoDynamicStepHandler } from '../types.ts';
 import type { DbChangeSummaryResult, DynamicHandlerDeps } from './common.ts';
@@ -185,7 +186,8 @@ export function createGenerateReportHandler(
     DynamicHandlerDeps,
     'resolveCardIdentity' | 'readPlannerStepMeta' | 'getWorkbookParseResult'
   > & {
-    generateReport?: typeof generateReport;
+    createReportRun?: typeof createReportRun;
+    enqueueReportRun?: typeof enqueueReportRunFromPool;
     getReportDateBounds?: typeof getPmoReportDateBounds;
   },
 ): PmoDynamicStepHandler {
@@ -301,7 +303,7 @@ export function createGenerateReportHandler(
 
       const sourceMode: ReportSourceMode =
         reportSource === 'published_batch' ? 'after_upload_publish' : 'canonical_db';
-      const generated = await (deps.generateReport ?? generateReport)({
+      const reportRunId = await (deps.createReportRun ?? createReportRun)({
         tenantId: input.tenantId,
         actorId: input.userId,
         sourceMode,
@@ -311,8 +313,9 @@ export function createGenerateReportHandler(
           to: dateRange.to,
         },
         reportTypes,
+        outputFormat: 'pdf',
       });
-      const { report, reportRunId } = generated;
+      await (deps.enqueueReportRun ?? enqueueReportRunFromPool)(input.tenantId, reportRunId, 'pdf');
 
       return {
         kind: 'completed',
@@ -323,23 +326,17 @@ export function createGenerateReportHandler(
             dateRange,
             suggestedDateRange: input.runtimeContext.report_request?.suggestedDateRange,
           },
-          report_result: report,
         },
         outputSummary: {
-          status: 'generated',
+          status: 'queued',
           report_run_id: reportRunId,
-          from: report.dateRange.from,
-          to: report.dateRange.to,
-          member_count: report.summary.memberCount,
-          overbook_count: report.summary.overbookCount,
-          idle_count: report.summary.idleCount,
-          finding_count: report.findings.length,
+          from: dateRange.from,
+          to: dateRange.to,
         },
         terminalOutput: {
           ingestionSessionId: input.ingestionSessionId,
           status: 'completed',
           reportRunId,
-          report,
         },
       };
     },

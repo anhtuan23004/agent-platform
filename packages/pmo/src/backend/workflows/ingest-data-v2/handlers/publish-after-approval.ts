@@ -115,6 +115,11 @@ export function createPublishAfterApprovalHandler(
         return {
           kind: 'completed',
           sessionStatus: 'published',
+          sessionPatch: {
+            publish_decision: 'approved',
+            publish_reviewed_by: input.userId,
+            publish_reviewed_at: new Date(),
+          },
           outputSummary: {
             status: 'published',
             db_change_checkpoint_version: latestCheckpoint.version,
@@ -247,6 +252,9 @@ export function createPublishAfterApprovalHandler(
         },
         sessionPatch: {
           change_summary: approvedPayload,
+          publish_decision: 'approved',
+          publish_reviewed_by: input.userId,
+          publish_reviewed_at: new Date(),
         },
         outputSummary: {
           status: 'published',
