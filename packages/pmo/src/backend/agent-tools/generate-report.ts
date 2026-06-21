@@ -34,6 +34,22 @@ const findingSchema = z.object({
   effortConsumption: z.number().nullable(),
   detail: z.string(),
   excludedWeeks: z.array(z.object({ weekId: z.string(), reason: z.string() })),
+  issueWeeks: z
+    .array(
+      z.object({
+        weekId: z.string(),
+        weekStart: z.string().nullable(),
+        weekEnd: z.string().nullable(),
+        issueType: z.enum(['overbook', 'idle', 'mismatch_under', 'mismatch_over', 'ok']),
+        ragColor: z.enum(['green', 'yellow', 'red', 'none']),
+        availableHours: z.number(),
+        plannedHours: z.number(),
+        loggedHours: z.number(),
+        busyRate: z.number().nullable(),
+        effortConsumption: z.number().nullable(),
+      }),
+    )
+    .optional(),
   annotations: z.array(
     z.object({ weekId: z.string(), reason: z.enum(['approved_ot', 'training']) }),
   ),

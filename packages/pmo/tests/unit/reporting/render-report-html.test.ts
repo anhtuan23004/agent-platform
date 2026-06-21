@@ -54,6 +54,20 @@ function report(): GeneratePmoReportOutput {
         effortConsumption: 1,
         detail: 'Under allocated',
         excludedWeeks: [],
+        issueWeeks: [
+          {
+            weekId: 'W1',
+            weekStart: '2026-06-29',
+            weekEnd: '2026-07-03',
+            issueType: 'idle',
+            ragColor: 'yellow',
+            availableHours: 40,
+            plannedHours: 32,
+            loggedHours: 32,
+            busyRate: 0.8,
+            effortConsumption: 1,
+          },
+        ],
         annotations: [],
         reviewRequired: true,
         suggestedActionCode: 'REVIEW_WITH_LINE_MANAGER',
@@ -75,6 +89,20 @@ function report(): GeneratePmoReportOutput {
         effortConsumption: 1,
         detail: '<img src=x onerror=alert(1)>',
         excludedWeeks: [{ weekId: 'W1', reason: 'holiday_week' }],
+        issueWeeks: [
+          {
+            weekId: 'W2',
+            weekStart: '2026-07-06',
+            weekEnd: '2026-07-10',
+            issueType: 'overbook',
+            ragColor: 'red',
+            availableHours: 40,
+            plannedHours: 48,
+            loggedHours: 48,
+            busyRate: 1.2,
+            effortConsumption: 1,
+          },
+        ],
         annotations: [{ weekId: 'W2', reason: 'training' }],
         reviewRequired: true,
         suggestedActionCode: 'REBALANCE_ALLOCATION',
@@ -93,6 +121,41 @@ function report(): GeneratePmoReportOutput {
           },
         ],
         metricEvidence: metrics,
+      },
+      {
+        memberId: 'EMP-RED',
+        issueType: 'mismatch_over',
+        ragColor: 'red',
+        busyRate: 1,
+        effortConsumption: 1.3,
+        detail: 'Effort consumption 130% — logged above plan',
+        excludedWeeks: [],
+        issueWeeks: [
+          {
+            weekId: 'W3',
+            weekStart: '2026-07-13',
+            weekEnd: '2026-07-17',
+            issueType: 'mismatch_over',
+            ragColor: 'red',
+            availableHours: 32,
+            plannedHours: 32,
+            loggedHours: 42,
+            busyRate: 1,
+            effortConsumption: 1.3125,
+          },
+        ],
+        annotations: [],
+        reviewRequired: true,
+        suggestedActionCode: 'REVIEW_RA_TIMESHEET_MISMATCH',
+        suggestedActions: [
+          {
+            actionCode: 'REVIEW_RA_TIMESHEET_MISMATCH',
+            templateText:
+              'Logged hours exceed planned hours. Review resource allocation accuracy and confirm whether additional effort was authorised.',
+            primary: true,
+          },
+        ],
+        metricEvidence: { ...metrics, N01: 1, N06: 1.3 },
       },
     ],
     recommendations: [
@@ -189,28 +252,42 @@ describe('renderReportHtml', () => {
     const { html } = renderReportHtml(model());
     expect(html).toContain('Partial Relief');
     expect(html).toContain('Evidence degraded:');
+    expect(html).toContain('Evidence window: 2026-06-29 to 2026-08-07');
+    expect(html).toContain('forward-looking actions from 2026-08-08');
     expect(html).toContain('Mutually exclusive alternative · revalidate before apply');
     expect(html).not.toContain('Portfolio selected');
   });
 
-  it('renders explicit empty states for red/yellow overbook/idle groups', () => {
+  it('renders affected weeks and mismatch findings', () => {
+    const { html } = renderReportHtml(model());
+    expect(html).toContain('Mismatch');
+    expect(html).toContain('Affected weeks');
+    expect(html).toContain('W2');
+    expect(html).toContain('2026-07-06 to 2026-07-10');
+    expect(html).toContain('Effort consumption 130%');
+  });
+
+  it('renders explicit empty states for red/yellow finding groups', () => {
     const empty = report();
     empty.findings = [];
     empty.recommendations = [];
     const { html } = renderReportHtml(model(empty));
-    expect(html.match(/No findings/g)).toHaveLength(4);
+    expect(html.match(/No findings/g)).toHaveLength(6);
   });
 
-  it('renders no-result recommendation as unsolved', () => {
+  it('summarizes no-result recommendations without rendering fake rebalance cards', () => {
     const value = report();
     const group = value.recommendations[0];
     if (!group) throw new Error('missing recommendation fixture');
     group.status = 'no_valid_rebalance_found';
     group.recommendations = [];
-    group.noResultReasons = ['insufficient_capacity'];
+    group.noResultReasons = ['candidate_data_unavailable'];
     const { html } = renderReportHtml(model(value));
-    expect(html).toContain('No Valid Rebalance Found');
-    expect(html).toContain('No valid rebalance found: Insufficient Capacity');
+    expect(html).not.toContain('No Valid Rebalance Found');
+    expect(html).not.toContain('No valid rebalance found:');
+    expect(html).toContain('No candidate-backed rebalance was produced for 1 affected week');
+    expect(html).toContain('Candidate Data Unavailable');
+    expect(html).toContain('next planning cycle');
     expect(html).not.toContain('Portfolio selected');
   });
 

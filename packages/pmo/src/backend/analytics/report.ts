@@ -5,7 +5,7 @@ import {
   type RebalanceRecommendationGroup,
 } from '../reporting/recommendations/index.ts';
 import { type EnsureFactsComputedResult, ensureFactsComputed } from './ensure-facts-computed.ts';
-import { detectOverbookIdle } from './findings.ts';
+import { detectMismatch, detectOverbookIdle } from './findings.ts';
 import {
   type LoadReportEvidenceOptions,
   loadReportEvidence,
@@ -76,10 +76,24 @@ export interface GeneratePmoReportOutput {
       | 'suggestedActions'
     > & {
       excludedWeeks: Array<{ weekId: string; reason: string }>;
+      issueWeeks?: ReportIssueWeekEvidence[];
       metricEvidence: ReportMetricEvidence;
     }
   >;
   recommendations: RebalanceRecommendationGroup[];
+}
+
+export interface ReportIssueWeekEvidence {
+  weekId: string;
+  weekStart: string | null;
+  weekEnd: string | null;
+  issueType: Finding['issueType'];
+  ragColor: Finding['ragColor'];
+  availableHours: number;
+  plannedHours: number;
+  loggedHours: number;
+  busyRate: number | null;
+  effortConsumption: number | null;
 }
 
 export interface ReportMetricEvidence {
@@ -125,9 +139,10 @@ export async function generatePmoReport(
 
   const freshness = await deps.ensureFacts(input.tenantId, { force: false });
   const evidence = await deps.loadEvidence(input.tenantId, { dateRange: { from, to } });
-  const findings = detectOverbookIdle(evidence.facts, evidence.ctx).filter((finding) =>
+  const capacityFindings = detectOverbookIdle(evidence.facts, evidence.ctx).filter((finding) =>
     reportTypeAllows(input.reportTypes, finding.issueType),
   );
+  const findings = [...capacityFindings, ...detectMismatch(evidence.facts, evidence.ctx)];
   const memberCount = new Set(
     evidence.facts.filter((fact) => fact.scopeStatus === 'IN_SCOPE').map((fact) => fact.memberId),
   ).size;
@@ -191,6 +206,7 @@ export async function generatePmoReport(
       effortConsumption: finding.effortConsumption,
       detail: finding.detail,
       excludedWeeks: finding.excludedWeeks,
+      issueWeeks: buildIssueWeekEvidence(finding, evidence),
       annotations: finding.annotations,
       reviewRequired: finding.reviewRequired,
       suggestedActionCode: finding.suggestedActionCode,
@@ -201,6 +217,74 @@ export async function generatePmoReport(
     })),
     recommendations,
   };
+}
+
+function buildIssueWeekEvidence(
+  finding: Finding,
+  evidence: ReportEvidence,
+): ReportIssueWeekEvidence[] {
+  return evidence.facts
+    .filter(
+      (fact) =>
+        fact.memberId === finding.memberId &&
+        fact.scopeStatus === 'IN_SCOPE' &&
+        fact.availableHours > 0 &&
+        factMatchesFindingIssue(fact, finding.issueType, evidence.ctx.thresholds),
+    )
+    .map((fact) => {
+      const week = evidence.ctx.weeksById.get(fact.weekId);
+      return {
+        weekId: fact.weekId,
+        weekStart: week ? isoDate(week.week_start) : null,
+        weekEnd: week ? isoDate(week.week_end) : null,
+        issueType: finding.issueType,
+        ragColor: fact.ragColor,
+        availableHours: fact.availableHours,
+        plannedHours: fact.plannedHours,
+        loggedHours: fact.loggedHours,
+        busyRate: fact.busyRate,
+        effortConsumption: fact.effortConsumption,
+      };
+    })
+    .sort(
+      (left, right) =>
+        (left.weekStart ?? '').localeCompare(right.weekStart ?? '') ||
+        left.weekId.localeCompare(right.weekId),
+    );
+}
+
+function factMatchesFindingIssue(
+  fact: ReportEvidence['facts'][number],
+  issueType: Finding['issueType'],
+  thresholds: ReportEvidence['ctx']['thresholds'],
+): boolean {
+  if (issueType === 'overbook') {
+    return fact.busyRate !== null && fact.busyRate > thresholds.overbookThreshold;
+  }
+  if (issueType === 'idle') {
+    return (
+      fact.busyRate !== null &&
+      fact.plannedHours > 0 &&
+      fact.busyRate < thresholds.idleYellowThreshold
+    );
+  }
+  if (issueType === 'mismatch_under') {
+    return (
+      fact.effortConsumption !== null &&
+      fact.effortConsumption < 1 - thresholds.mismatchPctThreshold
+    );
+  }
+  if (issueType === 'mismatch_over') {
+    return (
+      fact.effortConsumption !== null &&
+      fact.effortConsumption > 1 + thresholds.mismatchPctThreshold
+    );
+  }
+  return false;
+}
+
+function isoDate(value: Date): string {
+  return value.toISOString().slice(0, 10);
 }
 
 function aggregateMetricEvidence(facts: ReportEvidence['facts']): ReportMetricEvidence {

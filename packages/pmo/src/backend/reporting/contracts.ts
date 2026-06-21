@@ -60,7 +60,13 @@ export interface ReportStatusResponse {
   dateRange: ReportDateRange;
   outputFormat: ReportOutputFormat;
   summary: GeneratePmoReportOutput['summary'] | null;
-  findingCounts: { red: number; yellow: number; idle: number; overbook: number } | null;
+  findingCounts: {
+    red: number;
+    yellow: number;
+    idle: number;
+    overbook: number;
+    mismatch: number;
+  } | null;
   artifacts: { html: ReportArtifactStatus; pdf: ReportArtifactStatus };
   failure: { code: string | null; message: string | null } | null;
   retryAllowed: boolean;
