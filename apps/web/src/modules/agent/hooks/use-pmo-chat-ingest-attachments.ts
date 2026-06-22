@@ -1,6 +1,6 @@
 import type { ComposerAttachment } from '@seta/shared-ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { type PmoPlanningSession, pmoApi } from '@/modules/pmo/api/client';
 
 interface Item {
@@ -40,7 +40,7 @@ function sessionLabel(name: string | null, id: string): string {
 export function usePmoChatIngestAttachments(chatThreadId: string | null) {
   const [items, setItems] = useState<Item[]>([]);
   const [warning, setWarning] = useState<string | null>(null);
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [explicitSelectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const threadSessions = useQuery({
@@ -168,24 +168,16 @@ export function usePmoChatIngestAttachments(chatThreadId: string | null) {
     });
   }, [allSessions.data?.items, chatThreadId, items, threadSessions.data?.items]);
 
-  useEffect(() => {
-    if (uploadSources.length === 0) {
-      setSelectedSessionId(null);
-      return;
-    }
-    if (
-      selectedSessionId &&
-      uploadSources.some((s) => s.ingestionSessionId === selectedSessionId)
-    ) {
-      return;
-    }
-    const preferred =
-      uploadSources.find((source) => source.isPublished) ?? uploadSources[0] ?? null;
-    setSelectedSessionId(preferred?.ingestionSessionId ?? null);
-  }, [selectedSessionId, uploadSources]);
-
-  const selectedUploadSource =
-    uploadSources.find((source) => source.ingestionSessionId === selectedSessionId) ?? null;
+  const selectedUploadSource = useMemo(() => {
+    const explicit =
+      explicitSelectedSessionId === null
+        ? null
+        : uploadSources.find((source) => source.ingestionSessionId === explicitSelectedSessionId);
+    return (
+      explicit ?? uploadSources.find((source) => source.isPublished) ?? uploadSources[0] ?? null
+    );
+  }, [explicitSelectedSessionId, uploadSources]);
+  const selectedSessionId = selectedUploadSource?.ingestionSessionId ?? null;
 
   const refreshUploadSources = useCallback(async () => {
     await queryClient.invalidateQueries({

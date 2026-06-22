@@ -213,19 +213,17 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     storedSuppression && storedSuppression.threadId === threadId
       ? storedSuppression.contextId
       : null;
-  const [chatAgent, setChatAgentState] = useState<ChatAgentMode>('staffing');
-  const setChatAgent = useCallback((next: ChatAgentMode) => setChatAgentState(next), []);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-
-  // Side panel and PMO pages share AgentProvider; sync agent mode from the URL so
-  // PMO upload tooling is available outside the dedicated /pmo/agent screen.
-  useEffect(() => {
-    if (pathname.startsWith('/pmo')) {
-      setChatAgentState('pmo');
-    } else if (pathname.startsWith('/agent')) {
-      setChatAgentState('staffing');
-    }
-  }, [pathname]);
+  const [selectedChatAgent, setSelectedChatAgent] = useState<ChatAgentMode>('staffing');
+  const setChatAgent = useCallback((next: ChatAgentMode) => setSelectedChatAgent(next), []);
+  // Side panel and PMO pages share AgentProvider; route-owned sections derive
+  // the agent mode directly so PMO upload tooling is available before effects run.
+  const routeChatAgent: ChatAgentMode | null = pathname.startsWith('/pmo')
+    ? 'pmo'
+    : pathname.startsWith('/agent')
+      ? 'staffing'
+      : null;
+  const chatAgent = routeChatAgent ?? selectedChatAgent;
   const [panelOpen, setPanelOpenState] = useState<boolean>(false);
   const [pendingPrompt, setPendingPromptState] = useState<{
     text: string;
