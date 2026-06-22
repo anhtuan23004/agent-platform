@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import type { GeneratePmoReportOutput } from '../../analytics/report.ts';
 import type { RebalanceRecommendationGroup } from '../recommendations/contracts.ts';
+import type { GeneratePmoReportOutput } from '../report-output.ts';
 import type { PmoReportRenderModel, RenderedReportHtml } from './contracts.ts';
 
 type ReportFinding = GeneratePmoReportOutput['findings'][number];
@@ -142,12 +142,23 @@ function renderFinding(
     <div class="primary-metric"><span>Busy rate</span><strong>${pct(finding.busyRate)}</strong></div>
   </div>
   <p class="finding-detail">${escapeHtml(finding.detail)}</p>
+  ${renderFindingExplanation(finding)}
   ${renderIssueWeeks(finding)}
   ${renderMetrics(finding)}
   ${renderContextNotes(finding)}
   ${renderSuggestedActions(finding)}
   ${finding.issueType === 'overbook' ? renderRecommendations(groups, memberMap, report.dateRange) : ''}
 </article>`;
+}
+
+function renderFindingExplanation(finding: ReportFinding): string {
+  if (!finding.explanation) return '';
+  const tradeoffs = finding.explanation.riskTradeoffs.length
+    ? `<ul>${finding.explanation.riskTradeoffs
+        .map((item) => `<li>${escapeHtml(item)}</li>`)
+        .join('')}</ul>`
+    : '';
+  return `<div class="llm-explanation"><strong>Explanation of deterministic finding</strong><p>${escapeHtml(finding.explanation.summary)}</p>${tradeoffs}</div>`;
 }
 
 function renderIssueWeeks(finding: ReportFinding): string {
@@ -209,7 +220,7 @@ function renderRecommendations(
   memberMap: Map<string, GeneratePmoReportOutput['members'][number]>,
   dateRange: GeneratePmoReportOutput['dateRange'],
 ): string {
-  const planningStart = nextIsoDate(dateRange.to);
+  const planningStart = groups[0]?.planningPeriod.from ?? nextIsoDate(dateRange.to);
   const planningNote = `Evidence window: ${dateRange.from} to ${dateRange.to}. Recommendations are forward-looking actions from ${planningStart}; confirm future RA demand or select a planning horizon before applying.`;
   const candidateGroups = groups.filter((group) => group.recommendations.length > 0);
   const noResultGroups = groups.filter((group) => group.recommendations.length === 0);
@@ -218,7 +229,7 @@ function renderRecommendations(
   }
   const noResultNote =
     noResultGroups.length > 0
-      ? `<p class="recommendation-note">No candidate-backed rebalance was produced for ${noResultGroups.length} affected week${noResultGroups.length === 1 ? '' : 's'} (${escapeHtml(noResultGroups.map((group) => group.weekId).join(', '))}). Missing or insufficient candidate evidence: ${escapeHtml([...new Set(noResultGroups.flatMap((group) => group.noResultReasons))].map(humanize).join(', ') || 'No candidate passed hard filters')}.</p>`
+      ? `<p class="recommendation-note">No candidate-backed rebalance was produced for ${noResultGroups.length} opportunity${noResultGroups.length === 1 ? '' : 'ies'}. Missing or insufficient candidate evidence: ${escapeHtml([...new Set(noResultGroups.flatMap((group) => group.noResultReasons))].map(humanize).join(', ') || 'No candidate passed hard filters')}.</p>`
       : '';
   if (candidateGroups.length === 0) {
     return `<div class="recommendation-block"><h5>Rebalance recommendations</h5><p class="recommendation-note">${escapeHtml(planningNote)}</p>${noResultNote}<p class="empty-state">Treat this as an action for the next planning cycle, not a confirmed allocation plan.</p></div>`;
@@ -228,21 +239,40 @@ function renderRecommendations(
       const warning = group.recommendationDegraded
         ? `<p class="quality-warning"><strong>Evidence degraded:</strong> ${escapeHtml(group.dataQualityFlags.join(', '))}</p>`
         : '';
-      const status = `<p class="recommendation-status status-${escapeHtml(group.status)}"><strong>${escapeHtml(humanize(group.status))}</strong> · Week ${escapeHtml(group.weekId)} · Required reduction ${number(group.requiredReductionHours)}h</p>`;
-      return `${status}${warning}<div class="candidate-list">${group.recommendations
+      const period = `${escapeHtml(group.planningPeriod.from)}${group.planningPeriod.to ? ` to ${escapeHtml(group.planningPeriod.to)}` : ' onward'}`;
+      const status = `<p class="recommendation-status status-${escapeHtml(group.status)}"><strong>${escapeHtml(humanize(group.status))}</strong> · Project ${escapeHtml(group.projectId)} · Period ${period} · Required reduction ${number(group.requiredReductionHoursPerWeek)}h/week</p>`;
+      const explanation = renderRecommendationExplanation(group);
+      return `${status}${warning}${explanation}<div class="candidate-list">${group.recommendations
         .map((candidate) => {
           const target = memberMap.get(candidate.targetMemberId);
           return `<article class="candidate-card">
-  <div><strong>#${candidate.rankWithinSource} ${escapeHtml(target?.fullName || candidate.targetMemberId)}</strong><span>${escapeHtml(candidate.confidence.toUpperCase())} · Score ${number(candidate.score)}</span></div>
-  <p>${number(candidate.transferHours)}h from project ${escapeHtml(candidate.projectId)} · Source ${pct(candidate.beforeAfter.sourceBeforeBusyRate)} → ${pct(candidate.beforeAfter.sourceAfterBusyRate)} · Target ${pct(candidate.beforeAfter.targetBeforeBusyRate)} → ${pct(candidate.beforeAfter.targetAfterBusyRate)}</p>
+  <div><strong>#${candidate.rankWithinOpportunity} ${escapeHtml(target?.fullName || candidate.targetMemberId)}</strong><span>${escapeHtml(candidate.confidence.toUpperCase())} · Score ${number(candidate.score)}</span></div>
+  <p>${number(candidate.transferHoursPerWeek)}h/week from project ${escapeHtml(candidate.projectId)} · ${escapeHtml(candidate.effectiveFrom)}${candidate.effectiveTo ? ` to ${escapeHtml(candidate.effectiveTo)}` : ' onward'} · Source ${pct(candidate.beforeAfter.sourceBeforeBusyRate)} → ${pct(candidate.beforeAfter.sourceAfterBusyRate)} · Target ${pct(candidate.beforeAfter.targetBeforeBusyRate)} → ${pct(candidate.beforeAfter.targetAfterBusyRate)}</p>
   <p><strong>Matched:</strong> ${escapeHtml(candidate.evidence.matchedSkills.join(', ') || 'None')} · <strong>Missing:</strong> ${escapeHtml(candidate.evidence.missingSkills.join(', ') || 'None')}</p>
   <p><strong>Similar tasks:</strong> ${escapeHtml(candidate.evidence.similarPastTasks.join(', ') || 'Unavailable')}</p>
+  <p><strong>Why:</strong> ${escapeHtml(candidate.evidence.rationale)}</p>
   ${candidate.portfolioSelected ? '<span class="selected-badge">Portfolio selected</span>' : '<span class="alternative-badge">Mutually exclusive alternative · revalidate before apply</span>'}
 </article>`;
         })
         .join('')}</div>`;
     })
     .join('')}</div>`;
+}
+
+function renderRecommendationExplanation(group: RebalanceRecommendationGroup): string {
+  if (!group.explanation) return '';
+  const tradeoffs = group.explanation.riskTradeoffs.length
+    ? `<ul>${group.explanation.riskTradeoffs
+        .map((item) => `<li>${escapeHtml(item)}</li>`)
+        .join('')}</ul>`
+    : '';
+  const topChoice = group.explanation.topChoiceReason
+    ? `<p><strong>Why top-1 leads:</strong> ${escapeHtml(group.explanation.topChoiceReason)}</p>`
+    : '';
+  const alternatives = group.explanation.alternativesComparison
+    ? `<p><strong>Alternatives:</strong> ${escapeHtml(group.explanation.alternativesComparison)}</p>`
+    : '';
+  return `<div class="llm-explanation"><strong>Explanation of deterministic recommendation</strong><p>${escapeHtml(group.explanation.summary)}</p>${topChoice}${alternatives}${tradeoffs}</div>`;
 }
 
 function nextIsoDate(value: string): string {
@@ -294,7 +324,7 @@ h1 { font-size: 27px; line-height: 1.1; margin: 0; color: #102a43; } h2 { font-s
 .finding-detail { font-weight: 600; }
 table { width: 100%; border-collapse: collapse; table-layout: fixed; margin: 9px 0; } thead { display: table-header-group; } th, td { border: 1px solid #bcccdc; padding: 5px 7px; text-align: left; overflow-wrap: anywhere; } th { background: #e9f0f7; color: #243b53; }
 .metrics-table th:first-child, .metrics-table td:first-child { width: 12%; } .metrics-table th:last-child, .metrics-table td:last-child { width: 18%; text-align: right; }
-.issue-weeks, .context-notes, .suggested-action, .suggested-actions, .recommendation-block { margin-top: 10px; padding: 9px; border-radius: 4px; background: #edf2f7; }
+.issue-weeks, .context-notes, .suggested-action, .suggested-actions, .recommendation-block, .llm-explanation { margin-top: 10px; padding: 9px; border-radius: 4px; background: #edf2f7; }
 .issue-weeks table { background: #fff; } .issue-weeks th:first-child, .issue-weeks td:first-child { width: 12%; } .issue-weeks th:nth-child(2), .issue-weeks td:nth-child(2) { width: 24%; }
 .suggested-action { display: flex; gap: 9px; align-items: center; } .suggested-action em { margin-left: auto; color: #7c2d12; }
 .suggested-actions em { float: right; color: #7c2d12; } .suggested-actions ul { margin: 6px 0 0; padding-left: 18px; } .suggested-actions li { margin: 4px 0; } .action-code { font-weight: 700; font-size: 10px; letter-spacing: .04em; background: #d0dae7; border-radius: 3px; padding: 1px 5px; } .action-primary .action-code { background: #b6c9db; }
@@ -302,6 +332,9 @@ table { width: 100%; border-collapse: collapse; table-layout: fixed; margin: 9px
 .selected-badge, .alternative-badge { display: inline-block; border-radius: 3px; padding: 3px 6px; font-size: 10px; font-weight: 700; } .selected-badge { color: #0c5c36; background: #d9f2e5; } .alternative-badge { color: #594a00; background: #fff4bf; }
 .quality-warning { color: #7c2d12; background: #ffedd5; border: 1px solid #fdba74; padding: 6px; }
 .recommendation-note { color: #334e68; background: #fff; border: 1px solid #bcccdc; padding: 7px; }
+.llm-explanation { background: #f7fafc; border: 1px solid #d9e2ec; }
+.llm-explanation p { margin: 6px 0; }
+.llm-explanation ul { margin: 6px 0 0; padding-left: 18px; }
 .status-partial_relief, .status-no_valid_rebalance_found { border-left: 4px solid #9c6b00; padding-left: 7px; }
 .empty-state { color: #52667a; border: 1px dashed #9fb3c8; padding: 9px; }
 .methodology { margin-top: 28px; break-before: page; } footer { margin-top: 24px; border-top: 1px solid #bcccdc; padding-top: 8px; color: #627d98; text-align: center; font-size: 10px; }

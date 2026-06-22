@@ -26,6 +26,18 @@ const suggestedActionSchema = z.object({
   primary: z.boolean(),
 });
 
+const findingExplanationSchema = z.object({
+  summary: z.string(),
+  riskTradeoffs: z.array(z.string()),
+});
+
+const recommendationExplanationSchema = z.object({
+  summary: z.string(),
+  riskTradeoffs: z.array(z.string()),
+  topChoiceReason: z.string().nullable(),
+  alternativesComparison: z.string().nullable(),
+});
+
 const findingSchema = z.object({
   memberId: z.string(),
   issueType: z.enum(['overbook', 'idle', 'mismatch_under', 'mismatch_over', 'ok']),
@@ -65,18 +77,26 @@ const findingSchema = z.object({
     N06: z.number().nullable(),
     N12: z.number().nullable(),
   }),
+  explanation: findingExplanationSchema.optional(),
 });
 
 const recommendationSchema = z.object({
   type: z.literal('rebalance'),
   sourceMemberId: z.string(),
   targetMemberId: z.string(),
-  weekId: z.string(),
+  opportunityId: z.string(),
   projectId: z.string(),
-  transferHours: z.number().positive(),
+  roleNeeded: z.string().nullable(),
+  effectiveFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  effectiveTo: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable(),
+  transferPct: z.number().nonnegative(),
+  transferHoursPerWeek: z.number().positive(),
   score: z.number(),
   confidence: z.enum(['high', 'medium', 'low']),
-  rankWithinSource: z.number().int().positive(),
+  rankWithinOpportunity: z.number().int().positive(),
   portfolioSelected: z.boolean(),
   mutuallyExclusiveAlternative: z.boolean(),
   beforeAfter: z.object({
@@ -86,31 +106,52 @@ const recommendationSchema = z.object({
     targetAfterBusyRate: z.number(),
   }),
   scoreBreakdown: z.object({
-    skillCoverage: z.number(),
-    taskHistorySimilarity: z.number(),
+    skillMatch: z.number(),
+    historyMatch: z.number(),
+    roleContextMatch: z.number(),
     capacityFit: z.number(),
-    projectContext: z.number(),
+    riskAdjustment: z.number(),
   }),
   evidence: z.object({
     matchedSkills: z.array(z.string()),
     missingSkills: z.array(z.string()),
     similarPastTasks: z.array(z.string()),
-    capacityReason: z.string(),
+    sourceRiskFlags: z.array(z.string()),
+    candidateRiskFlags: z.array(z.string()),
+    rationale: z.string(),
   }),
   recommendationDegraded: z.boolean(),
   dataQualityFlags: z.array(z.string()),
 });
 
 const recommendationGroupSchema = z.object({
+  opportunityId: z.string(),
   sourceMemberId: z.string(),
-  weekId: z.string(),
-  severity: z.enum(['yellow', 'red']),
-  requiredReductionHours: z.number().nonnegative(),
+  projectId: z.string(),
+  roleNeeded: z.string().nullable(),
+  severity: z.enum(['warning', 'red']),
+  evidenceWindow: z.object({
+    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  }),
+  planningPeriod: z.object({
+    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    to: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .nullable(),
+  }),
+  currentRaBusyRate: z.number().nonnegative(),
+  targetRaBusyRate: z.number().nonnegative(),
+  requiredReductionPct: z.number().nonnegative(),
+  requiredReductionHoursPerWeek: z.number().nonnegative(),
   status: z.enum(['full_solution', 'partial_relief', 'no_valid_rebalance_found']),
+  requiresRaConfirmation: z.boolean(),
   recommendations: z.array(recommendationSchema),
   noResultReasons: z.array(z.string()),
   recommendationDegraded: z.boolean(),
   dataQualityFlags: z.array(z.string()),
+  explanation: recommendationExplanationSchema.optional(),
   evidenceVersions: z.object({
     sourceVersions: z.array(z.string()),
     embeddingModelIds: z.array(z.string()),

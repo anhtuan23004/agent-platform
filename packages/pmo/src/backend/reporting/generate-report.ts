@@ -1,6 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import pino from 'pino';
-import { type GeneratePmoReportOutput, generatePmoReport } from '../analytics/report.ts';
+import { generatePmoReport } from '../analytics/report.ts';
+import type { GeneratePmoReportOutput } from './report-output.ts';
 
 const log = pino({ name: 'pmo/reporting' });
 
@@ -211,9 +212,9 @@ export function sortReportPayload(report: GeneratePmoReportOutput): GeneratePmoR
     recommendations: [...report.recommendations].sort(
       (left, right) =>
         Number(right.severity === 'red') - Number(left.severity === 'red') ||
-        right.requiredReductionHours - left.requiredReductionHours ||
+        right.requiredReductionHoursPerWeek - left.requiredReductionHoursPerWeek ||
         left.sourceMemberId.localeCompare(right.sourceMemberId) ||
-        left.weekId.localeCompare(right.weekId),
+        left.opportunityId.localeCompare(right.opportunityId),
     ),
   };
 }

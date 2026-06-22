@@ -1,4 +1,4 @@
-import type { GeneratePmoReportOutput } from '../analytics/report.ts';
+import type { GeneratePmoReportOutput } from './report-output.ts';
 
 export const CANONICAL_REPORT_TYPES = ['idle', 'overbook'] as const;
 export type CanonicalReportType = (typeof CANONICAL_REPORT_TYPES)[number];

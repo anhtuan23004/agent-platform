@@ -77,7 +77,20 @@ describe('generatePmoReport persisted-facts contract', () => {
       facts: [FACT, MISMATCH_FACT],
       ctx: { leaves: [], weeksById: new Map([['W1', WEEK]]), thresholds: THRESHOLDS },
     }));
-    const deps: GeneratePmoReportDeps = { ensureFacts, loadEvidence };
+    const explainReport = vi.fn(async () => ({
+      findings: [
+        {
+          memberId: 'EMP-001',
+          issueType: 'overbook' as const,
+          explanation: {
+            summary: 'Deterministic logic flagged an overbooked allocation.',
+            riskTradeoffs: ['Validate whether sustained load should be redistributed.'],
+          },
+        },
+      ],
+      recommendations: [],
+    }));
+    const deps: GeneratePmoReportDeps = { ensureFacts, loadEvidence, explainReport };
 
     const result = await generatePmoReport(
       {
@@ -139,6 +152,32 @@ describe('generatePmoReport persisted-facts contract', () => {
       N06: 0.9167,
       N12: null,
     });
+    expect(result.findings[0]?.explanation).toEqual({
+      summary: 'Deterministic logic flagged an overbooked allocation.',
+      riskTradeoffs: ['Validate whether sustained load should be redistributed.'],
+    });
+    expect(result.findings[1]?.explanation?.summary).toContain(
+      'Deterministic evidence shows busy rate 90%',
+    );
+    expect(explainReport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ruleContext: expect.objectContaining({
+          classification: expect.objectContaining({
+            overbook: { warningAbove: 1.1, redAtOrAbove: 1.2 },
+            idle: { redBelow: 0.75, warningBelow: 0.85 },
+            mismatchPctThreshold: 0.2,
+            otMaxHoursPerWeek: 48,
+          }),
+          metrics: expect.objectContaining({
+            N01: 'planned_h / available_h',
+            N06: 'actual_h / planned_h',
+          }),
+          recommendation: expect.objectContaining({
+            enabled: false,
+          }),
+        }),
+      }),
+    );
     expect(result.sourceVersion).toEqual({
       factsVersion: 'facts-v1',
       canonicalDataVersion: 'canonical-v1',

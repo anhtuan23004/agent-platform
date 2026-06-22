@@ -23,10 +23,11 @@ export function calculateCandidateScore(
 ): number {
   const weights = rules.recommendation.scoring;
   return (
-    breakdown.skillCoverage * weights.skillCoverage +
-    breakdown.taskHistorySimilarity * weights.taskHistorySimilarity +
+    breakdown.skillMatch * weights.skillMatch +
+    breakdown.historyMatch * weights.historyMatch +
+    breakdown.roleContextMatch * weights.roleContextMatch +
     breakdown.capacityFit * weights.capacityFit +
-    breakdown.projectContext * weights.projectContext
+    breakdown.riskAdjustment * weights.riskAdjustment
   );
 }
 
@@ -45,9 +46,9 @@ export function stableRank(candidates: RebalanceRecommendation[]): RebalanceReco
     .sort(
       (a, b) =>
         b.score - a.score ||
-        b.scoreBreakdown.skillCoverage - a.scoreBreakdown.skillCoverage ||
-        b.scoreBreakdown.taskHistorySimilarity - a.scoreBreakdown.taskHistorySimilarity ||
+        b.scoreBreakdown.skillMatch - a.scoreBreakdown.skillMatch ||
+        b.scoreBreakdown.historyMatch - a.scoreBreakdown.historyMatch ||
         a.targetMemberId.localeCompare(b.targetMemberId),
     )
-    .map((candidate, index) => ({ ...candidate, rankWithinSource: index + 1 }));
+    .map((candidate, index) => ({ ...candidate, rankWithinOpportunity: index + 1 }));
 }

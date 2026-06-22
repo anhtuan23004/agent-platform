@@ -20,6 +20,28 @@ User/Agent request
   GET /api/pmo/v1/reports/:id/download -> presigned S3 URL
 ```
 
+## Recommendation semantics
+
+The report pipeline uses two different time concepts for recommendations:
+
+- `evidence window`: historical interval used to detect and validate issues
+- `planning horizon`: future interval where recommended actions would apply
+
+Default planning rule:
+- `planningStart = nextWorkingDay(evidenceTo + 1 day)`
+
+Example:
+- evidence window ends on `2026-08-07`
+- `2026-08-08` is a Saturday
+- default planning start becomes `2026-08-10`
+
+Operational implications:
+- recommendation cards are advisory future actions, not retroactive edits to `W1..W6`
+- weekly evidence may still be shown as supporting detail
+- the recommendation engine should group by rebalance opportunity, not by historical week, once the refactor is complete
+
+If uploaded RA coverage ends at the same date as the evidence window and PMO has not confirmed that this is the true assignment end, the engine should prefer a machine-readable `requires_ra_confirmation` outcome over silently returning no recommendation.
+
 ## Key tables
 
 - `pmo.report_runs`: durable state for each report run (status, rule snapshot, facts version, artifact metadata, failure details).

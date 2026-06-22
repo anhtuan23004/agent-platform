@@ -80,6 +80,13 @@ function report(): GeneratePmoReportOutput {
           },
         ],
         metricEvidence: { ...metrics, N01: 0.8 },
+        explanation: {
+          summary:
+            'Deterministic idle detection shows spare RA, but that does not automatically justify assigning more work.',
+          riskTradeoffs: [
+            'Check whether the member matches the required role before reassigning capacity.',
+          ],
+        },
       },
       {
         memberId: 'EMP-RED',
@@ -121,6 +128,14 @@ function report(): GeneratePmoReportOutput {
           },
         ],
         metricEvidence: metrics,
+        explanation: {
+          summary:
+            'Deterministic overbook detection is based on persisted metrics and should be treated as a staffing signal, not a prompt inference.',
+          riskTradeoffs: [
+            'Leaving the allocation unchanged can sustain delivery and burnout risk.',
+            'Any transfer still has to respect future project demand and skill fit.',
+          ],
+        },
       },
       {
         memberId: 'EMP-RED',
@@ -156,18 +171,41 @@ function report(): GeneratePmoReportOutput {
           },
         ],
         metricEvidence: { ...metrics, N01: 1, N06: 1.3 },
+        explanation: {
+          summary: 'Deterministic mismatch detection found actual effort above planned effort.',
+          riskTradeoffs: ['Update RA or confirm whether extra effort was approved.'],
+        },
       },
     ],
     recommendations: [
       {
+        opportunityId: 'EMP-RED:PRJ-unsafe:BE:2026-06-29:2026-08-07',
         sourceMemberId: 'EMP-RED',
-        weekId: 'W2',
+        projectId: 'PRJ-<unsafe>',
+        roleNeeded: 'BE',
         severity: 'red',
-        requiredReductionHours: 6,
+        evidenceWindow: { from: '2026-06-29', to: '2026-08-07' },
+        planningPeriod: { from: '2026-08-10', to: '2026-12-31' },
+        currentRaBusyRate: 1.2,
+        targetRaBusyRate: 1,
+        requiredReductionPct: 0.15,
+        requiredReductionHoursPerWeek: 6,
         status: 'partial_relief',
+        requiresRaConfirmation: false,
         noResultReasons: [],
         recommendationDegraded: true,
         dataQualityFlags: ['task_embeddings_missing'],
+        explanation: {
+          summary:
+            'Deterministic ranking found a partial relief path, but the evidence is degraded and should be rechecked before execution.',
+          riskTradeoffs: [
+            'The transfer reduces overload without assuming the target can absorb the full gap.',
+          ],
+          topChoiceReason:
+            'EMP-TARGET has the cleanest capacity fit for the required transfer while keeping the source near the target ceiling.',
+          alternativesComparison:
+            'Lower-ranked alternatives would create weaker skill or capacity alignment.',
+        },
         evidenceVersions: {
           sourceVersions: ['v1'],
           embeddingModelIds: [],
@@ -176,14 +214,18 @@ function report(): GeneratePmoReportOutput {
         recommendations: [
           {
             type: 'rebalance',
+            opportunityId: 'EMP-RED:PRJ-unsafe:BE:2026-06-29:2026-08-07',
             sourceMemberId: 'EMP-RED',
             targetMemberId: 'EMP-TARGET',
-            weekId: 'W2',
             projectId: 'PRJ-<unsafe>',
-            transferHours: 4,
+            roleNeeded: 'BE',
+            effectiveFrom: '2026-08-10',
+            effectiveTo: '2026-12-31',
+            transferPct: 0.1,
+            transferHoursPerWeek: 4,
             score: 0.72,
             confidence: 'medium',
-            rankWithinSource: 1,
+            rankWithinOpportunity: 1,
             portfolioSelected: false,
             mutuallyExclusiveAlternative: true,
             beforeAfter: {
@@ -193,16 +235,19 @@ function report(): GeneratePmoReportOutput {
               targetAfterBusyRate: 0.9,
             },
             scoreBreakdown: {
-              skillCoverage: 1,
-              taskHistorySimilarity: 0,
+              skillMatch: 1,
+              historyMatch: 0,
+              roleContextMatch: 0.4,
               capacityFit: 0.8,
-              projectContext: 0.4,
+              riskAdjustment: 0.9,
             },
             evidence: {
               matchedSkills: ['java', '<sql>'],
               missingSkills: [],
               similarPastTasks: [],
-              capacityReason: 'source_overbook_reduced',
+              sourceRiskFlags: ['actual_utilization_above_100'],
+              candidateRiskFlags: [],
+              rationale: 'Move 10% allocation from EMP-RED to EMP-TARGET for PRJ-<unsafe>.',
             },
             recommendationDegraded: true,
             dataQualityFlags: ['task_embeddings_missing'],
@@ -253,8 +298,12 @@ describe('renderReportHtml', () => {
     expect(html).toContain('Partial Relief');
     expect(html).toContain('Evidence degraded:');
     expect(html).toContain('Evidence window: 2026-06-29 to 2026-08-07');
-    expect(html).toContain('forward-looking actions from 2026-08-08');
+    expect(html).toContain('forward-looking actions from 2026-08-10');
+    expect(html).toContain('Explanation of deterministic recommendation');
+    expect(html).toContain('Why top-1 leads:');
+    expect(html).toContain('Alternatives:');
     expect(html).toContain('Mutually exclusive alternative · revalidate before apply');
+    expect(html).toContain('2026-08-10 to 2026-12-31');
     expect(html).not.toContain('Portfolio selected');
   });
 
@@ -262,6 +311,7 @@ describe('renderReportHtml', () => {
     const { html } = renderReportHtml(model());
     expect(html).toContain('Mismatch');
     expect(html).toContain('Affected weeks');
+    expect(html).toContain('Explanation of deterministic finding');
     expect(html).toContain('W2');
     expect(html).toContain('2026-07-06 to 2026-07-10');
     expect(html).toContain('Effort consumption 130%');
@@ -285,7 +335,7 @@ describe('renderReportHtml', () => {
     const { html } = renderReportHtml(model(value));
     expect(html).not.toContain('No Valid Rebalance Found');
     expect(html).not.toContain('No valid rebalance found:');
-    expect(html).toContain('No candidate-backed rebalance was produced for 1 affected week');
+    expect(html).toContain('No candidate-backed rebalance was produced for 1 opportunity');
     expect(html).toContain('Candidate Data Unavailable');
     expect(html).toContain('next planning cycle');
     expect(html).not.toContain('Portfolio selected');
