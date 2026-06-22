@@ -5,7 +5,7 @@ import { tenantIdFromContext, userIdFromContext } from './context.ts';
 
 const reportTypeSchema = z.enum(['idle_members', 'overbook_members']);
 
-const dateRangeSchema = z.object({
+export const dateRangeSchema = z.object({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 });
@@ -38,7 +38,7 @@ const recommendationExplanationSchema = z.object({
   alternativesComparison: z.string().nullable(),
 });
 
-const findingSchema = z.object({
+export const findingSchema = z.object({
   memberId: z.string(),
   issueType: z.enum(['overbook', 'idle', 'mismatch_under', 'mismatch_over', 'ok']),
   ragColor: z.enum(['green', 'yellow', 'red', 'none']),
@@ -124,7 +124,7 @@ const recommendationSchema = z.object({
   dataQualityFlags: z.array(z.string()),
 });
 
-const recommendationGroupSchema = z.object({
+export const recommendationGroupSchema = z.object({
   opportunityId: z.string(),
   sourceMemberId: z.string(),
   projectId: z.string(),

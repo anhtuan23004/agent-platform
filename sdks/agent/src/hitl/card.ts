@@ -101,6 +101,7 @@ export const ApprovalCardSchema = z.object({
     plannerStepId: z.string().optional(),
     actionId: z.string().optional(),
     reviewType: z.string().optional(),
+    willPublish: z.boolean().optional(),
     ts: z.string(),
   }),
 });

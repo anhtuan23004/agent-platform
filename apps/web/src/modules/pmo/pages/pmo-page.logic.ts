@@ -80,6 +80,7 @@ export interface PublishReviewViewModel {
   primaryLabel: string;
   declineLabel: string | null;
   canApprove: boolean;
+  willPublish: boolean;
   summaryRows: Array<{ k: string; v: string }>;
   tableRows: Array<{ k: string; v: string }>;
   issueRows: Array<{ k: string; v: string }>;
@@ -874,6 +875,36 @@ function publishPrimaryApproves(payload: unknown): boolean {
   return (argsPatch as { decision?: unknown }).decision === 'approve';
 }
 
+function willPublishFromPayload(payload: unknown, approval: WorkflowApprovalRow): boolean {
+  if (payload && typeof payload === 'object') {
+    const meta = (payload as { meta?: unknown }).meta;
+    if (meta && typeof meta === 'object') {
+      const willPublish = (meta as { willPublish?: unknown }).willPublish;
+      if (typeof willPublish === 'boolean') return willPublish;
+    }
+  }
+
+  const actionId = readActionIdFromApproval(approval);
+  if (actionId === 'publish_after_approval') return true;
+  if (actionId === 'database_change_summary') return false;
+
+  if (isRenderableApprovalPayload(payload)) {
+    const label = payload.primary.label.toLowerCase();
+    if (label.includes('complete review')) return false;
+    if (label.includes('approve publish')) return true;
+  }
+
+  const summary =
+    payload &&
+    typeof payload === 'object' &&
+    typeof (payload as { summary?: unknown }).summary === 'string'
+      ? (payload as { summary: string }).summary
+      : null;
+  if (summary && /no canonical pmo data will be written/i.test(summary)) return false;
+
+  return actionId !== 'database_change_summary';
+}
+
 export function parsePublishReviewView(
   approval: WorkflowApprovalRow | null,
 ): PublishReviewViewModel | null {
@@ -902,12 +933,14 @@ export function parsePublishReviewView(
     payload.decline && typeof payload.decline === 'object'
       ? (((payload.decline as { label?: unknown }).label as string | undefined) ?? null)
       : null;
+  const willPublish = willPublishFromPayload(payload, approval);
 
   return {
     summary,
     primaryLabel: payload.primary.label,
     declineLabel,
     canApprove: publishPrimaryApproves(payload),
+    willPublish,
     summaryRows,
     tableRows,
     issueRows,

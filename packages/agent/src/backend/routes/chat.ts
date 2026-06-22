@@ -28,7 +28,7 @@ const ChatBody = z.object({
   model: z.string().optional(),
   /** Which chat runtime drives this turn. Defaults to 'staffing'. */
   agent: z.enum(['staffing', 'pmo']).optional(),
-  /** PMO chat workbook upload: ingestion session to start ingest from this turn. */
+  /** PMO chat analytics source: published ingestion session selected by user. */
   ingestionSessionId: z.string().uuid().optional(),
   reportingDateFrom: z
     .string()

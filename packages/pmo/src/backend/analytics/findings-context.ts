@@ -4,16 +4,22 @@ import { loadMemberWeekFacts } from './persist-facts.ts';
 import { resolveThresholds } from './thresholds.ts';
 import type { MemberWeekFact } from './types.ts';
 
+export interface LoadFactsAndContextOptions {
+  ingestionSessionId?: string;
+  dateRange?: { from: Date; to: Date };
+}
+
 /**
  * Load persisted member-week facts plus the context the finding detectors need
  * (leave records for OT/leave suppression, week calendar, resolved thresholds).
  */
 export async function loadFactsAndContext(
   tenantId: string,
+  options: LoadFactsAndContextOptions = {},
 ): Promise<{ facts: MemberWeekFact[]; ctx: FindingsContext }> {
   const [facts, inputs] = await Promise.all([
-    loadMemberWeekFacts(tenantId),
-    loadCanonicalInputs(tenantId),
+    loadMemberWeekFacts(tenantId, options),
+    loadCanonicalInputs(tenantId, options),
   ]);
   const ctx: FindingsContext = {
     leaves: inputs.leaves,

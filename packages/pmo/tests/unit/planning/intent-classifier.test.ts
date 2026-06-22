@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { loadPmoPlannerCatalog } from '../../../src/backend/planning/catalog.ts';
 import {
   buildClassifiedPmoIntentForTests,
   PmoIntentClassificationSchema,
@@ -90,5 +91,70 @@ describe('PMO multi-axis intent validation', () => {
     });
 
     expect(result.extractedDateRange?.from).toBe('2026-01-01');
+  });
+
+  it('catalog routes rebalance-only language to read-only recommendation guidance', () => {
+    const catalog = loadPmoPlannerCatalog();
+
+    expect(catalog.classification_rules.map((item) => item.rule).join('\n')).toContain(
+      'pmo_recommendRebalance',
+    );
+    expect(catalog.examples).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          goal: expect.stringContaining('Who can take workload'),
+          dataSourceMode: 'existing_db',
+          actionMode: 'generate_report',
+          writePolicy: 'read_only',
+        }),
+        expect.objectContaining({
+          goal: expect.stringContaining('Đề xuất rebalance'),
+          dataSourceMode: 'existing_db',
+          actionMode: 'generate_report',
+          writePolicy: 'read_only',
+        }),
+      ]),
+    );
+  });
+
+  it('classifies RA preparation workbook ingest as publish with approval', () => {
+    const intent = buildClassifiedPmoIntentForTests({
+      dataSourceMode: 'uploaded_file',
+      actionMode: 'publish',
+      writePolicy: 'requires_approval',
+      confidence: 'high',
+    });
+
+    expect(intent.writePolicy).toBe('requires_approval');
+    expect(intent.allowed_action_ids).toEqual([
+      'workbook_profiling',
+      'column_mapping',
+      'normalize_to_staging',
+      'database_change_summary',
+      'publish_after_approval',
+    ]);
+  });
+
+  it('catalog includes RA preparation examples that route to publish', () => {
+    const catalog = loadPmoPlannerCatalog();
+
+    expect(catalog.classification_rules.map((item) => item.rule).join('\n')).toMatch(
+      /resource allocation|RA/i,
+    );
+    expect(catalog.examples).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          goal: 'Ingest this workbook and prepare data for RA calculation',
+          dataSourceMode: 'uploaded_file',
+          actionMode: 'publish',
+          writePolicy: 'requires_approval',
+        }),
+        expect.objectContaining({
+          goal: expect.stringMatching(/publish to PMO.*report/i),
+          actionMode: 'publish_then_report',
+          writePolicy: 'requires_approval',
+        }),
+      ]),
+    );
   });
 });

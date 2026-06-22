@@ -917,6 +917,7 @@ export function buildPublishReviewCard(input: PublishCardInput): ApprovalCard {
       agentPath: ['supervisor', 'work', 'pmo'],
       toolId: 'pmo_confirmPublish',
       ...plannerStepMeta(input.plannerStep),
+      willPublish,
       ts: new Date().toISOString(),
     },
   };

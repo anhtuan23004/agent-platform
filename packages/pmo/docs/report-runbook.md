@@ -48,6 +48,7 @@ If uploaded RA coverage ends at the same date as the evidence window and PMO has
 - `pmo.member_week_facts`: persisted read-model; report engine reads, never writes.
 - `pmo.member_week_fact_versions`: freshness tracking (canonical data version, facts version).
 - `pmo.member_skills_projection` / `pmo.task_history_projection`: PMO-local data for recommendations.
+  Projection v1 is populated from enriched PMO_02 demo CSVs after seed/publish; workbook-native skills/history sheets are future scope.
 
 ## Status lifecycle
 

@@ -26,15 +26,15 @@ export const CHAT_AGENT_COPY = {
   },
   pmo: {
     label: 'PMO Agent',
-    emptyTitle: 'Ask about utilization or ingest data',
+    emptyTitle: 'Ask about published PMO data',
     emptyBody:
-      'Upload a PMO workbook to ingest and publish, or ask about overbooked/idle members and logged-vs-planned mismatch from published data.',
+      'Ask about overbooked/idle members, logged-vs-planned mismatch, rebalance options, and PMO formulas from published data.',
     suggestions: [
-      'Ingest this workbook and generate a utilization report',
       'Who is overbooked right now?',
       'Show idle members',
+      'What is the busy rate formula?',
     ] as const,
-    placeholder: 'Upload a workbook to ingest, or ask about utilization…',
+    placeholder: 'Ask about published PMO utilization…',
   },
 } as const;
 

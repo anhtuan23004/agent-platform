@@ -20,7 +20,19 @@
       "rule": "Use publish only when the user explicitly asks to import, publish, apply, sync, or update canonical PMO data."
     },
     {
+      "rule": "Use publish when the user asks to ingest or prepare an uploaded workbook for resource allocation (RA) calculation, utilization analysis, or other downstream PMO workflows that require canonical data to be written. Phrases like 'prepare data for RA', 'ingest for allocation', or 'load workbook into PMO for reporting' imply publish, not preview_changes."
+    },
+    {
+      "rule": "Use publish_then_report when the user requests both ingesting or preparing workbook data for RA or PMO analysis and generating a report artifact in the same goal."
+    },
+    {
       "rule": "Use generate_report when the user asks for idle, overbook, utilization, or PMO reporting without requesting publication."
+    },
+    {
+      "rule": "For rebalance-only questions such as 'who can take workload', 'recommend rebalance', or 'suggest allocation transfer', keep the request read-only on existing_db and route chat to pmo_recommendRebalance rather than creating a publish workflow."
+    },
+    {
+      "rule": "Use pmo_generateReport/generate_report for report or PDF requests; use pmo_recommendRebalance for candidate suggestions when no report artifact is requested."
     },
     {
       "rule": "Use publish_then_report only when the user explicitly requests both publication and report generation."

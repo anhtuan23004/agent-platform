@@ -19,6 +19,22 @@
       "writePolicy": "read_only"
     },
     {
+      "goal": "Who can take workload from EMP-042 for 2026-06-29 to 2026-07-05?",
+      "expected_title": "Plan to recommend workload rebalance candidates",
+      "expected_goal_summary": "Use tenant-scoped PMO data to return deterministic rebalance candidates for the requested member and date range without creating a report artifact.",
+      "dataSourceMode": "existing_db",
+      "actionMode": "generate_report",
+      "writePolicy": "read_only"
+    },
+    {
+      "goal": "Đề xuất rebalance allocation cho member EMP-042 tuần W12",
+      "expected_title": "Plan to suggest PMO rebalance candidates",
+      "expected_goal_summary": "Answer with read-only rebalance candidate suggestions from existing PMO data and avoid publish or PDF generation.",
+      "dataSourceMode": "existing_db",
+      "actionMode": "generate_report",
+      "writePolicy": "read_only"
+    },
+    {
       "goal": "Review this file",
       "expected_title": "Plan to review uploaded PMO workbook",
       "expected_goal_summary": "Profile, map, normalize, and preview the uploaded workbook database impact for review without publishing canonical PMO changes.",
@@ -145,6 +161,30 @@
       "dataSourceMode": "uploaded_file",
       "actionMode": "validate",
       "writePolicy": "read_only"
+    },
+    {
+      "goal": "Ingest this workbook and prepare data for RA calculation",
+      "expected_title": "Plan to ingest PMO workbook for resource allocation",
+      "expected_goal_summary": "Run the controlled ingestion chain and publish approved PMO changes so resource allocation calculations can run on canonical data.",
+      "dataSourceMode": "uploaded_file",
+      "actionMode": "publish",
+      "writePolicy": "requires_approval"
+    },
+    {
+      "goal": "Import this file and prepare data for resource allocation",
+      "expected_title": "Plan to import PMO workbook for allocation analysis",
+      "expected_goal_summary": "Profile, map, stage, and publish approved workbook changes to canonical PMO tables for downstream resource allocation.",
+      "dataSourceMode": "uploaded_file",
+      "actionMode": "publish",
+      "writePolicy": "requires_approval"
+    },
+    {
+      "goal": "Ingest this workbook, publish to PMO, and generate an idle/overbook report",
+      "expected_title": "Plan to publish PMO workbook and generate RA report",
+      "expected_goal_summary": "Publish approved workbook changes to canonical PMO tables, then generate an idle and overbook report for resource allocation review.",
+      "dataSourceMode": "uploaded_file",
+      "actionMode": "publish_then_report",
+      "writePolicy": "requires_approval"
     },
     {
       "goal": "Publish this workbook after approval",

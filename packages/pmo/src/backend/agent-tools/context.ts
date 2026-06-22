@@ -10,3 +10,10 @@ export function tenantIdFromContext(ctx: AgentToolContext): string {
 export function userIdFromContext(ctx: AgentToolContext): string {
   return actorFromContext(ctx).user_id;
 }
+
+/** Selected published upload scope injected by PMO chat runtime. */
+export function analyticsIngestionSessionIdFromContext(ctx: AgentToolContext): string | undefined {
+  const requestContext = ctx.requestContext as { get?: (key: string) => unknown } | undefined;
+  const id = requestContext?.get?.('pmo.analytics.ingestion_session_id') as string | undefined;
+  return id?.trim() || undefined;
+}

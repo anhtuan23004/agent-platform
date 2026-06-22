@@ -125,4 +125,19 @@ describe('recordEntityExposure', () => {
     const ids = (read()?.recentTasks ?? []).map((t) => t.taskId).sort();
     expect(ids).toEqual([T1.taskId, T2.taskId].sort());
   });
+
+  it('records PMO member and date range exposure', async () => {
+    const { ctx, read } = buildCtx(null);
+    await recordEntityExposure(ctx, {
+      lastDiscussedMemberId: 'EMP-004',
+      recentMembers: [{ memberId: 'EMP-004', label: 'EMP-004' }],
+      lastDateRange: { from: '2026-06-01', to: '2026-06-30' },
+      lastIngestionSessionId: '11111111-1111-4111-8111-111111111111',
+    });
+    const entities = read();
+    expect(entities?.lastDiscussedMemberId).toBe('EMP-004');
+    expect(entities?.recentMembers).toMatchObject([{ memberId: 'EMP-004', label: 'EMP-004' }]);
+    expect(entities?.lastDateRange).toEqual({ from: '2026-06-01', to: '2026-06-30' });
+    expect(entities?.lastIngestionSessionId).toBe('11111111-1111-4111-8111-111111111111');
+  });
 });
