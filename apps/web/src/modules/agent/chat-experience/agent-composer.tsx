@@ -1,5 +1,5 @@
 import { useAui, useAuiState } from '@assistant-ui/react';
-import { attachmentsBlockSend, ChatComposer, Label } from '@seta/shared-ui';
+import { attachmentsBlockSend, ChatComposer } from '@seta/shared-ui';
 import { X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { ModelSelector } from '../components/model-selector';
@@ -35,12 +35,6 @@ export function AgentComposer({ compact = false }: AgentComposerProps) {
   const remove = isPmo ? pmoIngestAttachments.remove : staffingAttachments.remove;
   const reset = isPmo ? pmoIngestAttachments.reset : staffingAttachments.reset;
   const warning = isPmo ? pmoIngestAttachments.warning : staffingAttachments.warning;
-  const uploadSources = isPmo ? pmoIngestAttachments.uploadSources : [];
-  const uploadSourcesLoading = isPmo ? pmoIngestAttachments.uploadSourcesLoading : false;
-  const refreshUploadSources = isPmo ? pmoIngestAttachments.refreshUploadSources : async () => {};
-  const selectedSessionId = isPmo ? pmoIngestAttachments.selectedSessionId : null;
-  const setSelectedSessionId = isPmo ? pmoIngestAttachments.setSelectedSessionId : () => {};
-  const selectedUploadSource = isPmo ? pmoIngestAttachments.selectedUploadSource : null;
   const pendingIngestSessionId = isPmo ? pmoIngestAttachments.pendingIngestSessionId : null;
 
   const submit = () => {
@@ -49,17 +43,12 @@ export function AgentComposer({ compact = false }: AgentComposerProps) {
     clearRunError();
     if (isPmo && pendingIngestSessionId) {
       pmoIngestSendRef.current = { ingestionSessionId: pendingIngestSessionId };
-    } else if (isPmo) {
-      pmoIngestSendRef.current = {};
-    } else {
+    } else if (!isPmo) {
       pmoIngestSendRef.current = {};
     }
     aui.composer().setText(value);
     aui.composer().send();
     setValue('');
-    if (isPmo) {
-      void refreshUploadSources();
-    }
     reset();
   };
 
@@ -105,45 +94,10 @@ export function AgentComposer({ compact = false }: AgentComposerProps) {
             : CHAT_AGENT_COPY[chatAgent].placeholder
         }
         permissionHint={
-          isPmo ? (
-            <div className="flex w-full min-w-0 flex-col gap-1.5">
-              <span className={warning ? 'text-warning-ink' : undefined}>
-                {warning ?? 'Excel workbooks upload as PMO ingestion sessions for ingest workflow.'}
-              </span>
-              {uploadSourcesLoading ? (
-                <span>Loading uploads…</span>
-              ) : uploadSources.length > 0 ? (
-                <>
-                  <Label htmlFor="pmo-chat-upload-source" className="text-caption font-medium">
-                    Upload source
-                  </Label>
-                  <select
-                    id="pmo-chat-upload-source"
-                    className="w-full rounded-md border border-hairline bg-surface-1 px-2 py-1.5 text-body-sm text-ink"
-                    value={selectedSessionId ?? ''}
-                    onChange={(event) => setSelectedSessionId(event.target.value || null)}
-                  >
-                    {uploadSources.map((source) => (
-                      <option key={source.ingestionSessionId} value={source.ingestionSessionId}>
-                        {source.label}
-                        {source.fromCurrentThread ? '' : ' · other thread'}
-                        {source.isPublished ? ' · published' : ' · not published yet'}
-                      </option>
-                    ))}
-                  </select>
-                </>
-              ) : null}
-              {selectedUploadSource && !selectedUploadSource.isPublished ? (
-                <span className="text-warning-ink">
-                  Publish this upload before scoped rebalance or report analytics.
-                </span>
-              ) : selectedUploadSource?.isPublished ? (
-                <span>Rebalance and report tools will use this published batch only.</span>
-              ) : null}
-            </div>
-          ) : (
-            warning
-          )
+          warning ??
+          (isPmo
+            ? 'Excel workbooks upload as PMO ingestion sessions for ingest workflow.'
+            : undefined)
         }
         attachments={attachments}
         onAttachFiles={attach}

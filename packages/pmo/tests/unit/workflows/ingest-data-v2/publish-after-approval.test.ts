@@ -1,22 +1,11 @@
 import { appendCheckpoint, appendProposal, approveProposal, createProposal } from '@seta/ingestion';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type {
   DbChangeSummaryResult,
   StagingChangeSummary,
 } from '../../../../src/backend/workflows/ingest-data-v2/handlers/common.ts';
 import { createPublishAfterApprovalHandler } from '../../../../src/backend/workflows/ingest-data-v2/handlers/publish-after-approval.ts';
 import type { PmoDynamicHandlerInput } from '../../../../src/backend/workflows/ingest-data-v2/types.ts';
-
-const mocks = vi.hoisted(() => ({
-  syncRecommendationProjectionsFromDemoCsv: vi.fn(async () => ({ skills: 1, taskHistory: 1 })),
-}));
-
-vi.mock('../../../../src/backend/reporting/recommendations/index.ts', async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import('../../../../src/backend/reporting/recommendations/index.ts')
-  >()),
-  syncRecommendationProjectionsFromDemoCsv: mocks.syncRecommendationProjectionsFromDemoCsv,
-}));
 
 const baseStep = {
   step_no: 5,
@@ -103,10 +92,6 @@ function makeInput(overrides: Partial<PmoDynamicHandlerInput> = {}): PmoDynamicH
 }
 
 describe('createPublishAfterApprovalHandler', () => {
-  beforeEach(() => {
-    mocks.syncRecommendationProjectionsFromDemoCsv.mockClear();
-  });
-
   it('publishes directly from an approved DB change checkpoint', async () => {
     const proposal = createProposal({
       state: {},
@@ -140,9 +125,6 @@ describe('createPublishAfterApprovalHandler', () => {
 
     expect(result.kind).toBe('completed');
     expect(deps.domainAdapter.publish).toHaveBeenCalledOnce();
-    expect(mocks.syncRecommendationProjectionsFromDemoCsv).toHaveBeenCalledWith({
-      tenantId: '11111111-1111-1111-1111-111111111111',
-    });
     expect(result.kind === 'completed' ? result.outputSummary : {}).toMatchObject({
       status: 'published',
       db_change_checkpoint_version: 1,
@@ -186,16 +168,5 @@ describe('createPublishAfterApprovalHandler', () => {
     expect(
       result.runtimeContextPatch?.staging_result?.review_proposals?.database_change_summary,
     ).toHaveLength(1);
-  });
-
-  it('syncs recommendation projections after approving the publish proposal', async () => {
-    const result = await createPublishAfterApprovalHandler(makeDeps()).execute(
-      makeInput({ resumeData: { decision: 'approve' } }),
-    );
-
-    expect(result.kind).toBe('completed');
-    expect(mocks.syncRecommendationProjectionsFromDemoCsv).toHaveBeenCalledWith({
-      tenantId: '11111111-1111-1111-1111-111111111111',
-    });
   });
 });

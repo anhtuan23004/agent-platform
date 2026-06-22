@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { loadPmoPlannerCatalog } from '../../../src/backend/planning/catalog.ts';
 import {
   buildClassifiedPmoIntentForTests,
   PmoIntentClassificationSchema,
@@ -91,29 +90,5 @@ describe('PMO multi-axis intent validation', () => {
     });
 
     expect(result.extractedDateRange?.from).toBe('2026-01-01');
-  });
-
-  it('catalog routes rebalance-only language to read-only recommendation guidance', () => {
-    const catalog = loadPmoPlannerCatalog();
-
-    expect(catalog.classification_rules.map((item) => item.rule).join('\n')).toContain(
-      'pmo_recommendRebalance',
-    );
-    expect(catalog.examples).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          goal: expect.stringContaining('Who can take workload'),
-          dataSourceMode: 'existing_db',
-          actionMode: 'generate_report',
-          writePolicy: 'read_only',
-        }),
-        expect.objectContaining({
-          goal: expect.stringContaining('Đề xuất rebalance'),
-          dataSourceMode: 'existing_db',
-          actionMode: 'generate_report',
-          writePolicy: 'read_only',
-        }),
-      ]),
-    );
   });
 });

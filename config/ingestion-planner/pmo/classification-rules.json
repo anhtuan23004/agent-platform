@@ -23,12 +23,6 @@
       "rule": "Use generate_report when the user asks for idle, overbook, utilization, or PMO reporting without requesting publication."
     },
     {
-      "rule": "For rebalance-only questions such as 'who can take workload', 'recommend rebalance', or 'suggest allocation transfer', keep the request read-only on existing_db and route chat to pmo_recommendRebalance rather than creating a publish workflow."
-    },
-    {
-      "rule": "Use pmo_generateReport/generate_report for report or PDF requests; use pmo_recommendRebalance for candidate suggestions when no report artifact is requested."
-    },
-    {
       "rule": "Use publish_then_report only when the user explicitly requests both publication and report generation."
     },
     {

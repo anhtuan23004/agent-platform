@@ -3,14 +3,14 @@ import { z } from 'zod';
 import { generateReport } from '../reporting/generate-report.ts';
 import { tenantIdFromContext, userIdFromContext } from './context.ts';
 
-export const reportTypeSchema = z.enum(['idle_members', 'overbook_members']);
+const reportTypeSchema = z.enum(['idle_members', 'overbook_members']);
 
-export const dateRangeSchema = z.object({
+const dateRangeSchema = z.object({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 });
 
-export const actionCodeSchema = z.enum([
+const actionCodeSchema = z.enum([
   'REBALANCE_ALLOCATION',
   'REVIEW_WITH_LINE_MANAGER',
   'CHECK_MISSING_TIMESHEET',
@@ -20,13 +20,13 @@ export const actionCodeSchema = z.enum([
   'NO_ACTION',
 ]);
 
-export const suggestedActionSchema = z.object({
+const suggestedActionSchema = z.object({
   actionCode: actionCodeSchema,
   templateText: z.string(),
   primary: z.boolean(),
 });
 
-export const findingSchema = z.object({
+const findingSchema = z.object({
   memberId: z.string(),
   issueType: z.enum(['overbook', 'idle', 'mismatch_under', 'mismatch_over', 'ok']),
   ragColor: z.enum(['green', 'yellow', 'red', 'none']),
@@ -51,7 +51,7 @@ export const findingSchema = z.object({
   }),
 });
 
-export const recommendationSchema = z.object({
+const recommendationSchema = z.object({
   type: z.literal('rebalance'),
   sourceMemberId: z.string(),
   targetMemberId: z.string(),
@@ -85,7 +85,7 @@ export const recommendationSchema = z.object({
   dataQualityFlags: z.array(z.string()),
 });
 
-export const recommendationGroupSchema = z.object({
+const recommendationGroupSchema = z.object({
   sourceMemberId: z.string(),
   weekId: z.string(),
   severity: z.enum(['yellow', 'red']),
@@ -100,18 +100,6 @@ export const recommendationGroupSchema = z.object({
     embeddingModelIds: z.array(z.string()),
     embeddingSourceHashes: z.array(z.string()),
   }),
-});
-
-export const projectionFreshnessSchema = z.object({
-  skillsCount: z.number().int().nonnegative(),
-  taskHistoryCount: z.number().int().nonnegative(),
-  lastSyncedAt: z.string().datetime().nullable(),
-  degraded: z.boolean(),
-});
-
-export const recommendationDataQualitySchema = z.object({
-  recommendationDegraded: z.boolean(),
-  flags: z.array(z.string()),
 });
 
 export const pmoGenerateReportTool = defineAgentTool({
@@ -155,8 +143,6 @@ export const pmoGenerateReportTool = defineAgentTool({
         roleTitle: z.string().nullable(),
       }),
     ),
-    projectionFreshness: projectionFreshnessSchema,
-    dataQuality: recommendationDataQualitySchema,
     findings: z.array(findingSchema),
     recommendations: z.array(recommendationGroupSchema),
   }),

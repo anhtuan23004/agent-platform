@@ -17,7 +17,6 @@ describe('pmo register', () => {
         'pmo_detectMismatch',
         'pmo_detectOverbookIdle',
         'pmo_generateReport',
-        'pmo_recommendRebalance',
       ].sort(),
     );
     expect(AgentRegistry.listWorkflows('work').map((workflow) => workflow.id)).toContain(

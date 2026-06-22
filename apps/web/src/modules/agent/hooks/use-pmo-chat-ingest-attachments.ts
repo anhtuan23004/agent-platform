@@ -1,7 +1,6 @@
 import type { ComposerAttachment } from '@seta/shared-ui';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { type PmoPlanningSession, pmoApi } from '@/modules/pmo/api/client';
+import { useCallback, useState } from 'react';
+import { pmoApi } from '@/modules/pmo/api/client';
 
 interface Item {
   localId: string;
@@ -9,15 +8,6 @@ interface Item {
   filename: string;
   status: ComposerAttachment['status'];
   progress: number;
-}
-
-export interface PmoChatUploadSource {
-  ingestionSessionId: string;
-  label: string;
-  isPublished: boolean;
-  uploadedAt: string | null;
-  /** True when this session was uploaded in the current chat thread. */
-  fromCurrentThread: boolean;
 }
 
 function isWorkbook(file: File): boolean {
@@ -31,29 +21,10 @@ function isWorkbook(file: File): boolean {
   );
 }
 
-function sessionLabel(name: string | null, id: string): string {
-  const trimmed = name?.trim();
-  return trimmed && trimmed.length > 0 ? trimmed : `${id.slice(0, 8)}…`;
-}
-
 /** PMO Agent chat uploads: durable ingestion sessions via /api/pmo/v1/upload. */
 export function usePmoChatIngestAttachments(chatThreadId: string | null) {
   const [items, setItems] = useState<Item[]>([]);
   const [warning, setWarning] = useState<string | null>(null);
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
-  const queryClient = useQueryClient();
-
-  const threadSessions = useQuery({
-    queryKey: ['pmo', 'chat-upload-sources', chatThreadId],
-    enabled: Boolean(chatThreadId),
-    queryFn: () => pmoApi.listPlanningSessions({ chatThreadId: chatThreadId ?? undefined }),
-  });
-
-  const allSessions = useQuery({
-    queryKey: ['pmo', 'all-upload-sources'],
-    enabled: Boolean(chatThreadId),
-    queryFn: () => pmoApi.listPlanningSessions(),
-  });
 
   const patch = useCallback((localId: string, next: Partial<Item>) => {
     setItems((prev) => prev.map((it) => (it.localId === localId ? { ...it, ...next } : it)));
@@ -94,11 +65,6 @@ export function usePmoChatIngestAttachments(chatThreadId: string | null) {
               status: 'uploaded',
               progress: 1,
             });
-            setSelectedSessionId(uploaded.ingestion_session_id);
-            await queryClient.invalidateQueries({
-              queryKey: ['pmo', 'chat-upload-sources', chatThreadId],
-            });
-            await queryClient.invalidateQueries({ queryKey: ['pmo', 'all-upload-sources'] });
           } catch (e) {
             patch(localId, { status: 'failed' });
             setWarning(`${file.name}: ${e instanceof Error ? e.message : 'upload failed'}`);
@@ -106,95 +72,21 @@ export function usePmoChatIngestAttachments(chatThreadId: string | null) {
         })();
       }
     },
-    [patch, chatThreadId, queryClient],
+    [patch, chatThreadId],
   );
 
   const remove = useCallback((localId: string) => {
     setItems((prev) => prev.filter((i) => i.localId !== localId));
   }, []);
 
-  const resetAttachments = useCallback(() => {
+  const reset = useCallback(() => {
     setItems([]);
     setWarning(null);
   }, []);
 
-  const uploadSources = useMemo((): PmoChatUploadSource[] => {
-    const byId = new Map<string, PmoChatUploadSource>();
-    const threadSessionIds = new Set(
-      (threadSessions.data?.items ?? []).map((session) => session.ingestion_session_id),
-    );
-
-    const addSession = (session: PmoPlanningSession, fromCurrentThread: boolean) => {
-      if (byId.has(session.ingestion_session_id)) return;
-      byId.set(session.ingestion_session_id, {
-        ingestionSessionId: session.ingestion_session_id,
-        label: sessionLabel(session.workbook_name, session.ingestion_session_id),
-        isPublished: session.is_published,
-        uploadedAt: session.uploaded_at,
-        fromCurrentThread,
-      });
-    };
-
-    for (const session of threadSessions.data?.items ?? []) {
-      addSession(session, true);
-    }
-
-    for (const session of allSessions.data?.items ?? []) {
-      const fromCurrentThread =
-        threadSessionIds.has(session.ingestion_session_id) ||
-        session.chat_thread_id === chatThreadId;
-      addSession(session, fromCurrentThread);
-    }
-
-    for (const item of items) {
-      if (!item.ingestionSessionId || byId.has(item.ingestionSessionId)) continue;
-      byId.set(item.ingestionSessionId, {
-        ingestionSessionId: item.ingestionSessionId,
-        label: sessionLabel(item.filename, item.ingestionSessionId),
-        isPublished: false,
-        uploadedAt: null,
-        fromCurrentThread: true,
-      });
-    }
-
-    return [...byId.values()].sort((left, right) => {
-      if (left.fromCurrentThread !== right.fromCurrentThread) {
-        return left.fromCurrentThread ? -1 : 1;
-      }
-      if (left.isPublished !== right.isPublished) return left.isPublished ? -1 : 1;
-      const leftTime = left.uploadedAt ? Date.parse(left.uploadedAt) : 0;
-      const rightTime = right.uploadedAt ? Date.parse(right.uploadedAt) : 0;
-      return rightTime - leftTime;
-    });
-  }, [allSessions.data?.items, chatThreadId, items, threadSessions.data?.items]);
-
-  useEffect(() => {
-    if (uploadSources.length === 0) {
-      setSelectedSessionId(null);
-      return;
-    }
-    if (
-      selectedSessionId &&
-      uploadSources.some((s) => s.ingestionSessionId === selectedSessionId)
-    ) {
-      return;
-    }
-    const preferred =
-      uploadSources.find((source) => source.isPublished) ?? uploadSources[0] ?? null;
-    setSelectedSessionId(preferred?.ingestionSessionId ?? null);
-  }, [selectedSessionId, uploadSources]);
-
-  const selectedUploadSource =
-    uploadSources.find((source) => source.ingestionSessionId === selectedSessionId) ?? null;
-
-  const refreshUploadSources = useCallback(async () => {
-    await queryClient.invalidateQueries({
-      queryKey: ['pmo', 'chat-upload-sources', chatThreadId],
-    });
-    await queryClient.invalidateQueries({ queryKey: ['pmo', 'all-upload-sources'] });
-  }, [chatThreadId, queryClient]);
-
-  const uploadSourcesLoading = threadSessions.isLoading || allSessions.isLoading;
+  const pendingIngestSessionId =
+    items.find((it) => it.status === 'uploaded' && it.ingestionSessionId)?.ingestionSessionId ??
+    null;
 
   const attachments: ComposerAttachment[] = items.map((it) => ({
     id: it.localId,
@@ -203,22 +95,5 @@ export function usePmoChatIngestAttachments(chatThreadId: string | null) {
     progress: it.progress,
   }));
 
-  return {
-    attachments,
-    attach,
-    remove,
-    reset: resetAttachments,
-    warning,
-    uploadSources,
-    uploadSourcesLoading,
-    refreshUploadSources,
-    selectedSessionId,
-    setSelectedSessionId,
-    selectedUploadSource,
-    /** Published upload selected for scoped analytics in this chat turn. */
-    scopedIngestSessionId:
-      selectedUploadSource?.isPublished === true ? selectedUploadSource.ingestionSessionId : null,
-    /** Session attached to this turn (ingest kickoff), published or not. */
-    pendingIngestSessionId: selectedSessionId,
-  };
+  return { attachments, attach, remove, reset, warning, pendingIngestSessionId };
 }
