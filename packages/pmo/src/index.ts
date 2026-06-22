@@ -15,9 +15,12 @@ export type {
   SeedPmo02FromMockDbResult,
 } from './backend/demo/seed-from-mock-db.ts';
 export {
+  BUNDLED_PMO02_MOCK_DB_RELATIVE,
   DEFAULT_PMO02_WORKBOOK_PATH,
   DEFAULT_REPO_MOCK_DB_PATH,
   ensurePmo02MockSqliteDb,
+  pmoMockDbExists,
+  resolvePmoMockDbPath,
   seedPmo02FromMockDbForTenant,
 } from './backend/demo/seed-from-mock-db.ts';
 export type {

@@ -126,6 +126,7 @@ export function usePmoChatIngestAttachments(chatThreadId: string | null) {
 
     const addSession = (session: PmoPlanningSession, fromCurrentThread: boolean) => {
       if (byId.has(session.ingestion_session_id)) return;
+      if (!session.is_published) return;
       byId.set(session.ingestion_session_id, {
         ingestionSessionId: session.ingestion_session_id,
         label: sessionLabel(session.workbook_name, session.ingestion_session_id),
@@ -146,17 +147,6 @@ export function usePmoChatIngestAttachments(chatThreadId: string | null) {
       addSession(session, fromCurrentThread);
     }
 
-    for (const item of items) {
-      if (!item.ingestionSessionId || byId.has(item.ingestionSessionId)) continue;
-      byId.set(item.ingestionSessionId, {
-        ingestionSessionId: item.ingestionSessionId,
-        label: sessionLabel(item.filename, item.ingestionSessionId),
-        isPublished: false,
-        uploadedAt: null,
-        fromCurrentThread: true,
-      });
-    }
-
     return [...byId.values()].sort((left, right) => {
       if (left.fromCurrentThread !== right.fromCurrentThread) {
         return left.fromCurrentThread ? -1 : 1;
@@ -166,16 +156,14 @@ export function usePmoChatIngestAttachments(chatThreadId: string | null) {
       const rightTime = right.uploadedAt ? Date.parse(right.uploadedAt) : 0;
       return rightTime - leftTime;
     });
-  }, [allSessions.data?.items, chatThreadId, items, threadSessions.data?.items]);
+  }, [allSessions.data?.items, chatThreadId, threadSessions.data?.items]);
 
   const selectedUploadSource = useMemo(() => {
     const explicit =
       explicitSelectedSessionId === null
         ? null
         : uploadSources.find((source) => source.ingestionSessionId === explicitSelectedSessionId);
-    return (
-      explicit ?? uploadSources.find((source) => source.isPublished) ?? uploadSources[0] ?? null
-    );
+    return explicit ?? uploadSources[0] ?? null;
   }, [explicitSelectedSessionId, uploadSources]);
   const selectedSessionId = selectedUploadSource?.ingestionSessionId ?? null;
 
@@ -210,7 +198,5 @@ export function usePmoChatIngestAttachments(chatThreadId: string | null) {
     /** Published upload selected for scoped analytics in this chat turn. */
     scopedIngestSessionId:
       selectedUploadSource?.isPublished === true ? selectedUploadSource.ingestionSessionId : null,
-    /** Session attached to this turn (ingest kickoff), published or not. */
-    pendingIngestSessionId: selectedSessionId,
   };
 }

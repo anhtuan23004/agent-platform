@@ -124,15 +124,14 @@ interface PanelUIValue {
 const PageContextContext = createContext<PageContextValue | null>(null);
 const ChatAgentContext = createContext<ChatAgentValue | null>(null);
 
-export type PmoIngestSendPayload = {
+export type PmoAnalyticsScopePayload = {
   ingestionSessionId?: string;
   reportingDateFrom?: string;
   reportingDateTo?: string;
 };
 
-const PmoIngestSendRefContext = createContext<React.MutableRefObject<PmoIngestSendPayload> | null>(
-  null,
-);
+const PmoIngestSendRefContext =
+  createContext<React.MutableRefObject<PmoAnalyticsScopePayload> | null>(null);
 const PanelUIContext = createContext<PanelUIValue | null>(null);
 
 function readStored(key: string, fallback: string): string {
@@ -273,7 +272,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     [panelOpen, setPanelOpen, pendingPrompt, setPendingPrompt],
   );
 
-  const pmoIngestSendRef = useRef<PmoIngestSendPayload>({});
+  const pmoIngestSendRef = useRef<PmoAnalyticsScopePayload>({});
 
   return (
     <DensityProvider>
@@ -297,7 +296,7 @@ function AgentRuntimeHost({
   pmoIngestSendRef,
 }: {
   children: React.ReactNode;
-  pmoIngestSendRef: React.MutableRefObject<PmoIngestSendPayload>;
+  pmoIngestSendRef: React.MutableRefObject<PmoAnalyticsScopePayload>;
 }) {
   const { selection, actions } = useAgentSelection();
   const { pageContext, suppressedFor } = usePageContext();
@@ -431,7 +430,7 @@ function AgentRuntimeHostInner({
     suppressedFor: string | null;
   }>;
   chatAgentRef: React.MutableRefObject<ChatAgentMode>;
-  pmoIngestSendRef: React.MutableRefObject<PmoIngestSendPayload>;
+  pmoIngestSendRef: React.MutableRefObject<PmoAnalyticsScopePayload>;
   children: React.ReactNode;
 }) {
   const [runError, setRunError] = useState<string | null>(null);
@@ -484,7 +483,7 @@ export function useChatAgent(): ChatAgentValue {
   return ctx;
 }
 
-export function usePmoIngestSendRef(): React.MutableRefObject<PmoIngestSendPayload> {
+export function usePmoIngestSendRef(): React.MutableRefObject<PmoAnalyticsScopePayload> {
   const ctx = useContext(PmoIngestSendRefContext);
   if (!ctx) throw new Error('usePmoIngestSendRef must be used within <AgentProvider>');
   return ctx;

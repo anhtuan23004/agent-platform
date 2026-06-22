@@ -7,11 +7,7 @@ import type { AgentTool } from '@seta/agent-sdk';
 import { RC_THREAD_ID, type SpecializedAgentRunCtx, type TrustEnvelope } from '@seta/agent-sdk';
 import { pmoAnalyticsTools } from '../agent-tools/index.ts';
 
-/**
- * The PMO Agent: a Mastra agent over PMO utilization analytics tools and a
- * chat-ingest kickoff tool. Analytics tools are read-only; ingest kickoff starts
- * the evented workflow whose review gates surface as approval cards in chat.
- */
+/** PMO Agent: Mastra analyst over published PMO utilization data. */
 
 const INSTRUCTIONS = [
   'You are the PMO Agent — a project-management-office analyst for resource utilization.',
@@ -19,22 +15,20 @@ const INSTRUCTIONS = [
   'mismatch, and utilization reports, grounded ONLY in the published PMO data.',
   '',
   'Tools:',
-  '- pmo_startIngest: start the PMO data-ingest workflow for an uploaded workbook.',
-  '  Call when the turn context includes an ingestion session id or the user asks to',
-  '  ingest/publish a workbook. Pass dateFrom/dateTo when the user names a date range.',
-  '  Set generateReport true when they want utilization reports after publish.',
-  '  Review gates (mapping, publish, date range) appear as approval cards in chat.',
   '- pmo_computeMemberWeekFacts: (re)compute the member×week utilization read-model.',
   '  Call this FIRST when the user says data was just published/ingested, or when a',
   '  detect/report tool returns nothing and stale facts are plausible. Otherwise the',
   '  detect tools read the already-persisted facts directly.',
   '- pmo_detectOverbookIdle: members overbooked (busy > threshold) or idle (busy < threshold).',
+  '  Accepts optional dateRange, memberId, ingestionSessionId selected from published source.',
   '  Busy rate = planned ÷ available hours (part-time, holiday, approved-absence aware).',
   '- pmo_detectMismatch: members whose logged hours diverge from plan (effort consumption',
   '  outside threshold). Holiday/full-leave/approved-OT/training weeks are excluded.',
+  '  Accepts optional dateRange, memberId, ingestionSessionId selected from published source.',
+  '- pmo_explainFormula: explain formulas, thresholds, exclusions, and rule versions.',
   '- pmo_generateReport: idle and overbook reports for an explicit date range',
   '  (YYYY-MM-DD from/to). Use only when the user names a date range on already-published data.',
-  '  Pass ingestionSessionId from <<<PMO_INGEST_SESSION>>> when present.',
+  '  Pass selected ingestionSessionId when present.',
   '- pmo_recommendRebalance: deterministic rebalance candidates for overbooked members.',
   '  Use when the user asks who can take workload, suggest allocation transfer,',
   '  or rebalance work. Requires explicit date range (YYYY-MM-DD). Optional',
@@ -42,24 +36,18 @@ const INSTRUCTIONS = [
   '  no PDF and no report_run. weekId only narrows which overbook evidence week',
   '  triggered the suggestion; transfer actions still apply from the planning period.',
   '  Prefer this over pmo_generateReport for rebalance-only questions.',
-  '  When <<<PMO_INGEST_SESSION>>> includes ingestionSessionId, ALWAYS pass that',
-  '  id as ingestionSessionId so analytics use the selected published upload only.',
+  '  When chat context includes selected published ingestionSessionId, ALWAYS pass it.',
   '',
   'Rules:',
-  '- Documents: use ONLY workbooks uploaded in THIS chat thread. The current turn may',
-  '  include a <<<PMO_INGEST_SESSION>>> block with ingestionSessionId — use that id',
-  '  and ONLY that id for pmo_startIngest. Never reuse session ids from older messages,',
-  '  other threads, or the PMO workflow UI. If the current turn has no ingest block,',
-  '  do not start ingest unless the user explicitly asks to ingest a file they attach',
-  '  on this turn (they must upload again in this chat).',
+  '- Chat scope is analytics only over published PMO data. Do NOT ingest, upload, map,',
+  '  approve, or publish workbooks in chat. If user asks for ingest/publish, tell them',
+  '  to use /pmo.',
   '- NEVER invent numbers. Report only what the tools return (busyRate, effortConsumption,',
   '  ragColor, detail). When a finding has excludedWeeks, mention that those weeks were',
   '  neutralised so the user understands why an edge case was not flagged.',
-  '- When <<<PMO_INGEST_SESSION>>> is present, scope pmo_recommendRebalance and',
-  '  pmo_generateReport to that ingestionSessionId; do not fall back to tenant-wide data.',
+  '- When <<<PMO_ANALYTICS_SCOPE>>> is present, pass ingestionSessionId to detect,',
+  '  report, and rebalance tools; do not fall back to tenant-wide data.',
   '- If a tool returns no findings, say so plainly instead of guessing.',
-  '- When the current turn includes <<<PMO_INGEST_SESSION>>>, call pmo_startIngest with',
-  '  that session id before answering analytics questions about the uploaded workbook.',
   '- For staffing/assignment questions tell the user to switch to the Staffing Agent.',
   '- Refer to members by the identifiers the tools return.',
 ].join('\n');
@@ -70,7 +58,7 @@ export interface PmoChatRunCtx
     'tenantId' | 'actorUserId' | 'effectivePermissions' | 'threadId' | 'userMemory' | 'model'
   > {
   abortSignal?: AbortSignal;
-  /** Pending PMO ingest session from a chat workbook upload. */
+  /** Published PMO ingestion session selected as analytics source. */
   ingestionSessionId?: string;
   reportingDateFrom?: string;
   reportingDateTo?: string;
@@ -104,14 +92,14 @@ type DrainableStream = {
   text: Promise<string | undefined>;
 };
 
-function buildIngestContextBlock(ctx: PmoChatRunCtx): string | null {
+function buildAnalyticsScopeBlock(ctx: PmoChatRunCtx): string | null {
   if (!ctx.ingestionSessionId) return null;
-  const lines = ['<<<PMO_INGEST_SESSION>>>', `ingestionSessionId: ${ctx.ingestionSessionId}`];
+  const lines = ['<<<PMO_ANALYTICS_SCOPE>>>', `ingestionSessionId: ${ctx.ingestionSessionId}`];
   if (ctx.reportingDateFrom && ctx.reportingDateTo) {
     lines.push(`reportingDateFrom: ${ctx.reportingDateFrom}`);
     lines.push(`reportingDateTo: ${ctx.reportingDateTo}`);
   }
-  lines.push('<<<END_PMO_INGEST_SESSION>>>');
+  lines.push('<<<END_PMO_ANALYTICS_SCOPE>>>');
   return lines.join('\n');
 }
 
@@ -129,12 +117,14 @@ export function buildPmoChatOrchestrationRuntime(
     rc.set('tenant_id', ctx.tenantId);
     const effectivePermissions = new Set(ctx.effectivePermissions ?? []);
     effectivePermissions.add('pmo.data.read');
-    effectivePermissions.add('pmo.ingestion.upload');
     rc.set('effective_permissions', effectivePermissions);
     if (ctx.threadId) rc.set(RC_THREAD_ID, ctx.threadId);
+    if (ctx.ingestionSessionId) {
+      rc.set('pmo.analytics.ingestion_session_id', ctx.ingestionSessionId);
+    }
 
-    const ingestBlock = buildIngestContextBlock(ctx);
-    const agentInput = ingestBlock ? `${ingestBlock}\n\n${input.userText}` : input.userText;
+    const scopeBlock = buildAnalyticsScopeBlock(ctx);
+    const agentInput = scopeBlock ? `${scopeBlock}\n\n${input.userText}` : input.userText;
 
     const agent = new Agent({
       id: 'pmo.chat',

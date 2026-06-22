@@ -30,10 +30,10 @@ export function AgentComposer({ compact = false }: AgentComposerProps) {
   const staffingAttachments = useChatAttachments(selection.threadId);
   const pmoIngestAttachments = usePmoChatIngestAttachments(selection.threadId);
   const isPmo = chatAgent === 'pmo';
-  const attachments = isPmo ? pmoIngestAttachments.attachments : staffingAttachments.attachments;
-  const attach = isPmo ? pmoIngestAttachments.attach : staffingAttachments.attach;
-  const remove = isPmo ? pmoIngestAttachments.remove : staffingAttachments.remove;
-  const reset = isPmo ? pmoIngestAttachments.reset : staffingAttachments.reset;
+  const attachments = isPmo ? [] : staffingAttachments.attachments;
+  const attach = isPmo ? undefined : staffingAttachments.attach;
+  const remove = isPmo ? undefined : staffingAttachments.remove;
+  const reset = isPmo ? () => {} : staffingAttachments.reset;
   const warning = isPmo ? pmoIngestAttachments.warning : staffingAttachments.warning;
   const uploadSources = isPmo ? pmoIngestAttachments.uploadSources : [];
   const uploadSourcesLoading = isPmo ? pmoIngestAttachments.uploadSourcesLoading : false;
@@ -41,14 +41,14 @@ export function AgentComposer({ compact = false }: AgentComposerProps) {
   const selectedSessionId = isPmo ? pmoIngestAttachments.selectedSessionId : null;
   const setSelectedSessionId = isPmo ? pmoIngestAttachments.setSelectedSessionId : () => {};
   const selectedUploadSource = isPmo ? pmoIngestAttachments.selectedUploadSource : null;
-  const pendingIngestSessionId = isPmo ? pmoIngestAttachments.pendingIngestSessionId : null;
+  const scopedIngestSessionId = isPmo ? pmoIngestAttachments.scopedIngestSessionId : null;
 
   const submit = () => {
     if (!value.trim() || isRunning) return;
     if (attachmentsBlockSend(attachments)) return;
     clearRunError();
-    if (isPmo && pendingIngestSessionId) {
-      pmoIngestSendRef.current = { ingestionSessionId: pendingIngestSessionId };
+    if (isPmo && scopedIngestSessionId) {
+      pmoIngestSendRef.current = { ingestionSessionId: scopedIngestSessionId };
     } else if (isPmo) {
       pmoIngestSendRef.current = {};
     } else {
@@ -101,14 +101,14 @@ export function AgentComposer({ compact = false }: AgentComposerProps) {
         pending={isRunning}
         placeholder={
           isPmo
-            ? 'Upload a workbook to ingest, or ask about utilization…'
+            ? 'Ask about published PMO utilization data…'
             : CHAT_AGENT_COPY[chatAgent].placeholder
         }
         permissionHint={
           isPmo ? (
             <div className="flex w-full min-w-0 flex-col gap-1.5">
               <span className={warning ? 'text-warning-ink' : undefined}>
-                {warning ?? 'Excel workbooks upload as PMO ingestion sessions for ingest workflow.'}
+                {warning ?? 'Published PMO data only.'}
               </span>
               {uploadSourcesLoading ? (
                 <span>Loading uploads…</span>
@@ -133,12 +133,8 @@ export function AgentComposer({ compact = false }: AgentComposerProps) {
                   </select>
                 </>
               ) : null}
-              {selectedUploadSource && !selectedUploadSource.isPublished ? (
-                <span className="text-warning-ink">
-                  Publish this upload before scoped rebalance or report analytics.
-                </span>
-              ) : selectedUploadSource?.isPublished ? (
-                <span>Rebalance and report tools will use this published batch only.</span>
+              {selectedUploadSource?.isPublished ? (
+                <span>Analytics tools will use this published batch only.</span>
               ) : null}
             </div>
           ) : (

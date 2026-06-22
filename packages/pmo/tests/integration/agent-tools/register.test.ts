@@ -16,6 +16,7 @@ describe('pmo register', () => {
         'pmo_computeMemberWeekFacts',
         'pmo_detectMismatch',
         'pmo_detectOverbookIdle',
+        'pmo_explainFormula',
         'pmo_generateReport',
         'pmo_recommendRebalance',
       ].sort(),

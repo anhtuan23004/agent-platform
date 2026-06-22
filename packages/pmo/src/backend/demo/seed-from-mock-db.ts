@@ -49,8 +49,26 @@ export function resolvePmoSeedAssetRoot(): string {
 
 const SEED_ASSET_ROOT = resolvePmoSeedAssetRoot();
 
-export const DEFAULT_REPO_MOCK_DB_PATH =
-  process.env.PMO_MOCK_DB_PATH ?? resolve(SEED_ASSET_ROOT, 'mock-data.db');
+/** Committed PMO_02 canonical SQLite seed (baked into server image via hackathon/data). */
+export const BUNDLED_PMO02_MOCK_DB_RELATIVE = 'hackathon/data/pmo_02_mock-data.db';
+
+/** Resolve mock-data.db path; empty env vars are treated as unset (compose often sets ""). */
+export function resolvePmoMockDbPath(override?: string): string {
+  const fromOverride = override?.trim();
+  if (fromOverride) return fromOverride;
+  const fromEnv = process.env.PMO_MOCK_DB_PATH?.trim();
+  if (fromEnv) return fromEnv;
+  const bundled = resolve(SEED_ASSET_ROOT, BUNDLED_PMO02_MOCK_DB_RELATIVE);
+  if (existsSync(bundled)) return bundled;
+  // Legacy dev fallback: repo-root mock-data.db from insert-mock.ts
+  return resolve(SEED_ASSET_ROOT, 'mock-data.db');
+}
+
+export const DEFAULT_REPO_MOCK_DB_PATH = resolvePmoMockDbPath();
+
+export function pmoMockDbExists(mockDbPath?: string): boolean {
+  return existsSync(mockDbPath ?? resolvePmoMockDbPath());
+}
 export const DEFAULT_PMO02_WORKBOOK_PATH = resolve(
   SEED_ASSET_ROOT,
   'hackathon/data/PMO_02_RA_Timesheet_Monitoring.xlsx',
@@ -169,7 +187,7 @@ export function ensurePmo02MockSqliteDb(mockDbPath: string = DEFAULT_REPO_MOCK_D
 export async function seedPmo02FromMockDbForTenant(
   input: SeedPmo02FromMockDbInput,
 ): Promise<SeedPmo02FromMockDbResult> {
-  const mockDbPath = input.mockDbPath ?? DEFAULT_REPO_MOCK_DB_PATH;
+  const mockDbPath = resolvePmoMockDbPath(input.mockDbPath);
   ensurePmo02MockSqliteDb(mockDbPath);
 
   const tenantId = input.tenantId;
