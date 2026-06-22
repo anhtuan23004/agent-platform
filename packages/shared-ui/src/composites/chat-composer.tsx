@@ -37,7 +37,7 @@ export interface ChatComposerProps {
   pending?: boolean;
   disabled?: boolean;
   toolbar?: ReactNode;
-  permissionHint?: string;
+  permissionHint?: ReactNode;
   className?: string;
   attachments?: ComposerAttachment[];
   onAttachFiles?: (files: File[]) => void;
@@ -160,7 +160,9 @@ export function ChatComposer({
                 </>
               )}
               {toolbar}
-              {permissionHint && <span className="text-ink-subtle">{permissionHint}</span>}
+              {permissionHint ? (
+                <div className="w-full min-w-0 text-ink-subtle">{permissionHint}</div>
+              ) : null}
             </div>
             <button
               type="button"

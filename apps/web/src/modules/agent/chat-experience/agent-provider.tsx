@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components -- provider component and its selector hooks are co-located; splitting them would force every consumer through an extra re-export shim */
 import { AssistantRuntimeProvider } from '@assistant-ui/react';
-import { useLocation, useNavigate } from '@tanstack/react-router';
+import { useLocation, useNavigate, useRouterState } from '@tanstack/react-router';
 import type { UIMessage } from 'ai';
 import {
   createContext,
@@ -215,6 +215,17 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       : null;
   const [chatAgent, setChatAgentState] = useState<ChatAgentMode>('staffing');
   const setChatAgent = useCallback((next: ChatAgentMode) => setChatAgentState(next), []);
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+
+  // Side panel and PMO pages share AgentProvider; sync agent mode from the URL so
+  // PMO upload tooling is available outside the dedicated /pmo/agent screen.
+  useEffect(() => {
+    if (pathname.startsWith('/pmo')) {
+      setChatAgentState('pmo');
+    } else if (pathname.startsWith('/agent')) {
+      setChatAgentState('staffing');
+    }
+  }, [pathname]);
   const [panelOpen, setPanelOpenState] = useState<boolean>(false);
   const [pendingPrompt, setPendingPromptState] = useState<{
     text: string;
