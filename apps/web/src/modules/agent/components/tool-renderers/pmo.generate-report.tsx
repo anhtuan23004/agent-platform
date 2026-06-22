@@ -47,18 +47,27 @@ interface PmoProjectionFreshness {
 }
 
 interface PmoRecommendationGroup {
+  opportunityId: string;
   sourceMemberId: string;
-  weekId: string;
-  severity: 'yellow' | 'red';
-  requiredReductionHours: number;
+  projectId: string;
+  roleNeeded: string | null;
+  severity: 'warning' | 'red';
+  evidenceWindow: { from: string; to: string };
+  planningPeriod: { from: string; to: string | null };
+  requiredReductionHoursPerWeek: number;
   status: 'full_solution' | 'partial_relief' | 'no_valid_rebalance_found';
   recommendations: Array<{
     targetMemberId: string;
+    opportunityId: string;
     projectId: string;
-    transferHours: number;
+    roleNeeded: string | null;
+    effectiveFrom: string;
+    effectiveTo: string | null;
+    transferPct: number;
+    transferHoursPerWeek: number;
     score: number;
     confidence: 'high' | 'medium' | 'low';
-    rankWithinSource: number;
+    rankWithinOpportunity: number;
     portfolioSelected: boolean;
     mutuallyExclusiveAlternative: boolean;
     beforeAfter: {
@@ -71,6 +80,7 @@ interface PmoRecommendationGroup {
       matchedSkills: string[];
       missingSkills: string[];
       similarPastTasks: string[];
+      rationale: string;
     };
     recommendationDegraded: boolean;
     dataQualityFlags: string[];
@@ -235,7 +245,7 @@ function PmoRecommendationGroups(props: {
         </p>
       ) : null}
       {props.groups.map((group) => (
-        <section key={`${group.sourceMemberId}:${group.weekId}`} className="space-y-2">
+        <section key={group.opportunityId} className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <strong className="text-body-sm text-ink">
               {memberName.get(group.sourceMemberId) ?? group.sourceMemberId}
@@ -243,12 +253,13 @@ function PmoRecommendationGroups(props: {
             <Badge variant={group.severity === 'red' ? 'destructive' : 'warning'}>
               {group.severity}
             </Badge>
-            <Badge variant="secondary">{group.weekId}</Badge>
+            <Badge variant="secondary">{group.projectId}</Badge>
+            <Badge variant="secondary">{formatPeriod(group.planningPeriod)}</Badge>
             <Badge variant={group.status === 'full_solution' ? 'success' : 'secondary'}>
               {humanize(group.status)}
             </Badge>
             <span className="font-mono text-caption text-ink-subtle">
-              {formatHours(group.requiredReductionHours)}h reduction
+              {formatHours(group.requiredReductionHoursPerWeek)}h/week reduction
             </span>
           </div>
           {group.recommendationDegraded ? (
@@ -264,17 +275,22 @@ function PmoRecommendationGroups(props: {
             <div className="grid gap-2">
               {group.recommendations.map((candidate) => (
                 <article
-                  key={`${candidate.targetMemberId}:${candidate.projectId}:${candidate.rankWithinSource}`}
+                  key={`${candidate.targetMemberId}:${candidate.opportunityId}:${candidate.rankWithinOpportunity}`}
                   className="rounded-lg border border-hairline bg-surface-1 p-3"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="min-w-0">
                       <strong className="block truncate text-body-sm text-ink">
-                        #{candidate.rankWithinSource}{' '}
+                        #{candidate.rankWithinOpportunity}{' '}
                         {memberName.get(candidate.targetMemberId) ?? candidate.targetMemberId}
                       </strong>
                       <span className="text-caption text-ink-subtle">
-                        {candidate.projectId} · {candidate.confidence} confidence
+                        {candidate.projectId} ·{' '}
+                        {formatPeriod({
+                          from: candidate.effectiveFrom,
+                          to: candidate.effectiveTo,
+                        })}{' '}
+                        · {candidate.confidence} confidence
                       </span>
                     </div>
                     <div className="flex flex-wrap gap-1">
@@ -288,7 +304,10 @@ function PmoRecommendationGroups(props: {
                     </div>
                   </div>
                   <dl className="mt-2 grid grid-cols-3 gap-2 text-caption">
-                    <Metric label="Transfer" value={`${formatHours(candidate.transferHours)}h`} />
+                    <Metric
+                      label="Transfer"
+                      value={`${formatHours(candidate.transferHoursPerWeek)}h/wk`}
+                    />
                     <Metric
                       label="Source"
                       value={`${pct(candidate.beforeAfter.sourceBeforeBusyRate)} -> ${pct(
@@ -305,6 +324,11 @@ function PmoRecommendationGroups(props: {
                   <p className="mt-2 text-caption text-ink-subtle">
                     Matched: {candidate.evidence.matchedSkills.join(', ') || 'none'}
                   </p>
+                  {candidate.evidence.missingSkills.length > 0 ? (
+                    <p className="text-caption text-ink-subtle">
+                      Missing: {candidate.evidence.missingSkills.join(', ')}
+                    </p>
+                  ) : null}
                   <p className="text-caption text-ink-subtle">
                     Similar: {candidate.evidence.similarPastTasks.join(', ') || 'unavailable'}
                   </p>
@@ -351,6 +375,10 @@ function formatScore(value: number): string {
 
 function formatHours(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function formatPeriod(period: { from: string; to: string | null }): string {
+  return period.to ? `${period.from} to ${period.to}` : `${period.from} onward`;
 }
 
 function humanize(value: string): string {

@@ -42,6 +42,20 @@ function report(): GeneratePmoReportOutput {
         effortConsumption: 1,
         detail: 'overbook',
         excludedWeeks: [],
+        issueWeeks: [
+          {
+            weekId: 'W1',
+            weekStart: '2026-06-29',
+            weekEnd: '2026-07-05',
+            issueType: 'overbook',
+            ragColor: 'red',
+            availableHours: 40,
+            plannedHours: 48,
+            loggedHours: 40,
+            busyRate: 1.2,
+            effortConsumption: 1,
+          },
+        ],
         annotations: [],
         reviewRequired: true,
         suggestedActionCode: 'REBALANCE_ALLOCATION',
@@ -64,6 +78,20 @@ function report(): GeneratePmoReportOutput {
         effortConsumption: 1,
         detail: 'overbook',
         excludedWeeks: [],
+        issueWeeks: [
+          {
+            weekId: 'W2',
+            weekStart: '2026-07-06',
+            weekEnd: '2026-07-12',
+            issueType: 'overbook',
+            ragColor: 'yellow',
+            availableHours: 40,
+            plannedHours: 45,
+            loggedHours: 40,
+            busyRate: 1.12,
+            effortConsumption: 1,
+          },
+        ],
         annotations: [],
         reviewRequired: true,
         suggestedActionCode: 'REBALANCE_ALLOCATION',
@@ -79,7 +107,10 @@ function report(): GeneratePmoReportOutput {
         },
       },
     ],
-    recommendations: [group('opp-1', 'EMP-001', 'EMP-002'), group('opp-2', 'EMP-003', 'EMP-002')],
+    recommendations: [
+      group('EMP-001:PRJ-1:BE:2026-06-29:2026-07-05', 'EMP-001', 'EMP-002'),
+      group('EMP-003:PRJ-1:BE:2026-07-06:2026-07-12', 'EMP-003', 'EMP-002'),
+    ],
   };
 }
 
@@ -203,13 +234,27 @@ describe('pmo_recommendRebalance tool', () => {
 
     const result = await execute({
       dateRange: { from: '2026-06-29', to: '2026-07-05' },
-      opportunityId: 'opp-2',
+      opportunityId: 'EMP-003:PRJ-1:BE:2026-07-06:2026-07-12',
     });
 
     expect(result.recommendations).toMatchObject([
-      { sourceMemberId: 'EMP-003', opportunityId: 'opp-2' },
+      { sourceMemberId: 'EMP-003', opportunityId: 'EMP-003:PRJ-1:BE:2026-07-06:2026-07-12' },
     ]);
     expect(mocks.generatePmoReport).toHaveBeenCalledTimes(1);
+  });
+
+  it('filters by week id using calendar week evidence', async () => {
+    mocks.generatePmoReport.mockResolvedValueOnce(report());
+
+    const result = await execute({
+      dateRange: { from: '2026-06-29', to: '2026-07-12' },
+      weekId: 'W1',
+    });
+
+    expect(result.recommendations).toMatchObject([
+      { sourceMemberId: 'EMP-001', opportunityId: 'EMP-001:PRJ-1:BE:2026-06-29:2026-07-05' },
+    ]);
+    expect(result.findings.map((item) => item.memberId)).toEqual(['EMP-001']);
   });
 
   it('scopes to a published ingestion session when ingestionSessionId is provided', async () => {

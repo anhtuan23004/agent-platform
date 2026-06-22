@@ -1,8 +1,9 @@
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parse } from 'csv-parse/sync';
 import { sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
@@ -12,9 +13,11 @@ import {
   calendarWeeks,
   leaveRecords,
   memberMaster,
+  memberSkillsProjection,
   overbookIdleConfig,
   projectMaster,
   resourceAllocations,
+  taskHistoryProjection,
   timesheets,
 } from '../db/schema.ts';
 import { computeNaturalKeyHash, computeSourceRowHash } from '../ingestion/stage-changes.ts';
@@ -73,6 +76,7 @@ export interface SeedPmo02FromMockDbResult {
     allocations: number;
     timesheets: number;
     leaves: number;
+    projectionMemberProfiles: number;
     recommendationSkills: number;
     recommendationTaskHistory: number;
   };
@@ -106,6 +110,16 @@ function queryJson<T extends Record<string, unknown>>(mockDbPath: string, sqlTex
   const trimmed = proc.stdout.trim();
   if (!trimmed) return [];
   return JSON.parse(trimmed) as T[];
+}
+
+function readSeedCsv<T extends Record<string, string>>(filename: string): T[] {
+  const filePath = resolve(SEED_ASSET_ROOT, 'hackathon/data', filename);
+  if (!existsSync(filePath)) return [];
+  return parse(readFileSync(filePath, 'utf8'), {
+    bom: true,
+    columns: true,
+    skip_empty_lines: true,
+  }) as T[];
 }
 
 /** Build `mock-data.db` from PMO_02 workbook when missing (dev monorepo only). */
@@ -292,7 +306,27 @@ export async function seedPmo02FromMockDbForTenant(
     throw new Error(`mock-data.db at ${mockDbPath} has no active PMO member/week rows`);
   }
 
+  const mockMemberIds = new Set(members.map((m) => m.member_id));
+  const projectionMemberProfiles = readSeedCsv<{
+    member_id: string;
+    full_name: string;
+    department: string;
+    role_title: string;
+    level: string;
+    employment_status: string;
+    std_hours_week: string;
+    join_date: string;
+    line_manager_id: string;
+    is_active: string;
+  }>('pmo_02_member_profiles.csv').filter(
+    (profile) => profile.member_id && !mockMemberIds.has(profile.member_id),
+  );
+
   await db.transaction(async (tx) => {
+    await tx.execute(sql`DELETE FROM ${taskHistoryProjection} WHERE tenant_id = ${tenantId}::uuid`);
+    await tx.execute(
+      sql`DELETE FROM ${memberSkillsProjection} WHERE tenant_id = ${tenantId}::uuid`,
+    );
     await tx.execute(sql`DELETE FROM ${timesheets} WHERE tenant_id = ${tenantId}::uuid`);
     await tx.execute(sql`DELETE FROM ${resourceAllocations} WHERE tenant_id = ${tenantId}::uuid`);
     await tx.execute(sql`DELETE FROM ${leaveRecords} WHERE tenant_id = ${tenantId}::uuid`);
@@ -328,6 +362,36 @@ export async function seedPmo02FromMockDbForTenant(
         };
       }),
     );
+
+    if (projectionMemberProfiles.length > 0) {
+      await tx.insert(memberMaster).values(
+        projectionMemberProfiles.map((m, index) => {
+          const values = {
+            member_id: m.member_id,
+            full_name: m.full_name,
+            department: m.department || null,
+            role_title: m.role_title || null,
+            level: m.level || null,
+            line_manager_id: m.line_manager_id || null,
+            employment_status: m.employment_status || null,
+            employment: null,
+            std_hours_week: m.std_hours_week ? Number(m.std_hours_week) : null,
+            join_date: parseDate(m.join_date),
+          };
+          return {
+            tenant_id: tenantId,
+            natural_key_hash: computeNaturalKeyHash('member_master', tenantId, values),
+            source_row_hash: computeSourceRowHash('member_master', values),
+            last_ingestion_session_id: ingestionSessionId,
+            is_active: m.is_active !== 'false',
+            ...values,
+            source_row: members.length + index + 1,
+            created_at: now(),
+            updated_at: now(),
+          };
+        }),
+      );
+    }
 
     await tx.insert(calendarWeeks).values(
       weeks.map((w) => {
@@ -533,6 +597,7 @@ export async function seedPmo02FromMockDbForTenant(
       allocations: allocations.length,
       timesheets: tsRows.length,
       leaves: leaves.length,
+      projectionMemberProfiles: projectionMemberProfiles.length,
       recommendationSkills: projectionCounts.skills,
       recommendationTaskHistory: projectionCounts.taskHistory,
     },

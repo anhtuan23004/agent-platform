@@ -20,10 +20,14 @@ function candidateOutput() {
     dataQuality: { recommendationDegraded: false, flags: [] },
     recommendations: [
       {
+        opportunityId: 'EMP-001:PRJ-1:BE:2026-06-29:2026-07-05',
         sourceMemberId: 'EMP-001',
-        weekId: 'W1',
+        projectId: 'PRJ-1',
+        roleNeeded: 'BE',
         severity: 'red' as const,
-        requiredReductionHours: 8,
+        evidenceWindow: { from: '2026-06-29', to: '2026-07-05' },
+        planningPeriod: { from: '2026-07-06', to: '2026-07-31' },
+        requiredReductionHoursPerWeek: 8,
         status: 'full_solution' as const,
         noResultReasons: [],
         recommendationDegraded: false,
@@ -31,11 +35,16 @@ function candidateOutput() {
         recommendations: [
           {
             targetMemberId: 'EMP-002',
+            opportunityId: 'EMP-001:PRJ-1:BE:2026-06-29:2026-07-05',
             projectId: 'PRJ-1',
-            transferHours: 8,
+            roleNeeded: 'BE',
+            effectiveFrom: '2026-07-06',
+            effectiveTo: '2026-07-31',
+            transferPct: 0.2,
+            transferHoursPerWeek: 8,
             score: 0.91,
             confidence: 'high' as const,
-            rankWithinSource: 1,
+            rankWithinOpportunity: 1,
             portfolioSelected: true,
             mutuallyExclusiveAlternative: false,
             beforeAfter: {
@@ -48,6 +57,7 @@ function candidateOutput() {
               matchedSkills: ['java', 'spring boot'],
               missingSkills: [],
               similarPastTasks: ['API endpoint implementation'],
+              rationale: 'Strong skill and capacity match.',
             },
             recommendationDegraded: false,
             dataQualityFlags: [],
@@ -121,7 +131,7 @@ describe('PmoRecommendRebalanceRenderer', () => {
 
     expect(screen.getByText('Source One')).toBeInTheDocument();
     expect(screen.getByText(/#1 Target Two/)).toBeInTheDocument();
-    expect(screen.getByText(/PRJ-1/)).toBeInTheDocument();
+    expect(screen.getAllByText(/PRJ-1/).length).toBeGreaterThan(0);
     expect(screen.getByText('score 0.91')).toBeInTheDocument();
     expect(screen.getByText(/Matched: java, spring boot/)).toBeInTheDocument();
   });

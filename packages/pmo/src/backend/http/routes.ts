@@ -4,6 +4,7 @@ import { buildTenantKey, getS3Client, presignedUploadUrl } from '@seta/shared-st
 import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { getPmoReportDateBoundsByIngestionSession } from '../analytics/report-date-bounds.ts';
 import { pmoDb } from '../db/client.ts';
 import { ingestionSessions } from '../db/schema.ts';
 import { createS3FileStore } from '../ingestion/s3-file-store.ts';
@@ -128,6 +129,13 @@ function isPlanGenerationStale(startedAt: Date | string | null | undefined): boo
   if (!startedAt) return true;
   const timestamp = startedAt instanceof Date ? startedAt.getTime() : new Date(startedAt).getTime();
   return !Number.isFinite(timestamp) || Date.now() - timestamp > PLAN_GENERATION_STALE_MS;
+}
+
+export function isPublishedIngestionSession(input: {
+  status: string;
+  publish_decision: string | null;
+}): boolean {
+  return input.status === 'published' || input.publish_decision === 'approved';
 }
 
 function mapHistoryStatus(state: PlanningState): {
@@ -981,6 +989,7 @@ export function buildPmoRoutes(deps: RouteBuildDeps): Hono<SessionEnv> {
         source_file_size_bytes: ingestionSessions.source_file_size_bytes,
         mime_type: ingestionSessions.mime_type,
         status: ingestionSessions.status,
+        publish_decision: ingestionSessions.publish_decision,
         reporting_period_key: ingestionSessions.reporting_period_key,
         reporting_period_start: ingestionSessions.reporting_period_start,
         reporting_period_end: ingestionSessions.reporting_period_end,
@@ -1013,6 +1022,10 @@ export function buildPmoRoutes(deps: RouteBuildDeps): Hono<SessionEnv> {
       )
       .orderBy(ingestionSessions.created_at)
       .limit(100);
+    const inferredDateBoundsBySession = await getPmoReportDateBoundsByIngestionSession(
+      session.tenant_id,
+      rows.map((row) => row.id),
+    );
 
     const mapped = rows
       .slice()
@@ -1027,6 +1040,12 @@ export function buildPmoRoutes(deps: RouteBuildDeps): Hono<SessionEnv> {
           : readPlanningState(row.status);
         const history =
           mapExecutionHistoryStatus(executionState) ?? mapHistoryStatus(planningState);
+        const isPublished = isPublishedIngestionSession(row);
+        const inferredDateBounds = inferredDateBoundsBySession.get(row.id);
+        const reportingPeriodStart =
+          asIsoOrNull(row.reporting_period_start) ?? inferredDateBounds?.min ?? null;
+        const reportingPeriodEnd =
+          asIsoOrNull(row.reporting_period_end) ?? inferredDateBounds?.max ?? null;
 
         return {
           ingestion_session_id: row.id,
@@ -1039,11 +1058,11 @@ export function buildPmoRoutes(deps: RouteBuildDeps): Hono<SessionEnv> {
           uploaded_at: asIso(row.created_at),
           operator: row.created_by,
           status: row.status,
-          is_published: row.status === 'published',
-          is_selectable: row.status === 'published',
+          is_published: isPublished,
+          is_selectable: isPublished,
           reporting_period_key: row.reporting_period_key,
-          reporting_period_start: asIsoOrNull(row.reporting_period_start),
-          reporting_period_end: asIsoOrNull(row.reporting_period_end),
+          reporting_period_start: reportingPeriodStart,
+          reporting_period_end: reportingPeriodEnd,
           planning_state: planningState,
           status_label: history.label,
           active_gate: history.active_gate,
