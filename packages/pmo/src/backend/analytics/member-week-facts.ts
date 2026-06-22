@@ -68,6 +68,15 @@ function preHireFact(memberId: string, weekId: string): MemberWeekFact {
   };
 }
 
+/** When DS05 is empty, stub Active projects from allocation / timesheet keys. */
+export function resolveProjectsForFacts(
+  projects: ProjectRow[],
+  allocations: AllocationRow[],
+  timesheets: TimesheetRow[],
+): ProjectRow[] {
+  return projects.length > 0 ? projects : inferProjectsFromAllocations(allocations, timesheets);
+}
+
 function inferProjectsFromAllocations(
   allocations: AllocationRow[],
   timesheets: TimesheetRow[],
@@ -227,8 +236,11 @@ export function rollupMemberWeekFactsFromProjectFacts(
  * carries no metrics — empty RA/logs there are "missing", not idle (F-15).
  */
 export function buildMemberWeekFacts(inputs: BuildFactsInputs): MemberWeekFact[] {
-  const projects =
-    inputs.projects ?? inferProjectsFromAllocations(inputs.allocations, inputs.timesheets);
+  const projects = resolveProjectsForFacts(
+    inputs.projects ?? [],
+    inputs.allocations,
+    inputs.timesheets,
+  );
   const projectFacts = buildMemberWeekProjectFacts(
     projects,
     inputs.members,

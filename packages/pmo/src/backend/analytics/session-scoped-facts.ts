@@ -1,5 +1,5 @@
 import type { CanonicalInputs } from './load-canonical.ts';
-import { buildMemberWeekFacts } from './member-week-facts.ts';
+import { buildMemberWeekFacts, resolveProjectsForFacts } from './member-week-facts.ts';
 import { splitPmoPopulations } from './populations.ts';
 import { resolveThresholds } from './thresholds.ts';
 import type { MemberWeekFact } from './types.ts';
@@ -11,9 +11,14 @@ import {
 /** Rebuild member×week facts from canonical rows tagged to an ingestion session. */
 export function buildSessionScopedMemberWeekFacts(canonical: CanonicalInputs): MemberWeekFact[] {
   const thresholds = resolveThresholds(canonical.configRows);
-  const { deliveryMembers } = splitPmoPopulations(canonical.members, canonical.projects);
-  const allocations = filterAllocationsForUtilization(canonical.allocations, canonical.projects);
-  const timesheets = filterTimesheetsForUtilization(canonical.timesheets, canonical.projects);
+  const projects = resolveProjectsForFacts(
+    canonical.projects,
+    canonical.allocations,
+    canonical.timesheets,
+  );
+  const { deliveryMembers } = splitPmoPopulations(canonical.members, projects);
+  const allocations = filterAllocationsForUtilization(canonical.allocations, projects);
+  const timesheets = filterTimesheetsForUtilization(canonical.timesheets, projects);
   return buildMemberWeekFacts({
     members: deliveryMembers,
     allocations,
@@ -21,6 +26,6 @@ export function buildSessionScopedMemberWeekFacts(canonical: CanonicalInputs): M
     leaves: canonical.leaves,
     weeks: canonical.weeks,
     thresholds,
-    projects: canonical.projects,
+    projects,
   });
 }
