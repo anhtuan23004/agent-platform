@@ -7,6 +7,7 @@ import {
   getLatestProposal,
   type ReviewCheckpointState,
 } from '@seta/ingestion';
+import { syncRecommendationProjectionsFromDemoCsv } from '../../../reporting/recommendations/index.ts';
 import { buildPublishReviewCard } from '../cards.ts';
 import { shouldBlockPublishApprove } from '../review-gates.ts';
 import type { DynamicIngestRuntimeContext, PmoDynamicStepHandler } from '../types.ts';
@@ -111,6 +112,7 @@ export function createPublishAfterApprovalHandler(
           ingestionSessionId: input.ingestionSessionId,
           tenantId: input.tenantId,
         });
+        await syncRecommendationProjectionsFromDemoCsv({ tenantId: input.tenantId });
 
         return {
           kind: 'completed',
@@ -243,6 +245,7 @@ export function createPublishAfterApprovalHandler(
         ingestionSessionId: input.ingestionSessionId,
         tenantId: input.tenantId,
       });
+      await syncRecommendationProjectionsFromDemoCsv({ tenantId: input.tenantId });
 
       return {
         kind: 'completed',

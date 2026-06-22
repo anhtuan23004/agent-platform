@@ -201,6 +201,7 @@ export function PmoRecommendRebalanceRenderer(props: PmoRecommendRebalanceRender
         members={props.output?.members ?? []}
         dataQuality={props.output?.dataQuality}
         projectionFreshness={props.output?.projectionFreshness}
+        showEmptyState
       />
     </div>
   );
@@ -212,9 +213,19 @@ function PmoRecommendationGroups(props: {
   dataQuality?: { recommendationDegraded: boolean; flags: string[] };
   projectionFreshness?: PmoProjectionFreshness;
   collapsed?: boolean;
+  showEmptyState?: boolean;
 }) {
-  if (props.groups.length === 0 && !props.dataQuality?.recommendationDegraded) return null;
+  if (
+    props.groups.length === 0 &&
+    !props.dataQuality?.recommendationDegraded &&
+    !props.showEmptyState
+  ) {
+    return null;
+  }
   const memberName = new Map(props.members.map((member) => [member.memberId, member.fullName]));
+  const emptyReasons = props.dataQuality?.flags?.length
+    ? props.dataQuality.flags.map(humanize).join(', ')
+    : 'No candidate passed hard filters';
   const content = (
     <div className="space-y-2">
       {props.projectionFreshness?.degraded ? (
@@ -303,6 +314,9 @@ function PmoRecommendationGroups(props: {
           )}
         </section>
       ))}
+      {props.groups.length === 0 ? (
+        <p className="text-body-sm text-ink-subtle">No valid rebalance found: {emptyReasons}</p>
+      ) : null}
     </div>
   );
   if (!props.collapsed) {

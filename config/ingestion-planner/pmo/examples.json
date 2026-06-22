@@ -19,6 +19,22 @@
       "writePolicy": "read_only"
     },
     {
+      "goal": "Who can take workload from EMP-042 for 2026-06-29 to 2026-07-05?",
+      "expected_title": "Plan to recommend workload rebalance candidates",
+      "expected_goal_summary": "Use tenant-scoped PMO data to return deterministic rebalance candidates for the requested member and date range without creating a report artifact.",
+      "dataSourceMode": "existing_db",
+      "actionMode": "generate_report",
+      "writePolicy": "read_only"
+    },
+    {
+      "goal": "Đề xuất rebalance allocation cho member EMP-042 tuần W12",
+      "expected_title": "Plan to suggest PMO rebalance candidates",
+      "expected_goal_summary": "Answer with read-only rebalance candidate suggestions from existing PMO data and avoid publish or PDF generation.",
+      "dataSourceMode": "existing_db",
+      "actionMode": "generate_report",
+      "writePolicy": "read_only"
+    },
+    {
       "goal": "Review this file",
       "expected_title": "Plan to review uploaded PMO workbook",
       "expected_goal_summary": "Profile, map, normalize, and preview the uploaded workbook database impact for review without publishing canonical PMO changes.",

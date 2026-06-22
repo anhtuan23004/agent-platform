@@ -3,6 +3,7 @@ export * from './contracts.ts';
 export { applyPortfolioReservation, generateRebalanceRecommendations } from './generate.ts';
 export { loadRecommendationEvidence } from './load-evidence.ts';
 export { scoreSkillCoverage } from './skill-coverage.ts';
+export { syncRecommendationProjectionsFromDemoCsv } from './sync-from-demo-csv.ts';
 export type { SyncMemberSkillInput, SyncTaskHistoryInput } from './sync-projections.ts';
 export {
   getRecommendationProjectionFreshness,
