@@ -84,13 +84,13 @@ export function UtilizationCharts({
 
   const donutSlices = useMemo(() => {
     if (workloadView === 'member') {
-      return buildFindingsDonutSlices(data.memberAnalyses, data.thresholds, workloadView);
+      return buildFindingsDonutSlices(data.memberAnalyses, data.thresholds);
     }
     const metrics =
       workloadView === 'project'
         ? buildProjectWorkloadMetrics(data)
         : buildWeekWorkloadMetrics(data);
-    return buildWorkloadDonutSlices(workloadRows, data.thresholds, workloadView, metrics);
+    return buildWorkloadDonutSlices(workloadRows, data.thresholds, metrics);
   }, [workloadView, data, workloadRows]);
 
   const overviewCenter = useMemo(() => {

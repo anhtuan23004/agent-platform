@@ -15,7 +15,7 @@ export type MemberUtilizationOutcome =
   | 'mismatch_over';
 
 /** PMO band labels — aligned with findings panel (overbook / idle / healthy / mismatch). */
-export function utilizationBandLabelsForView(_view: UtilizationWorkloadView): {
+export function utilizationBandLabels(): {
   overbook: string;
   idle: string;
   healthy: string;
@@ -57,7 +57,7 @@ function outcomeBarColor(outcome: MemberUtilizationOutcome): string {
 function buildBandDonutSlices(
   members: MemberMetric[],
   thresholds: DemoThresholds,
-  labels: ReturnType<typeof utilizationBandLabelsForView>,
+  labels: ReturnType<typeof utilizationBandLabels>,
 ): DonutSlice[] {
   const counts = { overbook: 0, idle: 0, healthy: 0, mismatch: 0 };
   for (const member of members) {
@@ -355,7 +355,6 @@ export function buildWeekWorkloadMetrics(data: DemoAnalyticsResult): MemberMetri
 export function buildWorkloadDonutSlices(
   rows: CategoricalBarRow[],
   thresholds: DemoThresholds,
-  view: UtilizationWorkloadView,
   metrics?: MemberMetric[],
 ): DonutSlice[] {
   const members =
@@ -364,13 +363,12 @@ export function buildWorkloadDonutSlices(
       busyRate: row.value / 100,
       effortConsumption: null,
     }));
-  return buildBandDonutSlices(members, thresholds, utilizationBandLabelsForView(view));
+  return buildBandDonutSlices(members, thresholds, utilizationBandLabels());
 }
 
 export function buildFindingsDonutSlices(
   analyses: DemoMemberAnalysisRow[],
   thresholds: DemoThresholds,
-  view: UtilizationWorkloadView = 'member',
 ): DonutSlice[] {
   return buildBandDonutSlices(
     analyses.map((analysis) => ({
@@ -378,7 +376,7 @@ export function buildFindingsDonutSlices(
       effortConsumption: analysis.effortConsumption,
     })),
     thresholds,
-    utilizationBandLabelsForView(view),
+    utilizationBandLabels(),
   );
 }
 

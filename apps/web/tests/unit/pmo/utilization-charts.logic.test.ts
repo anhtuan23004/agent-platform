@@ -8,7 +8,7 @@ import {
   classifyMemberUtilizationBand,
   classifyMemberUtilizationOutcome,
   sortWorkloadRowsForDisplay,
-  utilizationBandLabelsForView,
+  utilizationBandLabels,
 } from '../../../src/modules/pmo/pages/demo-calculation/utilization-charts.logic.ts';
 
 describe('utilization-charts.logic', () => {
@@ -121,11 +121,10 @@ describe('utilization-charts.logic', () => {
         },
       ],
       thresholds,
-      'member',
     );
     expect(slices.map((slice) => slice.name)).toEqual(['Overbook', 'Idle', 'Healthy', 'Mismatch']);
     expect(slices.find((slice) => slice.key === 'healthy')?.value).toBe(2);
-    expect(utilizationBandLabelsForView('project').mismatch).toBe('Mismatch');
+    expect(utilizationBandLabels().mismatch).toBe('Mismatch');
   });
 
   it('aggregates project and week workload rows', () => {
