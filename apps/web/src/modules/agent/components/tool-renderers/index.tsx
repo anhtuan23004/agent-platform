@@ -8,7 +8,7 @@ import { useToolCatalog } from '../../hooks/use-tool-catalog';
 import { ServerTimeRenderer } from './core.server-time';
 import { ListMyRolesRenderer } from './identity.list-my-roles';
 import { WhoAmIRenderer } from './identity.who-am-i';
-import { PmoGenerateReportRenderer } from './pmo.generate-report';
+import { PmoGenerateReportRenderer, PmoRecommendRebalanceRenderer } from './pmo.generate-report';
 import { summarizeArgs } from './summarize-args';
 
 function toReadState(
@@ -24,6 +24,7 @@ const DEDICATED_TOOL_IDS = new Set([
   'identity_whoAmI',
   'identity_listMyRoles',
   'pmo_generateReport',
+  'pmo_recommendRebalance',
 ]);
 
 function ServerTimeRegistration({ name }: { name: string }) {
@@ -87,6 +88,24 @@ function PmoGenerateReportRegistration({ name }: { name: string }) {
   return null;
 }
 
+function PmoRecommendRebalanceRegistration({ name }: { name: string }) {
+  useAssistantToolUI({
+    toolName: 'pmo_recommendRebalance',
+    render: (props) => (
+      <PmoRecommendRebalanceRenderer
+        name={name}
+        state={toReadState(props)}
+        output={
+          (props.result ?? undefined) as Parameters<
+            typeof PmoRecommendRebalanceRenderer
+          >[0]['output']
+        }
+      />
+    ),
+  });
+  return null;
+}
+
 function AgentStreamRegistration() {
   // Renders historical `data-tool-agent` parts (sub-agent leaf tool calls from
   // threads recorded before the orchestration cutover) and any future emitter.
@@ -138,6 +157,7 @@ export function ToolUIRegistry() {
       <WhoAmIRegistration name={nameFor('identity_whoAmI')} />
       <ListMyRolesRegistration name={nameFor('identity_listMyRoles')} />
       <PmoGenerateReportRegistration name={nameFor('pmo_generateReport')} />
+      <PmoRecommendRebalanceRegistration name={nameFor('pmo_recommendRebalance')} />
       {tools
         .filter((t) => !DEDICATED_TOOL_IDS.has(t.id))
         .map((t) => (

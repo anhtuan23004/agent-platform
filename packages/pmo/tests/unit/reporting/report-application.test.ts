@@ -44,6 +44,13 @@ function report(memberCount = 2): GeneratePmoReportOutput {
         roleTitle: 'Dev',
       },
     ],
+    projectionFreshness: {
+      skillsCount: 0,
+      taskHistoryCount: 0,
+      lastSyncedAt: null,
+      degraded: true,
+    },
+    dataQuality: { recommendationDegraded: true, flags: ['candidate_data_unavailable'] },
     findings: [
       {
         memberId: 'IDLE',

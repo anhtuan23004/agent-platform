@@ -1,8 +1,9 @@
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parse } from 'csv-parse/sync';
 import { sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
@@ -18,6 +19,10 @@ import {
   timesheets,
 } from '../db/schema.ts';
 import { computeNaturalKeyHash, computeSourceRowHash } from '../ingestion/stage-changes.ts';
+import {
+  syncMemberSkillProjection,
+  syncTaskHistoryProjection,
+} from '../reporting/recommendations/index.ts';
 import { loadDefaultThresholdConfigs } from './default-threshold-config.ts';
 
 /** Where seed assets live: repo root (dev) or `apps/cli` (deployed server image). */
@@ -72,6 +77,8 @@ export interface SeedPmo02FromMockDbResult {
     allocations: number;
     timesheets: number;
     leaves: number;
+    recommendationSkills: number;
+    recommendationTaskHistory: number;
   };
 }
 
@@ -103,6 +110,98 @@ function queryJson<T extends Record<string, unknown>>(mockDbPath: string, sqlTex
   const trimmed = proc.stdout.trim();
   if (!trimmed) return [];
   return JSON.parse(trimmed) as T[];
+}
+
+function readSeedCsv<T extends Record<string, string>>(filename: string): T[] {
+  const filePath = resolve(SEED_ASSET_ROOT, 'hackathon/data', filename);
+  if (!existsSync(filePath)) return [];
+  return parse(readFileSync(filePath, 'utf8'), {
+    bom: true,
+    columns: true,
+    skip_empty_lines: true,
+  }) as T[];
+}
+
+function optionalNumber(value: string | undefined): number | null {
+  if (!value || value.trim() === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function requiredDate(field: string, value: string | undefined): Date {
+  const date = parseDate(value);
+  if (!date) throw new Error(`Invalid required PMO recommendation seed date for ${field}`);
+  return date;
+}
+
+async function syncPmo02RecommendationProjectionCsvs(input: {
+  tenantId: string;
+}): Promise<{ recommendationSkills: number; recommendationTaskHistory: number }> {
+  const skillRows = readSeedCsv<{
+    member_id: string;
+    skill: string;
+    proficiency_level: string;
+    evidence_confidence: string;
+    source: string;
+    observed_at: string;
+    updated_at: string;
+    source_version: string;
+  }>('pmo_02_member_skills.csv');
+  const historyRows = readSeedCsv<{
+    history_id: string;
+    member_id: string;
+    project_id: string;
+    allocation_role: string;
+    task_title: string;
+    task_summary: string;
+    skill_tags: string;
+    completed_at: string;
+    evidence_confidence: string;
+    source: string;
+    synced_at: string;
+    source_version: string;
+    embedding_source_hash: string;
+  }>('pmo_02_member_task_history.csv');
+
+  for (const row of skillRows) {
+    await syncMemberSkillProjection({
+      tenantId: input.tenantId,
+      memberId: row.member_id,
+      skillName: row.skill,
+      proficiencyLevel: optionalNumber(row.proficiency_level),
+      evidenceConfidence: optionalNumber(row.evidence_confidence) ?? 1,
+      source: row.source || 'derived_pmo02',
+      sourceVersion: row.source_version || 'pmo02-recommendation-mock-v1',
+      idempotencyKey: `pmo02:skill:${row.member_id}:${row.skill}`,
+      observedAt: requiredDate('member_skills.observed_at', row.observed_at),
+      syncedAt: parseDate(row.updated_at) ?? undefined,
+    });
+  }
+
+  for (const row of historyRows) {
+    await syncTaskHistoryProjection({
+      tenantId: input.tenantId,
+      historyId: row.history_id,
+      memberId: row.member_id,
+      projectId: row.project_id || null,
+      allocationRole: row.allocation_role || null,
+      taskTitle: row.task_title,
+      taskSummary: row.task_summary || null,
+      skillTags: row.skill_tags ? row.skill_tags.split('|').filter(Boolean) : [],
+      completedAt: requiredDate('task_history.completed_at', row.completed_at),
+      evidenceConfidence: optionalNumber(row.evidence_confidence) ?? 1,
+      source: row.source || 'derived_pmo02',
+      sourceVersion: row.source_version || 'pmo02-recommendation-mock-v1',
+      idempotencyKey: `pmo02:history:${row.history_id}`,
+      syncedAt: parseDate(row.synced_at) ?? undefined,
+      embeddingSourceHash: row.embedding_source_hash || null,
+    });
+  }
+
+  return {
+    recommendationSkills: skillRows.length,
+    recommendationTaskHistory: historyRows.length,
+  };
 }
 
 /** Build `mock-data.db` from PMO_02 workbook when missing (dev monorepo only). */
@@ -515,6 +614,7 @@ export async function seedPmo02FromMockDbForTenant(
       );
     }
   });
+  const projectionCounts = await syncPmo02RecommendationProjectionCsvs({ tenantId });
 
   return {
     ok: true,
@@ -529,6 +629,8 @@ export async function seedPmo02FromMockDbForTenant(
       allocations: allocations.length,
       timesheets: tsRows.length,
       leaves: leaves.length,
+      recommendationSkills: projectionCounts.recommendationSkills,
+      recommendationTaskHistory: projectionCounts.recommendationTaskHistory,
     },
   };
 }
