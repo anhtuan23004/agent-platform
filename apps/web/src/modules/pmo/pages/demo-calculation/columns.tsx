@@ -5,7 +5,7 @@ import type {
   DemoMemberWeekRow,
   DemoProjectMemberDependencyRow,
 } from '../../api/demo-analytics.ts';
-import { excludedCell, nullish, pct, ragBadge, reasonBadge } from './formatters.tsx';
+import { excludedCell, hours, nullish, pct, ragBadge, reasonBadge } from './formatters.tsx';
 import { MetricHelpLabel } from './metric-help.tsx';
 import { METRIC_HELP } from './metric-help-copy.ts';
 
@@ -35,17 +35,22 @@ export const projectMemberColumns = (
   getMemberLabel: (memberId: string) => string,
   getProjectLabel: (projectId: string) => string,
 ): ColumnDef<DemoProjectMemberDependencyRow>[] => [
+  { accessorKey: 'memberId', header: 'Member', cell: memberLabelCell(getMemberLabel) },
   { accessorKey: 'projectId', header: 'Project', cell: projectLabelCell(getProjectLabel) },
   {
     accessorKey: 'pmId',
     header: 'PM',
     cell: ({ row }) => {
-      const pm = row.original.pmId;
-      if (!pm) return <span className="text-ink-subtle">—</span>;
-      return <span className="font-medium text-ink">{pm}</span>;
+      const { pmId, pmName } = row.original;
+      if (!pmId && !pmName) return <span className="text-ink-subtle">—</span>;
+      return (
+        <div className="min-w-0">
+          <div className="truncate font-medium text-ink">{pmName ?? pmId ?? '—'}</div>
+          {pmId ? <div className="text-caption text-ink-subtle">{pmId}</div> : null}
+        </div>
+      );
     },
   },
-  { accessorKey: 'memberId', header: 'Delivery member', cell: memberLabelCell(getMemberLabel) },
   {
     accessorKey: 'memberRoleTitle',
     header: 'Member role',
@@ -56,7 +61,35 @@ export const projectMemberColumns = (
     header: 'RA role',
     cell: ({ row }) => nullish(row.original.allocationRole),
   },
-  { accessorKey: 'weeklyPlannedHours', header: 'Planned h/week' },
+  {
+    accessorKey: 'weeklyPlannedHours',
+    header: 'Plan h/wk',
+    cell: ({ row }) => (
+      <span className="tabular-nums">{hours(row.original.weeklyPlannedHours)}</span>
+    ),
+  },
+  {
+    accessorKey: 'capacityShare',
+    header: 'Cap. share',
+    cell: ({ row }) => <span className="tabular-nums">{pct(row.original.capacityShare)}</span>,
+  },
+  {
+    accessorKey: 'plannedHoursInWindow',
+    header: 'Planned (window)',
+    cell: ({ row }) => (
+      <span className="tabular-nums">{hours(row.original.plannedHoursInWindow)}</span>
+    ),
+  },
+  {
+    accessorKey: 'loggedHours',
+    header: 'Logged (window)',
+    cell: ({ row }) => <span className="tabular-nums">{hours(row.original.loggedHours)}</span>,
+  },
+  {
+    accessorKey: 'effortConsumption',
+    header: 'EC',
+    cell: ({ row }) => <span className="tabular-nums">{pct(row.original.effortConsumption)}</span>,
+  },
 ];
 
 export const factColumns = (

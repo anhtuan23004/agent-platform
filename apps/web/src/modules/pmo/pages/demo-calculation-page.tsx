@@ -9,6 +9,7 @@ import { useDemoAnalytics } from '../hooks/use-demo-analytics.ts';
 import { DemoCalculationFilters } from './demo-calculation/filters.tsx';
 import { DemoCalculationPipeline } from './demo-calculation/pipeline.tsx';
 import { useFilteredDemoAnalytics } from './demo-calculation/use-filtered-data.ts';
+import { UtilizationCharts } from './demo-calculation/utilization-charts.tsx';
 import {
   buildSourceUploadOptions,
   formatDisplayDate,
@@ -144,6 +145,21 @@ export function DemoCalculationPage() {
               isRefreshing={isFetching}
             />
           </div>
+
+          <UtilizationCharts
+            data={filtered}
+            getMemberLabel={getMemberLabel}
+            getProjectLabel={getProjectLabel}
+            projectFilter={projectFilter}
+            selectedMemberId={memberFilter}
+            onSelectMember={setMemberFilter}
+            onScrollToFindings={() => {
+              document.getElementById('pmo-utilization-findings')?.scrollIntoView({
+                behavior: 'smooth',
+                block: 'start',
+              });
+            }}
+          />
 
           <DemoCalculationPipeline
             data={filtered}

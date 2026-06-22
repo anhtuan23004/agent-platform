@@ -120,6 +120,7 @@ export async function loadCanonicalInputs(
       db
         .select({
           member_id: timesheets.member_id,
+          project_id: timesheets.project_id,
           work_date: timesheets.work_date,
           logged_hours: timesheets.logged_hours,
           log_category: timesheets.log_category,
@@ -279,6 +280,7 @@ function toTimesheetRow(values: Record<string, unknown>): TimesheetRow | null {
   if (!memberId || !workDate || loggedHours === null) return null;
   return {
     member_id: asString(memberId),
+    project_id: values.project_id != null ? asString(values.project_id) : null,
     work_date: workDate,
     logged_hours: loggedHours,
     log_category: values.log_category != null ? asString(values.log_category) : null,
@@ -452,7 +454,7 @@ export async function loadMergedInputs(
     timesheets: mergeByCompositeKey(
       canonical.timesheets,
       staging.timesheets,
-      (r) => `${r.member_id}::${r.work_date.toISOString()}`,
+      (r) => `${r.member_id}::${r.project_id ?? ''}::${r.work_date.toISOString()}`,
     ),
     leaves: mergeByCompositeKey(
       canonical.leaves,

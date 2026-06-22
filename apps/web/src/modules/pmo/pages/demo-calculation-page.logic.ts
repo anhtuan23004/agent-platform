@@ -36,6 +36,26 @@ export function hasCustomDateRange(settings: DemoAnalyticsSettings | undefined):
   return Boolean(settings?.from || settings?.to);
 }
 
+export function hasCustomThresholds(settings: DemoAnalyticsSettings | undefined): boolean {
+  const t = settings?.thresholds;
+  if (!t) return false;
+  return (
+    t.overbookThreshold !== undefined ||
+    t.overbookRedThreshold !== undefined ||
+    t.idleThreshold !== undefined ||
+    t.idleYellowThreshold !== undefined ||
+    t.mismatchPctThreshold !== undefined
+  );
+}
+
+export function hasCustomCalculationSettings(settings: DemoAnalyticsSettings | undefined): boolean {
+  return (
+    hasCustomDateRange(settings) ||
+    Boolean(settings?.configEffectiveDate) ||
+    hasCustomThresholds(settings)
+  );
+}
+
 export function buildSourceUploadOptions(
   sessions: PmoPlanningSession[],
   currentUserId: string,

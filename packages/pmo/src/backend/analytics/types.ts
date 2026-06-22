@@ -48,6 +48,7 @@ export interface AllocationRow {
 
 export interface TimesheetRow {
   member_id: string;
+  project_id?: string | null;
   work_date: Date;
   logged_hours: number;
   log_category?: string | null;

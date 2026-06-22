@@ -38,6 +38,10 @@ describe('buildDemoAnalyticsResult', () => {
     expect(result.populations.deliveryMembers.length).toBe(10);
     expect(result.populations.projectManagers.length).toBe(0);
     expect(result.projectMemberDependencies.length).toBeGreaterThan(0);
+    expect(result.projectMemberDependencies.length).toBe(result.inputCounts.allocations);
+    expect(result.projectMemberDependencies.every((row) => row.plannedHoursInWindow >= 0)).toBe(
+      true,
+    );
   });
 
   it('limits result facts and reporting window to the selected weeks', () => {

@@ -81,10 +81,15 @@ export interface DemoProjectMemberDependencyRow {
   memberRoleTitle: string | null;
   allocationRole: string | null;
   weeklyPlannedHours: number;
+  plannedHoursInWindow: number;
+  loggedHours: number;
+  capacityShare: number | null;
+  effortConsumption: number | null;
 }
 
 export interface DemoTimesheetInput {
   memberId: string;
+  projectId: string | null;
   workDate: string;
   loggedHours: number;
   logCategory: string | null;

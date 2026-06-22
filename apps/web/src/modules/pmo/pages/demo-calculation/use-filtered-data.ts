@@ -22,17 +22,28 @@ export function useFilteredDemoAnalytics(
     return map;
   }, [data]);
 
-  const getMemberLabel = (id: string) => id;
-  const getProjectLabel = (id: string) => id;
+  const memberById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of data?.canonical.members ?? []) {
+      map.set(m.memberId, m.fullName?.trim() || m.memberId);
+    }
+    return map;
+  }, [data]);
+
+  const getMemberLabel = (id: string) => memberById.get(id) ?? id;
+  const getProjectLabel = (id: string) => projectById.get(id)?.projectName?.trim() || id;
 
   const filtered = useMemo(() => {
     if (!data) return null;
 
     const onlyProject = (id: string) => (projectFilter ? id === projectFilter : true);
-    const projectDependencyRows = projectFilter
-      ? data.projectMemberDependencies.filter((r) => r.projectId === projectFilter)
-      : data.projectMemberDependencies;
-    const projectMemberIds = new Set(projectDependencyRows.map((r) => r.memberId));
+    const scopedRosterRows = data.projectMemberDependencies.filter(
+      (row) => (!memberFilter || row.memberId === memberFilter) && onlyProject(row.projectId),
+    );
+    const projectMemberIds = new Set(scopedRosterRows.map((r) => r.memberId));
+    const rosterPmIds = new Set(
+      scopedRosterRows.map((r) => r.pmId).filter((id): id is string => Boolean(id)),
+    );
     const projectPmIds = new Set(
       data.canonical.projects
         .filter((p) => onlyProject(p.projectId))
@@ -47,7 +58,7 @@ export function useFilteredDemoAnalytics(
     };
 
     const onlyPopulationMember = (id: string) => {
-      if (memberFilter) return id === memberFilter;
+      if (memberFilter) return id === memberFilter || rosterPmIds.has(id);
       if (projectFilter) return projectMemberIds.has(id) || projectPmIds.has(id);
       return true;
     };
@@ -64,9 +75,7 @@ export function useFilteredDemoAnalytics(
           onlyPopulationMember(m.memberId),
         ),
       },
-      projectMemberDependencies: data.projectMemberDependencies.filter(
-        (r) => onlyDeliveryMember(r.memberId) && onlyProject(r.projectId),
-      ),
+      projectMemberDependencies: scopedRosterRows,
       memberWeekFacts: data.memberWeekFacts.filter((f) => onlyDeliveryMember(f.memberId)),
       memberAnalyses: data.memberAnalyses.filter((a) => onlyDeliveryMember(a.memberId)),
       overbookIdleFindings: data.overbookIdleFindings.filter((f) => onlyDeliveryMember(f.memberId)),

@@ -10,9 +10,12 @@ import {
 import { LEAVE_TYPE_APPROVED_OT_COMP, LEAVE_TYPE_TRAINING } from './leave-type.ts';
 import type { CanonicalInputs } from './load-canonical.ts';
 import { loadCanonicalInputs } from './load-canonical.ts';
+import {
+  buildMemberProjectAllocationFacts,
+  type MemberProjectAllocationFact,
+} from './member-project-facts.ts';
 import { loadMemberWeekFacts } from './persist-facts.ts';
 import { splitPmoPopulations } from './populations.ts';
-import { buildProjectMemberDependencies, type ProjectMemberDependency } from './project-members.ts';
 import { buildSessionScopedMemberWeekFacts } from './session-scoped-facts.ts';
 import type { ConfigRow } from './thresholds.ts';
 import { resolveThresholds, selectThresholdConfig } from './thresholds.ts';
@@ -108,10 +111,15 @@ export interface DemoProjectMemberDependencyRow {
   memberRoleTitle: string | null;
   allocationRole: string | null;
   weeklyPlannedHours: number;
+  plannedHoursInWindow: number;
+  loggedHours: number;
+  capacityShare: number | null;
+  effortConsumption: number | null;
 }
 
 export interface DemoTimesheetInput {
   memberId: string;
+  projectId: string | null;
   workDate: string;
   loggedHours: number;
   logCategory: string | null;
@@ -334,6 +342,7 @@ function serializeCanonical(
     })),
     timesheets: timesheets.map((t) => ({
       memberId: t.member_id,
+      projectId: t.project_id ?? null,
       workDate: isoDate(t.work_date) ?? '',
       loggedHours: t.logged_hours,
       logCategory: t.log_category ?? null,
@@ -356,7 +365,7 @@ function serializeCanonical(
 }
 
 function serializeProjectMemberDependency(
-  row: ProjectMemberDependency,
+  row: MemberProjectAllocationFact,
 ): DemoProjectMemberDependencyRow {
   return {
     projectId: row.projectId,
@@ -368,6 +377,10 @@ function serializeProjectMemberDependency(
     memberRoleTitle: row.memberRoleTitle,
     allocationRole: row.allocationRole,
     weeklyPlannedHours: row.weeklyPlannedHours,
+    plannedHoursInWindow: row.plannedHoursInWindow,
+    loggedHours: row.loggedHours,
+    capacityShare: row.capacityShare,
+    effortConsumption: row.effortConsumption,
   };
 }
 
@@ -433,10 +446,13 @@ export function buildDemoAnalyticsResult(
   const weekIds = new Set(weeks.map((w) => w.week_id));
   const scopedFacts = facts.filter((f) => weekIds.has(f.weekId));
   const { deliveryMembers, projectManagers } = splitPmoPopulations(members, projects);
-  const projectMemberDependencies = buildProjectMemberDependencies(
+  const projectMemberDependencies = buildMemberProjectAllocationFacts(
     projects,
-    deliveryMembers,
+    members,
     allocations,
+    timesheets,
+    weeks,
+    leaves,
   );
 
   const weeksById = new Map(weeks.map((w) => [w.week_id, w]));

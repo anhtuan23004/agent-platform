@@ -84,7 +84,7 @@ export function DemoCalculationPipeline({
   const findingCount = data.overbookIdleFindings.length + data.mismatchFindings.length;
 
   return (
-    <section className="space-y-4">
+    <section className="space-y-4" id="pmo-utilization-findings">
       <Tabs defaultValue="findings">
         <TabsList className="grid h-auto w-full grid-cols-2 gap-3 border-0 bg-transparent p-0 lg:grid-cols-4">
           <PipelineStageTab
@@ -123,8 +123,8 @@ export function DemoCalculationPipeline({
 
         <TabsContent value="population" className="mt-6">
           <SectionCard
-            title="PM & delivery populations"
-            description="Project managers are separated from delivery members before utilization is calculated."
+            title="Allocation matrix"
+            description="Member × project plan and logged hours across the reporting window. Use this view to see how each person is split across projects before rebalancing."
           >
             <Tabs defaultValue="projectMembers" className="mt-1">
               <TabsList className="mb-4">
