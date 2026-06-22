@@ -32,7 +32,10 @@ export interface GeneratePmoReportInput {
 }
 
 export interface GeneratePmoReportDeps {
-  ensureFacts: (tenantId: string, options: { force: false }) => Promise<EnsureFactsComputedResult>;
+  ensureFacts: (
+    tenantId: string,
+    options: { force: false; sessionId?: string },
+  ) => Promise<EnsureFactsComputedResult>;
   loadEvidence: (tenantId: string, options: LoadReportEvidenceOptions) => Promise<ReportEvidence>;
   getRecommendationProjectionFreshness?: typeof getRecommendationProjectionFreshness;
   loadRecommendationEvidence?: (input: {
@@ -138,9 +141,15 @@ export async function generatePmoReport(
   const to = parseReportDate(input.dateRange.to, 'to');
   if (from.getTime() > to.getTime()) throw new Error('invalid_report_date_range');
 
-  const freshness = await deps.ensureFacts(input.tenantId, { force: false });
+  const freshness = await deps.ensureFacts(input.tenantId, {
+    force: false,
+    ...(input.ingestionSessionId ? { sessionId: input.ingestionSessionId } : {}),
+  });
   const projectionFreshness = await loadProjectionFreshness(input.tenantId, deps);
-  const evidence = await deps.loadEvidence(input.tenantId, { dateRange: { from, to } });
+  const evidence = await deps.loadEvidence(input.tenantId, {
+    dateRange: { from, to },
+    ...(input.ingestionSessionId ? { ingestionSessionId: input.ingestionSessionId } : {}),
+  });
   const findings = detectOverbookIdle(evidence.facts, evidence.ctx).filter((finding) =>
     reportTypeAllows(input.reportTypes, finding.issueType),
   );

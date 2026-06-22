@@ -1,6 +1,7 @@
 import { defineAgentTool } from '@seta/agent-sdk';
 import { z } from 'zod';
 import { generatePmoReport } from '../analytics/report.ts';
+import { verifyPublishedSession } from '../reporting/generate-report.ts';
 import { tenantIdFromContext } from './context.ts';
 import {
   dateRangeSchema,
@@ -16,9 +17,11 @@ export const pmoRecommendRebalanceTool = defineAgentTool({
   description:
     'Return deterministic PMO workload rebalance recommendations for overbooked members in a confirmed date range. ' +
     'Use for: "who can take Alice workload in W12", "recommend rebalance for EMP-042", ' +
-    '"suggest allocation transfer candidates". Read-only; does not create report runs or mutate allocation.',
+    '"suggest allocation transfer candidates". Read-only; does not create report runs or mutate allocation. ' +
+    'When chat context includes an ingestionSessionId from a published upload, pass it to scope results to that batch only.',
   input: z.object({
     dateRange: dateRangeSchema,
+    ingestionSessionId: z.string().uuid().optional(),
     sourceMemberId: z.string().min(1).optional(),
     weekId: z.string().min(1).optional(),
     recommendationCandidateCount: z.number().int().min(1).max(5).optional(),
@@ -40,11 +43,21 @@ export const pmoRecommendRebalanceTool = defineAgentTool({
   }),
   rbac: 'pmo.data.read',
   execute: async (input, ctx) => {
+    const tenantId = tenantIdFromContext(ctx);
+    if (input.ingestionSessionId) {
+      await verifyPublishedSession(tenantId, input.ingestionSessionId);
+    }
     const report = await generatePmoReport({
-      tenantId: tenantIdFromContext(ctx),
+      tenantId,
       dateRange: input.dateRange,
       reportTypes: ['overbook_members'],
       recommendationCandidateCount: input.recommendationCandidateCount,
+      ...(input.ingestionSessionId
+        ? {
+            ingestionSessionId: input.ingestionSessionId,
+            reportSource: 'published_batch' as const,
+          }
+        : {}),
     });
     const recommendations = report.recommendations.filter(
       (group) =>

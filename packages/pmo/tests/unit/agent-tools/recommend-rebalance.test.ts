@@ -4,10 +4,15 @@ import type { GeneratePmoReportOutput } from '../../../src/backend/analytics/rep
 
 const mocks = vi.hoisted(() => ({
   generatePmoReport: vi.fn(),
+  verifyPublishedSession: vi.fn(),
 }));
 
 vi.mock('../../../src/backend/analytics/report.ts', () => ({
   generatePmoReport: mocks.generatePmoReport,
+}));
+
+vi.mock('../../../src/backend/reporting/generate-report.ts', () => ({
+  verifyPublishedSession: mocks.verifyPublishedSession,
 }));
 
 const { pmoRecommendRebalanceTool } = await import(
@@ -161,6 +166,8 @@ async function execute(input: Record<string, unknown>) {
 describe('pmo_recommendRebalance tool', () => {
   beforeEach(() => {
     mocks.generatePmoReport.mockReset();
+    mocks.verifyPublishedSession.mockReset();
+    mocks.verifyPublishedSession.mockResolvedValue(undefined);
   });
 
   it('calls report analytics directly and filters by source member', async () => {
@@ -193,5 +200,26 @@ describe('pmo_recommendRebalance tool', () => {
 
     expect(result.recommendations).toMatchObject([{ sourceMemberId: 'EMP-003', weekId: 'W2' }]);
     expect(mocks.generatePmoReport).toHaveBeenCalledTimes(1);
+  });
+
+  it('scopes to a published ingestion session when ingestionSessionId is provided', async () => {
+    mocks.generatePmoReport.mockResolvedValueOnce(report());
+
+    await execute({
+      dateRange: { from: '2026-06-29', to: '2026-07-05' },
+      ingestionSessionId: '11111111-1111-4111-8111-111111111111',
+    });
+
+    expect(mocks.verifyPublishedSession).toHaveBeenCalledWith(
+      'tenant-1',
+      '11111111-1111-4111-8111-111111111111',
+    );
+    expect(mocks.generatePmoReport).toHaveBeenCalledWith({
+      tenantId: 'tenant-1',
+      dateRange: { from: '2026-06-29', to: '2026-07-05' },
+      reportTypes: ['overbook_members'],
+      ingestionSessionId: '11111111-1111-4111-8111-111111111111',
+      reportSource: 'published_batch',
+    });
   });
 });
