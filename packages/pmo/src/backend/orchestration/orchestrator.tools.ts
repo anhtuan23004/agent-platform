@@ -46,7 +46,7 @@ export function makePmoOrchestratorTools(deps: PmoOrchestratorToolDeps) {
       '- member_detail: one member week breakdown; pass memberId or sourceMemberId.',
       '- report_summary: idle+overbook report for dateRange (defaults from chat scope).',
       '- rebalance_candidates: rebalance suggestions for overbooked members.',
-      '- explain_methodology: formulas, thresholds, exclusions.',
+      '- explain_methodology: formulas, thresholds, exclusions — paste returned `summary` verbatim.',
       '',
       'When <<<PMO_ANALYTICS_SCOPE>>> is present, pass ingestionSessionId and use reporting dates from scope.',
       'If needsClarification is true, ask the user to pick an option — do not invent numbers.',
