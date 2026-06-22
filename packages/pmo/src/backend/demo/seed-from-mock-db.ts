@@ -18,6 +18,7 @@ import {
   timesheets,
 } from '../db/schema.ts';
 import { computeNaturalKeyHash, computeSourceRowHash } from '../ingestion/stage-changes.ts';
+import { syncRecommendationProjectionsFromDemoCsv } from '../reporting/recommendations/index.ts';
 import { loadDefaultThresholdConfigs } from './default-threshold-config.ts';
 
 /** Where seed assets live: repo root (dev) or `apps/cli` (deployed server image). */
@@ -72,6 +73,8 @@ export interface SeedPmo02FromMockDbResult {
     allocations: number;
     timesheets: number;
     leaves: number;
+    recommendationSkills: number;
+    recommendationTaskHistory: number;
   };
 }
 
@@ -515,6 +518,7 @@ export async function seedPmo02FromMockDbForTenant(
       );
     }
   });
+  const projectionCounts = await syncRecommendationProjectionsFromDemoCsv({ tenantId });
 
   return {
     ok: true,
@@ -529,6 +533,8 @@ export async function seedPmo02FromMockDbForTenant(
       allocations: allocations.length,
       timesheets: tsRows.length,
       leaves: leaves.length,
+      recommendationSkills: projectionCounts.skills,
+      recommendationTaskHistory: projectionCounts.taskHistory,
     },
   };
 }

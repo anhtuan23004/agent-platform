@@ -1,5 +1,6 @@
 import {
   generateRebalanceRecommendations,
+  getRecommendationProjectionFreshness,
   loadRecommendationEvidence,
   type RebalanceEvidence,
   type RebalanceRecommendationGroup,
@@ -31,8 +32,12 @@ export interface GeneratePmoReportInput {
 }
 
 export interface GeneratePmoReportDeps {
-  ensureFacts: (tenantId: string, options: { force: false }) => Promise<EnsureFactsComputedResult>;
+  ensureFacts: (
+    tenantId: string,
+    options: { force: false; sessionId?: string },
+  ) => Promise<EnsureFactsComputedResult>;
   loadEvidence: (tenantId: string, options: LoadReportEvidenceOptions) => Promise<ReportEvidence>;
+  getRecommendationProjectionFreshness?: typeof getRecommendationProjectionFreshness;
   loadRecommendationEvidence?: (input: {
     tenantId: string;
     from: Date;
@@ -61,6 +66,11 @@ export interface GeneratePmoReportOutput {
     department: string | null;
     roleTitle: string | null;
   }>;
+  projectionFreshness: RecommendationProjectionFreshness;
+  dataQuality: {
+    recommendationDegraded: boolean;
+    flags: string[];
+  };
   findings: Array<
     Pick<
       Finding,
@@ -92,9 +102,17 @@ export interface ReportMetricEvidence {
   N12: number | null;
 }
 
+export interface RecommendationProjectionFreshness {
+  skillsCount: number;
+  taskHistoryCount: number;
+  lastSyncedAt: string | null;
+  degraded: boolean;
+}
+
 const DEFAULT_DEPS: GeneratePmoReportDeps = {
   ensureFacts: ensureFactsComputed,
   loadEvidence: loadReportEvidence,
+  getRecommendationProjectionFreshness,
   loadRecommendationEvidence,
 };
 
@@ -123,8 +141,15 @@ export async function generatePmoReport(
   const to = parseReportDate(input.dateRange.to, 'to');
   if (from.getTime() > to.getTime()) throw new Error('invalid_report_date_range');
 
-  const freshness = await deps.ensureFacts(input.tenantId, { force: false });
-  const evidence = await deps.loadEvidence(input.tenantId, { dateRange: { from, to } });
+  const freshness = await deps.ensureFacts(input.tenantId, {
+    force: false,
+    ...(input.ingestionSessionId ? { sessionId: input.ingestionSessionId } : {}),
+  });
+  const projectionFreshness = await loadProjectionFreshness(input.tenantId, deps);
+  const evidence = await deps.loadEvidence(input.tenantId, {
+    dateRange: { from, to },
+    ...(input.ingestionSessionId ? { ingestionSessionId: input.ingestionSessionId } : {}),
+  });
   const findings = detectOverbookIdle(evidence.facts, evidence.ctx).filter((finding) =>
     reportTypeAllows(input.reportTypes, finding.issueType),
   );
@@ -168,6 +193,12 @@ export async function generatePmoReport(
       roleTitle: member.roleTitle,
     }))
     .sort((left, right) => left.memberId.localeCompare(right.memberId));
+  const dataQualityFlags = [
+    ...new Set([
+      ...recommendations.flatMap((group) => group.dataQualityFlags),
+      ...(projectionFreshness.degraded ? ['candidate_data_unavailable'] : []),
+    ]),
+  ].sort();
 
   return {
     dateRange: { from: input.dateRange.from.slice(0, 10), to: input.dateRange.to.slice(0, 10) },
@@ -183,6 +214,13 @@ export async function generatePmoReport(
       excludedWeekCount: findings.reduce((sum, finding) => sum + finding.excludedWeeks.length, 0),
     },
     members,
+    projectionFreshness,
+    dataQuality: {
+      recommendationDegraded:
+        projectionFreshness.degraded ||
+        recommendations.some((group) => group.recommendationDegraded),
+      flags: dataQualityFlags,
+    },
     findings: findings.map((finding) => ({
       memberId: finding.memberId,
       issueType: finding.issueType,
@@ -200,6 +238,34 @@ export async function generatePmoReport(
       ),
     })),
     recommendations,
+  };
+}
+
+async function loadProjectionFreshness(
+  tenantId: string,
+  deps: GeneratePmoReportDeps,
+): Promise<RecommendationProjectionFreshness> {
+  const raw = await deps.getRecommendationProjectionFreshness?.(tenantId);
+  if (!raw) {
+    return {
+      skillsCount: 0,
+      taskHistoryCount: 0,
+      lastSyncedAt: null,
+      degraded: true,
+    };
+  }
+  const latestTimes = [raw.latestSkillSyncAt, raw.latestTaskSyncAt].filter(
+    (value): value is Date => value !== null,
+  );
+  const lastSyncedAt =
+    latestTimes.length === 0
+      ? null
+      : new Date(Math.max(...latestTimes.map((value) => value.getTime()))).toISOString();
+  return {
+    skillsCount: raw.skillCount,
+    taskHistoryCount: raw.taskCount,
+    lastSyncedAt,
+    degraded: raw.skillCount === 0 || raw.taskCount === 0,
   };
 }
 

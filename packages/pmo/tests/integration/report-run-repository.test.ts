@@ -43,6 +43,13 @@ function report(): GeneratePmoReportOutput {
     },
     summary: { memberCount: 2, overbookCount: 1, idleCount: 1, excludedWeekCount: 0 },
     members: [],
+    projectionFreshness: {
+      skillsCount: 0,
+      taskHistoryCount: 0,
+      lastSyncedAt: null,
+      degraded: true,
+    },
+    dataQuality: { recommendationDegraded: true, flags: ['candidate_data_unavailable'] },
     findings: [],
     recommendations: [],
   };

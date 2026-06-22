@@ -26,6 +26,21 @@ export interface ReportEvidence {
 
 export interface LoadReportEvidenceOptions {
   dateRange: { from: Date; to: Date };
+  ingestionSessionId?: string;
+}
+
+function canonicalSessionFilter(
+  table: { tenant_id: never; is_active: never; last_ingestion_session_id: never },
+  tenantId: string,
+  ingestionSessionId?: string,
+) {
+  return and(
+    eq(table.tenant_id, tenantId as never),
+    eq(table.is_active, true as never),
+    ...(ingestionSessionId
+      ? [eq(table.last_ingestion_session_id, ingestionSessionId as never)]
+      : []),
+  );
 }
 
 export async function loadReportEvidence(
@@ -34,8 +49,12 @@ export async function loadReportEvidence(
 ): Promise<ReportEvidence> {
   const db = pmoDb();
   const { from, to } = options.dateRange;
+  const sessionId = options.ingestionSessionId;
   const [facts, weeks, leaves, members, allocations, reportRules] = await Promise.all([
-    loadMemberWeekFacts(tenantId, { dateRange: options.dateRange }),
+    loadMemberWeekFacts(tenantId, {
+      dateRange: options.dateRange,
+      ...(sessionId ? { ingestionSessionId: sessionId } : {}),
+    }),
     db
       .select({
         week_id: calendarWeeks.week_id,
@@ -47,8 +66,7 @@ export async function loadReportEvidence(
       .from(calendarWeeks)
       .where(
         and(
-          eq(calendarWeeks.tenant_id, tenantId),
-          eq(calendarWeeks.is_active, true),
+          canonicalSessionFilter(calendarWeeks as never, tenantId, sessionId),
           gte(calendarWeeks.week_end, from),
           lte(calendarWeeks.week_start, to),
         ),
@@ -64,8 +82,7 @@ export async function loadReportEvidence(
       .from(leaveRecords)
       .where(
         and(
-          eq(leaveRecords.tenant_id, tenantId),
-          eq(leaveRecords.is_active, true),
+          canonicalSessionFilter(leaveRecords as never, tenantId, sessionId),
           gte(leaveRecords.leave_date, from),
           lte(leaveRecords.leave_date, to),
         ),
@@ -79,7 +96,7 @@ export async function loadReportEvidence(
         lineManagerId: memberMaster.line_manager_id,
       })
       .from(memberMaster)
-      .where(and(eq(memberMaster.tenant_id, tenantId), eq(memberMaster.is_active, true))),
+      .where(canonicalSessionFilter(memberMaster as never, tenantId, sessionId)),
     db
       .select({
         member_id: resourceAllocations.member_id,
@@ -92,8 +109,7 @@ export async function loadReportEvidence(
       .from(resourceAllocations)
       .where(
         and(
-          eq(resourceAllocations.tenant_id, tenantId),
-          eq(resourceAllocations.is_active, true),
+          canonicalSessionFilter(resourceAllocations as never, tenantId, sessionId),
           gte(resourceAllocations.end_date, from),
           lte(resourceAllocations.start_date, to),
         ),

@@ -45,6 +45,13 @@ function report(): GeneratePmoReportOutput {
         roleTitle: 'Developer',
       },
     ],
+    projectionFreshness: {
+      skillsCount: 2,
+      taskHistoryCount: 1,
+      lastSyncedAt: '2026-08-07T23:59:59.000Z',
+      degraded: false,
+    },
+    dataQuality: { recommendationDegraded: false, flags: [] },
     findings: [
       {
         memberId: 'EMP-YELLOW',
