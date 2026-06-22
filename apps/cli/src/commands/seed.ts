@@ -13,7 +13,10 @@ import {
   listPlans,
   listTasks,
 } from '@seta/planner';
-import { seedPmoDefaultThresholdConfigsForTenant } from '@seta/pmo';
+import {
+  seedPmoDefaultThresholdConfigsForTenant,
+  seedRecommendationProjectionsForTenant,
+} from '@seta/pmo';
 import {
   buildRegistry,
   IMPLICIT_PERMISSIONS,
@@ -598,12 +601,20 @@ export async function seedCommand(opts: SeedOpts): Promise<void> {
   } else {
     log.info('phase 9: seeding PMO threshold defaults');
     const thresholdResult = await seedPmoDefaultThresholdConfigsForTenant({ tenantId });
+    log.info('phase 9b: seeding PMO recommendation projections from CSV');
+    const projectionResult = await seedRecommendationProjectionsForTenant({ tenantId });
     process.stdout.write(
       `${JSON.stringify({
         phase: 'pmo',
         thresholdDefaults: {
           inserted: thresholdResult.inserted,
           configIds: thresholdResult.configIds,
+        },
+        recommendationProjections: {
+          inserted: projectionResult.inserted,
+          skipped: projectionResult.skipped,
+          freshness: projectionResult.freshness,
+          sourcePaths: projectionResult.sourcePaths,
         },
         mockData: { skipped: true, reason: 'PMO mock-data seed disabled' },
       })}\n`,

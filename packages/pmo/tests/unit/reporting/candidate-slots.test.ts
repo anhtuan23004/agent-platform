@@ -193,4 +193,103 @@ describe('candidate slots and hard filters', () => {
     expect(backend).toBe(0.7);
     expect(qa).toBe(0);
   });
+
+  it('carries forward evidence-period candidates when source RA requires confirmation', () => {
+    const allocations: AllocationRow[] = [
+      {
+        member_id: 'EMP-004',
+        project_id: 'PRJ-001',
+        role: 'BE',
+        allocation_pct: 0.8,
+        weekly_planned_hours: 32,
+        start_date: d('2026-06-29'),
+        end_date: d('2026-08-07'),
+      },
+      {
+        member_id: 'EMP-004',
+        project_id: 'PRJ-002',
+        role: 'BE',
+        allocation_pct: 0.45,
+        weekly_planned_hours: 18,
+        start_date: d('2026-06-29'),
+        end_date: d('2026-08-07'),
+      },
+      {
+        member_id: 'EMP-103',
+        project_id: 'PRJ-103',
+        role: 'BE',
+        allocation_pct: 0.86,
+        weekly_planned_hours: 34.4,
+        start_date: d('2026-06-29'),
+        end_date: d('2026-08-07'),
+      },
+    ];
+    const members: RecommendationMember[] = [
+      {
+        memberId: 'EMP-004',
+        department: 'Backend',
+        roleTitle: 'Backend Lead',
+        level: 'L5',
+        lineManagerId: null,
+        employmentStatus: 'Active',
+        employmentType: 'FT',
+        stdHoursWeek: 40,
+        joinDate: d('2024-01-01'),
+      },
+      {
+        memberId: 'EMP-103',
+        department: 'Backend',
+        roleTitle: 'Backend Developer',
+        level: 'L3',
+        lineManagerId: null,
+        employmentStatus: 'Active',
+        employmentType: 'FT',
+        stdHoursWeek: 40,
+        joinDate: d('2024-01-01'),
+      },
+    ];
+    const riskByMember = new Map<string, RecommendationRiskSummary>([
+      [
+        'EMP-103',
+        {
+          memberId: 'EMP-103',
+          availableHours: 232,
+          plannedHours: 199.52,
+          loggedHours: 209,
+          utilization: 0.9009,
+          effortConsumption: 1.0475,
+          overtimeRatio: 0,
+          trainingHours: 0,
+          benchHours: 0,
+        },
+      ],
+    ]);
+
+    const opportunities = buildRebalanceOpportunities({
+      periods: buildMemberAllocationPeriods(allocations),
+      allocations,
+      window: buildRecommendationWindow({
+        evidenceFrom: d('2026-06-29'),
+        evidenceTo: d('2026-08-07'),
+      }),
+      thresholds,
+      riskByMember,
+    });
+
+    const slots = buildCandidateSlots({
+      opportunities,
+      periods: buildMemberAllocationPeriods(allocations),
+      members,
+      riskByMember,
+      thresholds,
+    });
+
+    const emp103 = slots.find((slot) => slot.memberId === 'EMP-103');
+    expect(opportunities[0]?.requiresRaConfirmation).toBe(true);
+    expect(emp103?.planningOverlap).toMatchObject({
+      from: d('2026-08-10'),
+      to: d('2026-08-10'),
+    });
+    expect(emp103?.rejectionReasons).toEqual([]);
+  });
 });

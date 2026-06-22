@@ -21,6 +21,11 @@ export {
   seedPmo02FromMockDbForTenant,
 } from './backend/demo/seed-from-mock-db.ts';
 export type {
+  SeedRecommendationProjectionsInput,
+  SeedRecommendationProjectionsResult,
+} from './backend/demo/seed-recommendation-projections.ts';
+export { seedRecommendationProjectionsForTenant } from './backend/demo/seed-recommendation-projections.ts';
+export type {
   CreateReportRunInput,
   GenerateReportResult,
   ReportOutputFormat,

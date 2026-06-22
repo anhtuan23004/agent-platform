@@ -30,6 +30,16 @@ function overlaps(
   return from.getTime() <= to.getTime() ? { from, to } : null;
 }
 
+function inferredForwardOverlap(
+  opportunity: RebalanceOpportunity,
+): { from: Date; to: Date } | null {
+  if (!opportunity.requiresRaConfirmation) return null;
+  return {
+    from: opportunity.planningPeriod.from,
+    to: opportunity.planningPeriod.to ?? opportunity.planningPeriod.from,
+  };
+}
+
 function hasFlag(risk: RecommendationRiskSummary | undefined, thresholds: Thresholds): string[] {
   if (!risk) return [];
   const flags: string[] = [];
@@ -75,7 +85,9 @@ export function buildCandidateSlots(input: {
       if (period.memberId === opportunity.sourceMemberId) continue;
       const member = membersById.get(period.memberId);
       const risk = input.riskByMember?.get(period.memberId);
-      const overlap = overlaps(opportunity.planningPeriod, { from: period.from, to: period.to });
+      const overlap =
+        overlaps(opportunity.planningPeriod, { from: period.from, to: period.to }) ??
+        inferredForwardOverlap(opportunity);
       const rejectionReasons: CandidateRejectionReason[] = [];
 
       if ((member?.employmentStatus ?? '').toLowerCase() !== 'active') {
