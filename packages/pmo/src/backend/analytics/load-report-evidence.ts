@@ -1,25 +1,41 @@
 import { and, eq, gte, lte } from 'drizzle-orm';
 import { pmoDb } from '../db/client.ts';
-import { calendarWeeks, leaveRecords, memberMaster, resourceAllocations } from '../db/schema.ts';
+import {
+  calendarWeeks,
+  leaveRecords,
+  memberMaster,
+  projectMaster,
+  resourceAllocations,
+} from '../db/schema.ts';
 import { mapReportRulesToLegacyThresholds } from '../reporting/rules/compatibility.ts';
 import { resolveReportRules } from '../reporting/rules/resolve.ts';
 import type { PmoReportRuleSet } from '../reporting/rules/schema.ts';
 import type { FindingsContext } from './findings.ts';
 import { loadMemberWeekFacts } from './persist-facts.ts';
-import type { AllocationRow, MemberWeekFact, Thresholds } from './types.ts';
+import type { AllocationRow, MemberWeekFact, ProjectRow, Thresholds } from './types.ts';
 
 export interface ReportMemberEvidence {
   memberId: string;
   fullName: string;
   department: string | null;
   roleTitle: string | null;
+  level: string | null;
   lineManagerId: string | null;
+  employmentStatus: string | null;
+  employmentType: string | null;
+  stdHoursWeek: number | null;
+  joinDate: Date | null;
+}
+
+export interface ReportProjectEvidence extends ProjectRow {
+  project_domain: string | null;
 }
 
 export interface ReportEvidence {
   facts: MemberWeekFact[];
   ctx: FindingsContext;
   members?: ReportMemberEvidence[];
+  projects?: ReportProjectEvidence[];
   allocations?: AllocationRow[];
   reportRules?: PmoReportRuleSet;
 }
@@ -50,7 +66,7 @@ export async function loadReportEvidence(
   const db = pmoDb();
   const { from, to } = options.dateRange;
   const sessionId = options.ingestionSessionId;
-  const [facts, weeks, leaves, members, allocations, reportRules] = await Promise.all([
+  const [facts, weeks, leaves, members, projects, allocations, reportRules] = await Promise.all([
     loadMemberWeekFacts(tenantId, {
       dateRange: options.dateRange,
       ...(sessionId ? { ingestionSessionId: sessionId } : {}),
@@ -93,15 +109,35 @@ export async function loadReportEvidence(
         fullName: memberMaster.full_name,
         department: memberMaster.department,
         roleTitle: memberMaster.role_title,
+        level: memberMaster.level,
         lineManagerId: memberMaster.line_manager_id,
+        employmentStatus: memberMaster.employment_status,
+        employmentType: memberMaster.employment,
+        stdHoursWeek: memberMaster.std_hours_week,
+        joinDate: memberMaster.join_date,
       })
       .from(memberMaster)
       .where(canonicalSessionFilter(memberMaster as never, tenantId, sessionId)),
     db
       .select({
+        project_id: projectMaster.project_id,
+        project_name: projectMaster.project_name,
+        account_id: projectMaster.account_id,
+        project_type: projectMaster.project_type,
+        project_domain: projectMaster.project_type,
+        status: projectMaster.status,
+        pm_id: projectMaster.pm_id,
+        start_date: projectMaster.start_date,
+        end_date: projectMaster.end_date,
+      })
+      .from(projectMaster)
+      .where(and(eq(projectMaster.tenant_id, tenantId), eq(projectMaster.is_active, true))),
+    db
+      .select({
         member_id: resourceAllocations.member_id,
         project_id: resourceAllocations.project_id,
         role: resourceAllocations.role,
+        allocation_pct: resourceAllocations.allocation_pct,
         weekly_planned_hours: resourceAllocations.weekly_planned_hours,
         start_date: resourceAllocations.start_date,
         end_date: resourceAllocations.end_date,
@@ -126,6 +162,7 @@ export async function loadReportEvidence(
   return {
     facts,
     members,
+    projects,
     allocations,
     reportRules,
     ctx: {

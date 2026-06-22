@@ -3,13 +3,7 @@ import { z } from 'zod';
 import { generatePmoReport } from '../analytics/report.ts';
 import { verifyPublishedSession } from '../reporting/generate-report.ts';
 import { tenantIdFromContext } from './context.ts';
-import {
-  dateRangeSchema,
-  findingSchema,
-  projectionFreshnessSchema,
-  recommendationDataQualitySchema,
-  recommendationGroupSchema,
-} from './generate-report.ts';
+import { dateRangeSchema, findingSchema, recommendationGroupSchema } from './generate-report.ts';
 
 export const pmoRecommendRebalanceTool = defineAgentTool({
   id: 'pmo_recommendRebalance',
@@ -23,7 +17,7 @@ export const pmoRecommendRebalanceTool = defineAgentTool({
     dateRange: dateRangeSchema,
     ingestionSessionId: z.string().uuid().optional(),
     sourceMemberId: z.string().min(1).optional(),
-    weekId: z.string().min(1).optional(),
+    opportunityId: z.string().min(1).optional(),
     recommendationCandidateCount: z.number().int().min(1).max(5).optional(),
   }),
   output: z.object({
@@ -38,8 +32,6 @@ export const pmoRecommendRebalanceTool = defineAgentTool({
     ),
     findings: z.array(findingSchema),
     recommendations: z.array(recommendationGroupSchema),
-    dataQuality: recommendationDataQualitySchema,
-    projectionFreshness: projectionFreshnessSchema,
   }),
   rbac: 'pmo.data.read',
   execute: async (input, ctx) => {
@@ -62,7 +54,7 @@ export const pmoRecommendRebalanceTool = defineAgentTool({
     const recommendations = report.recommendations.filter(
       (group) =>
         (!input.sourceMemberId || group.sourceMemberId === input.sourceMemberId) &&
-        (!input.weekId || group.weekId === input.weekId),
+        (!input.opportunityId || group.opportunityId === input.opportunityId),
     );
     const sourceMemberIds = new Set(recommendations.map((group) => group.sourceMemberId));
     const findings = report.findings.filter(
@@ -84,8 +76,6 @@ export const pmoRecommendRebalanceTool = defineAgentTool({
       members: report.members.filter((member) => memberIds.has(member.memberId)),
       findings,
       recommendations,
-      dataQuality: report.dataQuality,
-      projectionFreshness: report.projectionFreshness,
     };
   },
 });

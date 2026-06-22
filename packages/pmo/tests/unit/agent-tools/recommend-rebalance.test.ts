@@ -33,13 +33,6 @@ function report(): GeneratePmoReportOutput {
       { memberId: 'EMP-002', fullName: 'Target Two', department: 'Delivery', roleTitle: 'BE' },
       { memberId: 'EMP-003', fullName: 'Source Three', department: 'Data', roleTitle: 'DE' },
     ],
-    projectionFreshness: {
-      skillsCount: 2,
-      taskHistoryCount: 2,
-      lastSyncedAt: '2026-07-05T00:00:00.000Z',
-      degraded: false,
-    },
-    dataQuality: { recommendationDegraded: false, flags: [] },
     findings: [
       {
         memberId: 'EMP-001',
@@ -86,21 +79,29 @@ function report(): GeneratePmoReportOutput {
         },
       },
     ],
-    recommendations: [group('EMP-001', 'W1', 'EMP-002'), group('EMP-003', 'W2', 'EMP-002')],
+    recommendations: [group('opp-1', 'EMP-001', 'EMP-002'), group('opp-2', 'EMP-003', 'EMP-002')],
   };
 }
 
 function group(
+  opportunityId: string,
   sourceMemberId: string,
-  weekId: string,
   targetMemberId: string,
 ): GeneratePmoReportOutput['recommendations'][number] {
   return {
+    opportunityId,
     sourceMemberId,
-    weekId,
+    projectId: 'PRJ-1',
+    roleNeeded: 'BE',
     severity: 'red',
-    requiredReductionHours: 8,
+    evidenceWindow: { from: '2026-06-29', to: '2026-07-05' },
+    planningPeriod: { from: '2026-06-29', to: '2026-07-05' },
+    currentRaBusyRate: 1.2,
+    targetRaBusyRate: 0.95,
+    requiredReductionPct: 0.2,
+    requiredReductionHoursPerWeek: 8,
     status: 'full_solution',
+    requiresRaConfirmation: false,
     noResultReasons: [],
     recommendationDegraded: false,
     dataQualityFlags: [],
@@ -114,12 +115,16 @@ function group(
         type: 'rebalance',
         sourceMemberId,
         targetMemberId,
-        weekId,
+        opportunityId,
         projectId: 'PRJ-1',
-        transferHours: 8,
+        roleNeeded: 'BE',
+        effectiveFrom: '2026-06-29',
+        effectiveTo: '2026-07-05',
+        transferPct: 0.2,
+        transferHoursPerWeek: 8,
         score: 0.91,
         confidence: 'high',
-        rankWithinSource: 1,
+        rankWithinOpportunity: 1,
         portfolioSelected: true,
         mutuallyExclusiveAlternative: false,
         beforeAfter: {
@@ -129,16 +134,19 @@ function group(
           targetAfterBusyRate: 0.9,
         },
         scoreBreakdown: {
-          skillCoverage: 1,
-          taskHistorySimilarity: 0.8,
+          skillMatch: 1,
+          historyMatch: 0.8,
+          roleContextMatch: 0.7,
           capacityFit: 0.9,
-          projectContext: 0.7,
+          riskAdjustment: 0,
         },
         evidence: {
           matchedSkills: ['java'],
           missingSkills: [],
           similarPastTasks: ['API endpoint implementation'],
-          capacityReason: 'both_members_green',
+          sourceRiskFlags: [],
+          candidateRiskFlags: [],
+          rationale: 'both_members_green',
         },
         recommendationDegraded: false,
         dataQualityFlags: [],
@@ -158,7 +166,7 @@ async function execute(input: Record<string, unknown>) {
     requestContext,
   } as never) as Promise<{
     findings: Array<{ memberId: string }>;
-    recommendations: Array<{ sourceMemberId: string; weekId: string }>;
+    recommendations: Array<{ sourceMemberId: string; opportunityId: string }>;
     members: Array<{ memberId: string }>;
   }>;
 }
@@ -190,15 +198,17 @@ describe('pmo_recommendRebalance tool', () => {
     expect(result.members.map((item) => item.memberId).sort()).toEqual(['EMP-001', 'EMP-002']);
   });
 
-  it('filters by week id without creating a report run', async () => {
+  it('filters by opportunity id without creating a report run', async () => {
     mocks.generatePmoReport.mockResolvedValueOnce(report());
 
     const result = await execute({
       dateRange: { from: '2026-06-29', to: '2026-07-05' },
-      weekId: 'W2',
+      opportunityId: 'opp-2',
     });
 
-    expect(result.recommendations).toMatchObject([{ sourceMemberId: 'EMP-003', weekId: 'W2' }]);
+    expect(result.recommendations).toMatchObject([
+      { sourceMemberId: 'EMP-003', opportunityId: 'opp-2' },
+    ]);
     expect(mocks.generatePmoReport).toHaveBeenCalledTimes(1);
   });
 

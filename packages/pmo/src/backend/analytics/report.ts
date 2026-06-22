@@ -1,12 +1,25 @@
 import {
+  buildFallbackFindingExplanation,
+  buildFallbackRecommendationExplanation,
+  explainPmoReportWithLlm,
+} from '../reporting/explanations/report-explanations.ts';
+import {
   generateRebalanceRecommendations,
-  getRecommendationProjectionFreshness,
   loadRecommendationEvidence,
   type RebalanceEvidence,
   type RebalanceRecommendationGroup,
 } from '../reporting/recommendations/index.ts';
+import type {
+  ExplainPmoReportInput,
+  ExplainPmoReportOutput,
+  ExplainPmoReportRuleContext,
+  GeneratePmoReportOutput,
+  PmoReportDateRange,
+  ReportIssueWeekEvidence,
+  ReportMetricEvidence,
+} from '../reporting/report-output.ts';
 import { type EnsureFactsComputedResult, ensureFactsComputed } from './ensure-facts-computed.ts';
-import { detectOverbookIdle } from './findings.ts';
+import { detectMismatch, detectOverbookIdle } from './findings.ts';
 import {
   type LoadReportEvidenceOptions,
   loadReportEvidence,
@@ -14,13 +27,18 @@ import {
 } from './load-report-evidence.ts';
 import type { Finding } from './types.ts';
 
+export type {
+  ExplainPmoReportInput,
+  ExplainPmoReportOutput,
+  ExplainPmoReportRuleContext,
+  GeneratePmoReportOutput,
+  PmoReportDateRange,
+  ReportIssueWeekEvidence,
+  ReportMetricEvidence,
+} from '../reporting/report-output.ts';
+
 export type PmoReportType = 'idle_members' | 'overbook_members';
 export type PmoReportSource = 'canonical_db' | 'staging_preview' | 'published_batch';
-
-export interface PmoReportDateRange {
-  from: string;
-  to: string;
-}
 
 export interface GeneratePmoReportInput {
   tenantId: string;
@@ -37,7 +55,6 @@ export interface GeneratePmoReportDeps {
     options: { force: false; sessionId?: string },
   ) => Promise<EnsureFactsComputedResult>;
   loadEvidence: (tenantId: string, options: LoadReportEvidenceOptions) => Promise<ReportEvidence>;
-  getRecommendationProjectionFreshness?: typeof getRecommendationProjectionFreshness;
   loadRecommendationEvidence?: (input: {
     tenantId: string;
     from: Date;
@@ -45,75 +62,14 @@ export interface GeneratePmoReportDeps {
     reportEvidence: ReportEvidence;
     historyWindowDays: number;
   }) => Promise<RebalanceEvidence>;
-}
-
-export interface GeneratePmoReportOutput {
-  dateRange: PmoReportDateRange;
-  sourceVersion: {
-    factsVersion: string;
-    canonicalDataVersion: string;
-    factsComputedAt: string;
-  };
-  summary: {
-    memberCount: number;
-    overbookCount: number;
-    idleCount: number;
-    excludedWeekCount: number;
-  };
-  members: Array<{
-    memberId: string;
-    fullName: string;
-    department: string | null;
-    roleTitle: string | null;
-  }>;
-  projectionFreshness: RecommendationProjectionFreshness;
-  dataQuality: {
-    recommendationDegraded: boolean;
-    flags: string[];
-  };
-  findings: Array<
-    Pick<
-      Finding,
-      | 'memberId'
-      | 'issueType'
-      | 'ragColor'
-      | 'busyRate'
-      | 'effortConsumption'
-      | 'detail'
-      | 'annotations'
-      | 'reviewRequired'
-      | 'suggestedActionCode'
-      | 'suggestedActions'
-    > & {
-      excludedWeeks: Array<{ weekId: string; reason: string }>;
-      metricEvidence: ReportMetricEvidence;
-    }
-  >;
-  recommendations: RebalanceRecommendationGroup[];
-}
-
-export interface ReportMetricEvidence {
-  N01: number | null;
-  N02: number | null;
-  N03: number | null;
-  N04: number | null;
-  N05: number | null;
-  N06: number | null;
-  N12: number | null;
-}
-
-export interface RecommendationProjectionFreshness {
-  skillsCount: number;
-  taskHistoryCount: number;
-  lastSyncedAt: string | null;
-  degraded: boolean;
+  explainReport?: (input: ExplainPmoReportInput) => Promise<ExplainPmoReportOutput | null>;
 }
 
 const DEFAULT_DEPS: GeneratePmoReportDeps = {
   ensureFacts: ensureFactsComputed,
   loadEvidence: loadReportEvidence,
-  getRecommendationProjectionFreshness,
   loadRecommendationEvidence,
+  explainReport: explainPmoReportWithLlm,
 };
 
 function parseReportDate(value: string, label: 'from' | 'to'): Date {
@@ -145,14 +101,14 @@ export async function generatePmoReport(
     force: false,
     ...(input.ingestionSessionId ? { sessionId: input.ingestionSessionId } : {}),
   });
-  const projectionFreshness = await loadProjectionFreshness(input.tenantId, deps);
   const evidence = await deps.loadEvidence(input.tenantId, {
     dateRange: { from, to },
     ...(input.ingestionSessionId ? { ingestionSessionId: input.ingestionSessionId } : {}),
   });
-  const findings = detectOverbookIdle(evidence.facts, evidence.ctx).filter((finding) =>
+  const capacityFindings = detectOverbookIdle(evidence.facts, evidence.ctx).filter((finding) =>
     reportTypeAllows(input.reportTypes, finding.issueType),
   );
+  const findings = [...capacityFindings, ...detectMismatch(evidence.facts, evidence.ctx)];
   const memberCount = new Set(
     evidence.facts.filter((fact) => fact.scopeStatus === 'IN_SCOPE').map((fact) => fact.memberId),
   ).size;
@@ -193,12 +149,45 @@ export async function generatePmoReport(
       roleTitle: member.roleTitle,
     }))
     .sort((left, right) => left.memberId.localeCompare(right.memberId));
-  const dataQualityFlags = [
-    ...new Set([
-      ...recommendations.flatMap((group) => group.dataQualityFlags),
-      ...(projectionFreshness.degraded ? ['candidate_data_unavailable'] : []),
+  const findingPayload = findings.map((finding) => ({
+    memberId: finding.memberId,
+    issueType: finding.issueType,
+    ragColor: finding.ragColor,
+    busyRate: finding.busyRate,
+    effortConsumption: finding.effortConsumption,
+    detail: finding.detail,
+    excludedWeeks: finding.excludedWeeks,
+    issueWeeks: buildIssueWeekEvidence(finding, evidence),
+    annotations: finding.annotations,
+    reviewRequired: finding.reviewRequired,
+    suggestedActionCode: finding.suggestedActionCode,
+    suggestedActions: finding.suggestedActions,
+    metricEvidence: aggregateMetricEvidence(
+      evidence.facts.filter((fact) => fact.memberId === finding.memberId),
+    ),
+  }));
+  const explanations = await maybeExplainReport(deps.explainReport, {
+    dateRange: { from: input.dateRange.from.slice(0, 10), to: input.dateRange.to.slice(0, 10) },
+    summary: {
+      memberCount,
+      overbookCount: findings.filter((finding) => finding.issueType === 'overbook').length,
+      idleCount: findings.filter((finding) => finding.issueType === 'idle').length,
+      excludedWeekCount: findings.reduce((sum, finding) => sum + finding.excludedWeeks.length, 0),
+    },
+    members,
+    findings: findingPayload,
+    recommendations,
+    ruleContext: buildExplanationRuleContext(evidence),
+  });
+  const findingExplanations = new Map(
+    (explanations?.findings ?? []).map((item) => [
+      `${item.memberId}:${item.issueType}`,
+      item.explanation,
     ]),
-  ].sort();
+  );
+  const recommendationExplanations = new Map(
+    (explanations?.recommendations ?? []).map((item) => [item.opportunityId, item.explanation]),
+  );
 
   return {
     dateRange: { from: input.dateRange.from.slice(0, 10), to: input.dateRange.to.slice(0, 10) },
@@ -214,59 +203,154 @@ export async function generatePmoReport(
       excludedWeekCount: findings.reduce((sum, finding) => sum + finding.excludedWeeks.length, 0),
     },
     members,
-    projectionFreshness,
-    dataQuality: {
-      recommendationDegraded:
-        projectionFreshness.degraded ||
-        recommendations.some((group) => group.recommendationDegraded),
-      flags: dataQualityFlags,
-    },
-    findings: findings.map((finding) => ({
-      memberId: finding.memberId,
-      issueType: finding.issueType,
-      ragColor: finding.ragColor,
-      busyRate: finding.busyRate,
-      effortConsumption: finding.effortConsumption,
-      detail: finding.detail,
-      excludedWeeks: finding.excludedWeeks,
-      annotations: finding.annotations,
-      reviewRequired: finding.reviewRequired,
-      suggestedActionCode: finding.suggestedActionCode,
-      suggestedActions: finding.suggestedActions,
-      metricEvidence: aggregateMetricEvidence(
-        evidence.facts.filter((fact) => fact.memberId === finding.memberId),
-      ),
+    findings: findingPayload.map((finding) => ({
+      ...finding,
+      explanation:
+        findingExplanations.get(`${finding.memberId}:${finding.issueType}`) ??
+        buildFallbackFindingExplanation({
+          issueType: finding.issueType,
+          busyRate: finding.busyRate,
+          effortConsumption: finding.effortConsumption,
+          detail: finding.detail,
+        }),
     })),
-    recommendations,
+    recommendations: recommendations.map((group) => ({
+      ...group,
+      explanation:
+        recommendationExplanations.get(group.opportunityId) ??
+        buildFallbackRecommendationExplanation({
+          status: group.status,
+          requiredReductionHoursPerWeek: group.requiredReductionHoursPerWeek,
+          recommendationCount: group.recommendations.length,
+          topRecommendation: group.recommendations[0]
+            ? {
+                targetMemberId: group.recommendations[0].targetMemberId,
+                rationale: group.recommendations[0].evidence.rationale,
+              }
+            : null,
+        }),
+    })),
   };
 }
 
-async function loadProjectionFreshness(
-  tenantId: string,
-  deps: GeneratePmoReportDeps,
-): Promise<RecommendationProjectionFreshness> {
-  const raw = await deps.getRecommendationProjectionFreshness?.(tenantId);
-  if (!raw) {
-    return {
-      skillsCount: 0,
-      taskHistoryCount: 0,
-      lastSyncedAt: null,
-      degraded: true,
-    };
+async function maybeExplainReport(
+  explainReport: GeneratePmoReportDeps['explainReport'],
+  input: ExplainPmoReportInput,
+): Promise<ExplainPmoReportOutput | null> {
+  if (!explainReport) return null;
+  try {
+    return await explainReport(input);
+  } catch (error) {
+    console.warn('[pmo/report] explanation skipped:', error);
+    return null;
   }
-  const latestTimes = [raw.latestSkillSyncAt, raw.latestTaskSyncAt].filter(
-    (value): value is Date => value !== null,
-  );
-  const lastSyncedAt =
-    latestTimes.length === 0
-      ? null
-      : new Date(Math.max(...latestTimes.map((value) => value.getTime()))).toISOString();
+}
+
+function buildExplanationRuleContext(evidence: ReportEvidence): ExplainPmoReportRuleContext {
   return {
-    skillsCount: raw.skillCount,
-    taskHistoryCount: raw.taskCount,
-    lastSyncedAt,
-    degraded: raw.skillCount === 0 || raw.taskCount === 0,
+    classification: {
+      primaryMetric: 'N01',
+      overbook: {
+        warningAbove: evidence.ctx.thresholds.overbookThreshold,
+        redAtOrAbove: evidence.ctx.thresholds.overbookRedThreshold,
+      },
+      idle: {
+        redBelow: evidence.ctx.thresholds.idleThreshold,
+        warningBelow: evidence.ctx.thresholds.idleYellowThreshold,
+      },
+      mismatchPctThreshold: evidence.ctx.thresholds.mismatchPctThreshold,
+      otMaxHoursPerWeek: evidence.ctx.thresholds.otMaxHoursPerWeek,
+    },
+    metrics: {
+      N01: 'planned_h / available_h',
+      N02: evidence.reportRules?.metrics.N02.formula ?? 'worked_h / available_h',
+      N03: evidence.reportRules?.metrics.N03.formula ?? 'billable_h / worked_h',
+      N04: evidence.reportRules?.metrics.N04.formula ?? 'bench_h / available_h',
+      N05: evidence.reportRules?.metrics.N05.formula ?? 'ot_h / standard_h',
+      N06: evidence.reportRules?.metrics.N06.formula ?? 'actual_h / planned_h',
+      N12: evidence.reportRules?.metrics.N12.formula ?? 'done / required',
+    },
+    recommendation: {
+      enabled: evidence.reportRules?.recommendation.enabled ?? false,
+      historyWindowDays: evidence.reportRules?.recommendation.historyWindowDays ?? null,
+      transferStepHours: evidence.reportRules?.recommendation.transferStepHours ?? null,
+      minimumSkillCoverage: evidence.reportRules?.recommendation.minimumSkillCoverage ?? null,
+      idealTargetBusyRate: evidence.reportRules?.recommendation.idealTargetBusyRate ?? null,
+      capacityFitTolerance: evidence.reportRules?.recommendation.capacityFitTolerance ?? null,
+      candidateCountDefault: evidence.reportRules?.recommendation.candidateCount.default ?? null,
+      candidateCountMin: evidence.reportRules?.recommendation.candidateCount.min ?? null,
+      candidateCountMax: evidence.reportRules?.recommendation.candidateCount.max ?? null,
+      scoring: evidence.reportRules?.recommendation.scoring ?? null,
+    },
   };
+}
+
+function buildIssueWeekEvidence(
+  finding: Finding,
+  evidence: ReportEvidence,
+): ReportIssueWeekEvidence[] {
+  return evidence.facts
+    .filter(
+      (fact) =>
+        fact.memberId === finding.memberId &&
+        fact.scopeStatus === 'IN_SCOPE' &&
+        fact.availableHours > 0 &&
+        factMatchesFindingIssue(fact, finding.issueType, evidence.ctx.thresholds),
+    )
+    .map((fact) => {
+      const week = evidence.ctx.weeksById.get(fact.weekId);
+      return {
+        weekId: fact.weekId,
+        weekStart: week ? isoDate(week.week_start) : null,
+        weekEnd: week ? isoDate(week.week_end) : null,
+        issueType: finding.issueType,
+        ragColor: fact.ragColor,
+        availableHours: fact.availableHours,
+        plannedHours: fact.plannedHours,
+        loggedHours: fact.loggedHours,
+        busyRate: fact.busyRate,
+        effortConsumption: fact.effortConsumption,
+      };
+    })
+    .sort(
+      (left, right) =>
+        (left.weekStart ?? '').localeCompare(right.weekStart ?? '') ||
+        left.weekId.localeCompare(right.weekId),
+    );
+}
+
+function factMatchesFindingIssue(
+  fact: ReportEvidence['facts'][number],
+  issueType: Finding['issueType'],
+  thresholds: ReportEvidence['ctx']['thresholds'],
+): boolean {
+  if (issueType === 'overbook') {
+    return fact.busyRate !== null && fact.busyRate > thresholds.overbookThreshold;
+  }
+  if (issueType === 'idle') {
+    return (
+      fact.busyRate !== null &&
+      fact.plannedHours > 0 &&
+      fact.busyRate < thresholds.idleYellowThreshold
+    );
+  }
+  if (issueType === 'mismatch_under') {
+    return (
+      fact.effortConsumption !== null &&
+      fact.effortConsumption < 1 - thresholds.mismatchPctThreshold
+    );
+  }
+  if (issueType === 'mismatch_over') {
+    return (
+      fact.effortConsumption !== null &&
+      fact.effortConsumption > 1 + thresholds.mismatchPctThreshold
+    );
+  }
+  return false;
+}
+
+function isoDate(value: Date): string {
+  return value.toISOString().slice(0, 10);
 }
 
 function aggregateMetricEvidence(facts: ReportEvidence['facts']): ReportMetricEvidence {

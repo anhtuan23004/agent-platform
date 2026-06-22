@@ -118,7 +118,7 @@ export function ReportStatusCard(props: {
         </div>
       </div>
       {report.findingCounts ? (
-        <dl className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <dl className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
           {Object.entries(report.findingCounts).map(([key, count]) => (
             <div key={key} className="rounded-md border border-hairline bg-canvas px-2 py-1.5">
               <dt className="text-caption uppercase text-ink-subtle">{key}</dt>

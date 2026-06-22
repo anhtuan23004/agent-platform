@@ -3,6 +3,7 @@ import type { ReportEvidence } from '../../analytics/load-report-evidence.ts';
 import { pmoDb } from '../../db/client.ts';
 import { memberSkillsProjection, taskHistoryProjection } from '../../db/schema.ts';
 import type { RebalanceEvidence } from './contracts.ts';
+import { buildRecommendationWindow } from './recommendation-window.ts';
 
 export async function loadRecommendationEvidence(input: {
   tenantId: string;
@@ -38,6 +39,7 @@ export async function loadRecommendationEvidence(input: {
       ),
   ]);
   return {
+    window: buildRecommendationWindow({ evidenceFrom: input.from, evidenceTo: input.to }),
     facts: input.reportEvidence.facts,
     weeks: [...input.reportEvidence.ctx.weeksById.values()],
     allocations: input.reportEvidence.allocations ?? [],
@@ -45,6 +47,23 @@ export async function loadRecommendationEvidence(input: {
       memberId: member.memberId,
       department: member.department,
       roleTitle: member.roleTitle,
+      level: member.level,
+      lineManagerId: member.lineManagerId,
+      employmentStatus: member.employmentStatus,
+      employmentType: member.employmentType,
+      stdHoursWeek: member.stdHoursWeek,
+      joinDate: member.joinDate,
+    })),
+    projects: (input.reportEvidence.projects ?? []).map((project) => ({
+      projectId: project.project_id,
+      projectName: project.project_name,
+      accountId: project.account_id,
+      projectType: project.project_type,
+      projectDomain: project.project_domain,
+      status: project.status,
+      pmId: project.pm_id,
+      startDate: project.start_date,
+      endDate: project.end_date,
     })),
     skills: skills.map((skill) => ({
       memberId: skill.member_id,

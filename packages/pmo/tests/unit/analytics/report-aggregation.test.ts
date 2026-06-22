@@ -132,7 +132,7 @@ describe('member report aggregation', () => {
         N05: 0.04,
         N06: 0.75,
         N12: 1,
-        workedHours: 49,
+        overtimeHours: 49,
       },
       rules,
     );

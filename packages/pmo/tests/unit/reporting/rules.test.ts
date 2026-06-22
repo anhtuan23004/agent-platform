@@ -137,7 +137,7 @@ describe('PMO report rule validation and boundaries', () => {
     expect(() => validateRuleSet(invalidCount)).toThrow('recommendation.candidateCount.default');
 
     const invalidWeights = cloneRuleSet();
-    invalidWeights.recommendation.scoring.projectContext = 0.2;
+    invalidWeights.recommendation.scoring.riskAdjustment = 0.2;
     expect(() => validateRuleSet(invalidWeights)).toThrow(
       'recommendation.scoring: weights must sum to 1',
     );

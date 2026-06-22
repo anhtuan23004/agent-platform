@@ -1,8 +1,8 @@
 import { and, eq, inArray } from 'drizzle-orm';
-import type { GeneratePmoReportOutput } from '../../analytics/report.ts';
 import { pmoDb } from '../../db/client.ts';
 import { reportRuns } from '../../db/schema.ts';
 import type { ReportRunEnvelope, ReportSourceMode } from '../contracts.ts';
+import type { GeneratePmoReportOutput } from '../report-output.ts';
 import type { PmoReportRenderModel } from './contracts.ts';
 
 export async function loadReportRenderModel(input: {

@@ -1,9 +1,9 @@
 import { emit, withEmit } from '@seta/core/events';
 import { and, eq, inArray, isNotNull } from 'drizzle-orm';
-import type { GeneratePmoReportOutput } from '../analytics/report.ts';
 import { pmoDb } from '../db/client.ts';
 import { reportRuns } from '../db/schema.ts';
 import type { ReportRunEnvelope } from './contracts.ts';
+import type { GeneratePmoReportOutput } from './report-output.ts';
 
 export type ReportRunStatus = 'queued' | 'computing' | 'rendering' | 'completed' | 'failed';
 

@@ -67,7 +67,7 @@ describe('PmoReportReviewPanel', () => {
       dateRange: { from: '2026-06-01', to: '2026-06-30' },
       outputFormat: 'pdf',
       summary: { memberCount: 2, overbookCount: 1, idleCount: 1, excludedWeekCount: 0 },
-      findingCounts: { red: 1, yellow: 1, idle: 1, overbook: 1 },
+      findingCounts: { red: 1, yellow: 1, idle: 1, overbook: 1, mismatch: 0 },
       artifacts: {
         html: { available: true, sizeBytes: 100, sha256: 'a'.repeat(64), downloadUrl: null },
         pdf: {

@@ -49,7 +49,13 @@ export interface PmoReportStatusResponse {
     idleCount: number;
     excludedWeekCount: number;
   } | null;
-  findingCounts: { red: number; yellow: number; idle: number; overbook: number } | null;
+  findingCounts: {
+    red: number;
+    yellow: number;
+    idle: number;
+    overbook: number;
+    mismatch: number;
+  } | null;
   artifacts: Record<
     'html' | 'pdf',
     {

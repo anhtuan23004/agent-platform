@@ -101,10 +101,11 @@ export const PmoReportRuleSetSchema = z
       maxScenariosPerSource: z.number().int().positive(),
       taskHistoryTopK: z.number().int().positive(),
       scoring: z.object({
-        skillCoverage: z.number().finite().min(0).max(1),
-        taskHistorySimilarity: z.number().finite().min(0).max(1),
+        skillMatch: z.number().finite().min(0).max(1),
+        historyMatch: z.number().finite().min(0).max(1),
+        roleContextMatch: z.number().finite().min(0).max(1),
         capacityFit: z.number().finite().min(0).max(1),
-        projectContext: z.number().finite().min(0).max(1),
+        riskAdjustment: z.number().finite().min(0).max(1),
       }),
       confidence: z.object({
         high: ReportRangeSchema,

@@ -2,17 +2,36 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
+vi.mock('@assistant-ui/react', () => ({
+  AssistantRuntimeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
   useLocation: () => ({ pathname: '/agent/chat' }),
+  useRouterState: (options?: { select?: (state: { location: { pathname: string } }) => unknown }) =>
+    options?.select?.({ location: { pathname: '/agent/chat' } }) ?? {
+      location: { pathname: '/agent/chat' },
+    },
+}));
+
+vi.mock('@/modules/agent/hooks/use-model-catalog', () => ({
+  useModelCatalog: () => ({
+    data: {
+      default: 'auto',
+      models: [{ key: 'auto', label: 'Auto', tier: 'auto', supportsReasoning: false }],
+    },
+    isLoading: false,
+    error: null,
+  }),
+}));
+
+vi.mock('@/modules/agent/hooks/use-agent-runtime', () => ({
+  useAgentRuntime: () => ({ runtime: { kind: 'mock-runtime' } }),
 }));
 
 // Stub useThreadMessages so the provider's `historyReady` gate never blocks
-// the runtime host from rendering `{children}`. Without this, picking a
-// non-fresh threadId puts the host into its "Loading chat…" branch, which
-// unmounts the test hook before the state update is observable on
-// `result.current`. The selection state IS updating inside the provider —
-// you can see the GET to /threads/<id> fire — but the consumer hook is gone.
+// the runtime host from rendering `{children}`.
 vi.mock('@/modules/agent/hooks/use-thread-messages', async () => {
   const actual = await vi.importActual<typeof import('@/modules/agent/hooks/use-thread-messages')>(
     '@/modules/agent/hooks/use-thread-messages',

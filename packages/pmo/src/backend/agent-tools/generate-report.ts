@@ -3,14 +3,14 @@ import { z } from 'zod';
 import { generateReport } from '../reporting/generate-report.ts';
 import { tenantIdFromContext, userIdFromContext } from './context.ts';
 
-export const reportTypeSchema = z.enum(['idle_members', 'overbook_members']);
+const reportTypeSchema = z.enum(['idle_members', 'overbook_members']);
 
 export const dateRangeSchema = z.object({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 });
 
-export const actionCodeSchema = z.enum([
+const actionCodeSchema = z.enum([
   'REBALANCE_ALLOCATION',
   'REVIEW_WITH_LINE_MANAGER',
   'CHECK_MISSING_TIMESHEET',
@@ -20,10 +20,22 @@ export const actionCodeSchema = z.enum([
   'NO_ACTION',
 ]);
 
-export const suggestedActionSchema = z.object({
+const suggestedActionSchema = z.object({
   actionCode: actionCodeSchema,
   templateText: z.string(),
   primary: z.boolean(),
+});
+
+const findingExplanationSchema = z.object({
+  summary: z.string(),
+  riskTradeoffs: z.array(z.string()),
+});
+
+const recommendationExplanationSchema = z.object({
+  summary: z.string(),
+  riskTradeoffs: z.array(z.string()),
+  topChoiceReason: z.string().nullable(),
+  alternativesComparison: z.string().nullable(),
 });
 
 export const findingSchema = z.object({
@@ -34,6 +46,22 @@ export const findingSchema = z.object({
   effortConsumption: z.number().nullable(),
   detail: z.string(),
   excludedWeeks: z.array(z.object({ weekId: z.string(), reason: z.string() })),
+  issueWeeks: z
+    .array(
+      z.object({
+        weekId: z.string(),
+        weekStart: z.string().nullable(),
+        weekEnd: z.string().nullable(),
+        issueType: z.enum(['overbook', 'idle', 'mismatch_under', 'mismatch_over', 'ok']),
+        ragColor: z.enum(['green', 'yellow', 'red', 'none']),
+        availableHours: z.number(),
+        plannedHours: z.number(),
+        loggedHours: z.number(),
+        busyRate: z.number().nullable(),
+        effortConsumption: z.number().nullable(),
+      }),
+    )
+    .optional(),
   annotations: z.array(
     z.object({ weekId: z.string(), reason: z.enum(['approved_ot', 'training']) }),
   ),
@@ -49,18 +77,26 @@ export const findingSchema = z.object({
     N06: z.number().nullable(),
     N12: z.number().nullable(),
   }),
+  explanation: findingExplanationSchema.optional(),
 });
 
-export const recommendationSchema = z.object({
+const recommendationSchema = z.object({
   type: z.literal('rebalance'),
   sourceMemberId: z.string(),
   targetMemberId: z.string(),
-  weekId: z.string(),
+  opportunityId: z.string(),
   projectId: z.string(),
-  transferHours: z.number().positive(),
+  roleNeeded: z.string().nullable(),
+  effectiveFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  effectiveTo: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable(),
+  transferPct: z.number().nonnegative(),
+  transferHoursPerWeek: z.number().positive(),
   score: z.number(),
   confidence: z.enum(['high', 'medium', 'low']),
-  rankWithinSource: z.number().int().positive(),
+  rankWithinOpportunity: z.number().int().positive(),
   portfolioSelected: z.boolean(),
   mutuallyExclusiveAlternative: z.boolean(),
   beforeAfter: z.object({
@@ -70,48 +106,57 @@ export const recommendationSchema = z.object({
     targetAfterBusyRate: z.number(),
   }),
   scoreBreakdown: z.object({
-    skillCoverage: z.number(),
-    taskHistorySimilarity: z.number(),
+    skillMatch: z.number(),
+    historyMatch: z.number(),
+    roleContextMatch: z.number(),
     capacityFit: z.number(),
-    projectContext: z.number(),
+    riskAdjustment: z.number(),
   }),
   evidence: z.object({
     matchedSkills: z.array(z.string()),
     missingSkills: z.array(z.string()),
     similarPastTasks: z.array(z.string()),
-    capacityReason: z.string(),
+    sourceRiskFlags: z.array(z.string()),
+    candidateRiskFlags: z.array(z.string()),
+    rationale: z.string(),
   }),
   recommendationDegraded: z.boolean(),
   dataQualityFlags: z.array(z.string()),
 });
 
 export const recommendationGroupSchema = z.object({
+  opportunityId: z.string(),
   sourceMemberId: z.string(),
-  weekId: z.string(),
-  severity: z.enum(['yellow', 'red']),
-  requiredReductionHours: z.number().nonnegative(),
+  projectId: z.string(),
+  roleNeeded: z.string().nullable(),
+  severity: z.enum(['warning', 'red']),
+  evidenceWindow: z.object({
+    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  }),
+  planningPeriod: z.object({
+    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    to: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .nullable(),
+  }),
+  currentRaBusyRate: z.number().nonnegative(),
+  targetRaBusyRate: z.number().nonnegative(),
+  requiredReductionPct: z.number().nonnegative(),
+  requiredReductionHoursPerWeek: z.number().nonnegative(),
   status: z.enum(['full_solution', 'partial_relief', 'no_valid_rebalance_found']),
+  requiresRaConfirmation: z.boolean(),
   recommendations: z.array(recommendationSchema),
   noResultReasons: z.array(z.string()),
   recommendationDegraded: z.boolean(),
   dataQualityFlags: z.array(z.string()),
+  explanation: recommendationExplanationSchema.optional(),
   evidenceVersions: z.object({
     sourceVersions: z.array(z.string()),
     embeddingModelIds: z.array(z.string()),
     embeddingSourceHashes: z.array(z.string()),
   }),
-});
-
-export const projectionFreshnessSchema = z.object({
-  skillsCount: z.number().int().nonnegative(),
-  taskHistoryCount: z.number().int().nonnegative(),
-  lastSyncedAt: z.string().datetime().nullable(),
-  degraded: z.boolean(),
-});
-
-export const recommendationDataQualitySchema = z.object({
-  recommendationDegraded: z.boolean(),
-  flags: z.array(z.string()),
 });
 
 export const pmoGenerateReportTool = defineAgentTool({
@@ -155,8 +200,6 @@ export const pmoGenerateReportTool = defineAgentTool({
         roleTitle: z.string().nullable(),
       }),
     ),
-    projectionFreshness: projectionFreshnessSchema,
-    dataQuality: recommendationDataQualitySchema,
     findings: z.array(findingSchema),
     recommendations: z.array(recommendationGroupSchema),
   }),

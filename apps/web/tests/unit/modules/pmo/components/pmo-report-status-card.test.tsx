@@ -10,7 +10,7 @@ function report(status: PmoReportStatusResponse['status']): PmoReportStatusRespo
     dateRange: { from: '2026-06-29', to: '2026-08-07' },
     outputFormat: 'pdf',
     summary: { memberCount: 10, overbookCount: 2, idleCount: 3, excludedWeekCount: 0 },
-    findingCounts: { red: 1, yellow: 4, idle: 3, overbook: 2 },
+    findingCounts: { red: 1, yellow: 4, idle: 3, overbook: 2, mismatch: 1 },
     artifacts: {
       html: { available: false, sizeBytes: null, sha256: null, downloadUrl: null },
       pdf: {
@@ -39,7 +39,7 @@ describe('PmoReportStatusCard', () => {
       'href',
       expect.stringContaining('/download?format=pdf'),
     );
-    expect(screen.getByText('1')).toBeInTheDocument();
+    expect(screen.getByText('mismatch')).toBeInTheDocument();
   });
 
   it('shows progress and retry only for failed run', () => {

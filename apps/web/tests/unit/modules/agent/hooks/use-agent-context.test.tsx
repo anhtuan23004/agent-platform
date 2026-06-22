@@ -2,10 +2,54 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
+vi.mock('@assistant-ui/react', () => ({
+  AssistantRuntimeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
   useLocation: () => ({ pathname: '/planner' }),
+  useRouterState: (options?: { select?: (state: { location: { pathname: string } }) => unknown }) =>
+    options?.select?.({ location: { pathname: '/planner' } }) ?? {
+      location: { pathname: '/planner' },
+    },
 }));
+
+vi.mock('@/modules/agent/hooks/use-model-catalog', () => ({
+  useModelCatalog: () => ({
+    data: {
+      default: 'auto',
+      models: [{ key: 'auto', label: 'Auto', tier: 'auto', supportsReasoning: false }],
+    },
+    isLoading: false,
+    error: null,
+  }),
+}));
+
+vi.mock('@/modules/agent/hooks/use-agent-runtime', () => ({
+  useAgentRuntime: () => ({ runtime: { kind: 'mock-runtime' } }),
+}));
+
+vi.mock('@/modules/agent/hooks/use-thread-messages', async () => {
+  const actual = await vi.importActual<typeof import('@/modules/agent/hooks/use-thread-messages')>(
+    '@/modules/agent/hooks/use-thread-messages',
+  );
+  return {
+    ...actual,
+    useThreadMessages: () => ({
+      data: {
+        thread: { id: 't', title: null, updatedAt: null },
+        messages: [],
+        page: 0,
+        perPage: 0,
+        total: 0,
+        hasMore: false,
+      },
+      isLoading: false,
+      error: null,
+    }),
+  };
+});
 
 import { AgentProvider, usePageContext } from '@/modules/agent/chat-experience/agent-provider';
 import { useAgentContext } from '@/modules/agent/hooks/use-agent-context';
