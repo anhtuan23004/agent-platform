@@ -148,7 +148,7 @@ async function seedFixture(pool: Pool, tenant: string): Promise<void> {
   await seedCalendar(pool, tenant);
   await seedConfig(pool, tenant);
 
-  // EMP-004 overbook: planned 50 / std 40 = 125%
+  // EMP-004 overbook: 50h on normal weeks, 40h on the 4-day holiday week.
   await seedMember(pool, tenant, 'EMP-004', 40, '2020-01-01');
   await seedAlloc(pool, tenant, 'EMP-004', 'PRJ-001', 32);
   await seedAlloc(pool, tenant, 'EMP-004', 'PRJ-002', 18);
@@ -222,7 +222,7 @@ describe('pmo analytics — compute + detect (DB)', () => {
         const obi = detectOverbookIdle(persisted, ctx);
         const emp004 = obi.find((f) => f.memberId === 'EMP-004');
         expect(emp004?.issueType).toBe('overbook');
-        expect(emp004?.busyRate).toBeCloseTo(292 / 232, 2);
+        expect(emp004?.busyRate).toBeCloseTo(290 / 232, 2);
         const emp005 = obi.find((f) => f.memberId === 'EMP-005');
         expect(emp005?.issueType).toBe('idle');
         expect(emp005?.busyRate).toBeCloseTo(139.2 / 232, 2);
