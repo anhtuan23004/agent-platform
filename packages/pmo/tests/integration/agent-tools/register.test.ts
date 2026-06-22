@@ -18,6 +18,7 @@ describe('pmo register', () => {
         'pmo_detectOverbookIdle',
         'pmo_explainFormula',
         'pmo_generateReport',
+        'pmo_listMemberUtilization',
         'pmo_recommendRebalance',
       ].sort(),
     );

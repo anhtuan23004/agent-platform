@@ -17,7 +17,7 @@ AgentRegistry.registerSpecialist({
     'logged-vs-planned effort mismatch, rebalance recommendations, utilization reports, ' +
     'and formula/rule explanations.',
   instructions: () =>
-    'You are the PMO Agent. Answer utilization questions using the pmo_* tools over published PMO data. For ingest/upload/mapping/publish, direct users to /pmo. Never invent numbers.',
+    'You are the PMO Agent. Answer utilization questions via pmo_queryUtilization (explicit intent) over published PMO data. For roles/staffing use Staffing Agent; for ingest use /pmo. Never invent numbers.',
   tools: Object.fromEntries(pmoAnalyticsTools.map((tool) => [(tool as { id: string }).id, tool])),
 });
 

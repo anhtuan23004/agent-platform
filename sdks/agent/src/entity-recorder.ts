@@ -19,6 +19,10 @@ export type EntityPatch = Partial<{
   lastProposedCandidateUserId: string | null;
   pendingDecision: ConversationEntities['pendingDecision'];
   rejectedCandidates: ConversationEntities['rejectedCandidates'];
+  recentMembers: Array<{ memberId: string; label: string }>;
+  lastDiscussedMemberId: string | null;
+  lastDateRange: { from: string; to: string } | null;
+  lastIngestionSessionId: string | null;
 }>;
 
 // Local mutex map mirrors Mastra's per-thread serialization. We need our own
@@ -84,7 +88,50 @@ function mergeEntities(current: ConversationEntities, patch: EntityPatch): Conve
   }
   if (patch.pendingDecision !== undefined) next.pendingDecision = patch.pendingDecision;
   if (patch.rejectedCandidates !== undefined) next.rejectedCandidates = patch.rejectedCandidates;
+  if (patch.recentMembers) {
+    next.recentMembers = mergeRecentMembers(current.recentMembers, patch.recentMembers, now);
+  }
+  if (patch.lastDiscussedMemberId !== undefined) {
+    next.lastDiscussedMemberId = patch.lastDiscussedMemberId;
+  }
+  if (patch.lastDateRange !== undefined) next.lastDateRange = patch.lastDateRange;
+  if (patch.lastIngestionSessionId !== undefined) {
+    next.lastIngestionSessionId = patch.lastIngestionSessionId;
+  }
   return next;
+}
+
+function mergeRecentMembers(
+  existing: ReadonlyArray<{ memberId: string; label: string; lastSeenAt: string }>,
+  incoming: ReadonlyArray<{ memberId: string; label: string }>,
+  now: string,
+): Array<{ memberId: string; label: string; lastSeenAt: string }> {
+  const incomingIdx = new Map<string, number>();
+  let idx = 0;
+  for (const member of incoming) {
+    incomingIdx.set(member.memberId, idx);
+    idx++;
+  }
+
+  const byId = new Map<string, { memberId: string; label: string; lastSeenAt: string }>();
+  for (const member of existing) byId.set(member.memberId, member);
+  for (const member of incoming) {
+    byId.set(member.memberId, {
+      memberId: member.memberId,
+      label: member.label,
+      lastSeenAt: now,
+    });
+  }
+
+  return [...byId.values()]
+    .sort((a, b) => {
+      const timeDiff = b.lastSeenAt.localeCompare(a.lastSeenAt);
+      if (timeDiff !== 0) return timeDiff;
+      const ia = incomingIdx.get(a.memberId) ?? Number.POSITIVE_INFINITY;
+      const ib = incomingIdx.get(b.memberId) ?? Number.POSITIVE_INFINITY;
+      return ia - ib;
+    })
+    .slice(0, 10);
 }
 
 function mergeRecentTasks(
