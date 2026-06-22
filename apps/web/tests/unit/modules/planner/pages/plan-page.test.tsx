@@ -238,7 +238,8 @@ describe('PlanPage (via PlanBoardShell)', () => {
   it('renders buckets and task cards from the API', async () => {
     server.use(...seedBoardHandlers());
     renderShell();
-    expect(await screen.findByText('To do')).toBeInTheDocument();
+    await waitForPlannerShellReady({ taskTitle: 'Wire up DnD' });
+    expect(screen.getByText('To do')).toBeInTheDocument();
     expect(screen.getByText('Done')).toBeInTheDocument();
     expect(screen.getByText('Wire up DnD')).toBeInTheDocument();
   });
@@ -265,7 +266,7 @@ describe('PlanPage (via PlanBoardShell)', () => {
   it('has no a11y violations on the happy path', { timeout: 60_000 }, async () => {
     server.use(...seedBoardHandlers());
     const { container } = renderShell();
-    await waitForPlannerShellReady({ taskTitle: 'To do' });
+    await waitForPlannerShellReady({ taskTitle: 'Wire up DnD' });
     const results = await axe(container);
     expect(results).toHaveNoViolations();
   });
@@ -315,7 +316,7 @@ describe('PlanPage (via PlanBoardShell)', () => {
   it('renders no sync banners or pulling empty state when plan is idle', async () => {
     server.use(...seedBoardHandlers());
     renderShell();
-    await screen.findByText('To do');
+    await waitForPlannerShellReady({ taskTitle: 'Wire up DnD' });
     expect(screen.queryByTestId('plan-sync-error-banner')).not.toBeInTheDocument();
     expect(screen.queryByTestId('plan-sync-conflict-banner')).not.toBeInTheDocument();
     expect(screen.queryByTestId('plan-sync-pulling-empty')).not.toBeInTheDocument();
@@ -400,7 +401,7 @@ describe('PlanPage (via PlanBoardShell)', () => {
     );
     renderShell();
 
-    await screen.findByText('To do');
+    await waitForPlannerShellReady({ taskTitle: 'Wire up DnD' });
     const user = userEvent.setup();
     // Two quick-create buttons exist (one per bucket); the first belongs to "To do".
     const addButtons = screen.getAllByRole('button', { name: /\+ Add a task/ });
