@@ -10,10 +10,10 @@ import {
 import { LEAVE_TYPE_APPROVED_OT_COMP, LEAVE_TYPE_TRAINING } from './leave-type.ts';
 import type { CanonicalInputs } from './load-canonical.ts';
 import { loadCanonicalInputs } from './load-canonical.ts';
-import { buildMemberWeekFacts } from './member-week-facts.ts';
 import { loadMemberWeekFacts } from './persist-facts.ts';
 import { splitPmoPopulations } from './populations.ts';
 import { buildProjectMemberDependencies, type ProjectMemberDependency } from './project-members.ts';
+import { buildSessionScopedMemberWeekFacts } from './session-scoped-facts.ts';
 import type { ConfigRow } from './thresholds.ts';
 import { resolveThresholds, selectThresholdConfig } from './thresholds.ts';
 import type {
@@ -502,7 +502,7 @@ export async function runDemoAnalytics(
   }
 
   const facts = options.ingestionSessionId
-    ? buildSessionScopedFacts(canonical)
+    ? buildSessionScopedMemberWeekFacts(canonical)
     : await loadPersistedFacts(
         tenantId,
         canonical.weeks.map((week) => week.week_id),
@@ -520,17 +520,4 @@ export async function runDemoAnalytics(
 async function loadPersistedFacts(tenantId: string, weekIds: string[]): Promise<MemberWeekFact[]> {
   await ensureFactsComputed(tenantId);
   return loadMemberWeekFacts(tenantId, { weekIds });
-}
-
-function buildSessionScopedFacts(canonical: CanonicalInputs): MemberWeekFact[] {
-  const thresholds = resolveThresholds(canonical.configRows);
-  const { deliveryMembers } = splitPmoPopulations(canonical.members, canonical.projects);
-  return buildMemberWeekFacts({
-    members: deliveryMembers,
-    allocations: canonical.allocations,
-    timesheets: canonical.timesheets,
-    leaves: canonical.leaves,
-    weeks: canonical.weeks,
-    thresholds,
-  });
 }
