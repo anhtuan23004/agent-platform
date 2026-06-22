@@ -164,6 +164,8 @@ export function toReportStatusResponse(run: ReportRunRecord): ReportStatusRespon
         yellow: report.findings.filter((finding) => finding.ragColor === 'yellow').length,
         idle: report.summary.idleCount,
         overbook: report.summary.overbookCount,
+        mismatch: report.findings.filter((finding) => finding.issueType.startsWith('mismatch_'))
+          .length,
       }
     : null;
   const html = readArtifact(run, 'html');

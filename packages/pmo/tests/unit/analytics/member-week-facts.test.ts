@@ -73,10 +73,11 @@ function ftMember(id: string, joinDate = '2020-01-01', std = 40): MemberRow {
   return { member_id: id, full_name: id, std_hours_week: std, join_date: d(joinDate) };
 }
 
-function alloc(member: string, project: string, hours: number): AllocationRow {
+function alloc(member: string, project: string, hours: number, stdHoursWeek = 40): AllocationRow {
   return {
     member_id: member,
     project_id: project,
+    allocation_pct: hours / stdHoursWeek,
     weekly_planned_hours: hours,
     start_date: WINDOW_START,
     end_date: WINDOW_END,
@@ -122,7 +123,7 @@ describe('PMO_02 analytics — Answer_Key F-07..F-17', () => {
       thresholds: DEFAULT_THRESHOLDS,
     });
     const finding = maybeFinding(detectOverbookIdle(facts, ctx()), 'EMP-004');
-    expect(finding?.busyRate).toBeCloseTo(300 / 232, 4);
+    expect(finding?.busyRate).toBeCloseTo(1.25, 4);
     expect(finding?.issueType).toBe('overbook');
     expect(finding?.ragColor).toBe('red');
   });
@@ -137,7 +138,7 @@ describe('PMO_02 analytics — Answer_Key F-07..F-17', () => {
       thresholds: DEFAULT_THRESHOLDS,
     });
     const finding = maybeFinding(detectOverbookIdle(facts, ctx()), 'EMP-001');
-    expect(finding?.busyRate).toBeCloseTo(276 / 232, 4);
+    expect(finding?.busyRate).toBeCloseTo(1.15, 4);
     expect(finding?.issueType).toBe('overbook');
     expect(finding?.ragColor).toBe('yellow');
   });
@@ -157,9 +158,9 @@ describe('PMO_02 analytics — Answer_Key F-07..F-17', () => {
     });
     const findings = detectOverbookIdle(facts, ctx());
     expect(maybeFinding(findings, 'EMP-005')?.issueType).toBe('idle');
-    expect(maybeFinding(findings, 'EMP-005')?.busyRate).toBeCloseTo(144 / 232, 4);
+    expect(maybeFinding(findings, 'EMP-005')?.busyRate).toBeCloseTo(0.6, 4);
     expect(maybeFinding(findings, 'EMP-008')?.issueType).toBe('idle');
-    expect(maybeFinding(findings, 'EMP-008')?.busyRate).toBeCloseTo(120 / 232, 4);
+    expect(maybeFinding(findings, 'EMP-008')?.busyRate).toBeCloseTo(0.5, 4);
   });
 
   it('F-11 EMP-002: mismatch_under (EC ~53%)', () => {
@@ -244,11 +245,29 @@ describe('PMO_02 analytics — Answer_Key F-07..F-17', () => {
     });
     const w3 = factOf(facts, 'EMP-XX', 'W3');
     expect(w3.availableHours).toBe(32); // 40 × 4/5
-    // Partial holiday adjusts available hours and remains in member-level aggregation.
-    expect(w3.effortConsumption).toBeCloseTo(0.8, 5); // 32 / 40
+    expect(w3.plannedHours).toBe(32); // 40h * 4/5 capacity-adjusted
+    // Partial holiday adjusts both plan and available hours.
+    expect(w3.effortConsumption).toBeCloseTo(1, 5); // 32 / 32
     const analysis = analyzeMembers(facts, ctx()).find((a) => a.memberId === 'EMP-XX');
     expect(analysis?.excludedWeeks).toEqual([]);
     expect(maybeFinding(detectMismatch(facts, ctx()), 'EMP-XX')).toBeUndefined();
+  });
+
+  it('scales planned hours by holiday-adjusted capacity when RA is percent-based', () => {
+    const facts = buildMemberWeekFacts({
+      members: [ftMember('EMP-118')],
+      allocations: [alloc('EMP-118', 'PRJ-101', 19.2), alloc('EMP-118', 'PRJ-105', 24.4)],
+      timesheets: weeklyLogs('EMP-118', { W3: 35 }),
+      leaves: [],
+      weeks: WEEKS,
+      thresholds: DEFAULT_THRESHOLDS,
+    });
+
+    const w3 = factOf(facts, 'EMP-118', 'W3');
+    expect(w3.availableHours).toBe(32);
+    expect(w3.plannedHours).toBeCloseTo(34.88, 4);
+    expect(w3.busyRate).toBeCloseTo(1.09, 4);
+    expect(maybeFinding(detectOverbookIdle(facts, ctx()), 'EMP-118')).toBeUndefined();
   });
 
   it('F-15 EMP-009: pre-hire weeks PRE_HIRE, not flagged idle', () => {
@@ -278,17 +297,14 @@ describe('PMO_02 analytics — Answer_Key F-07..F-17', () => {
     });
     expect(factOf(facts, 'EMP-010', 'W1').plannedHours).toBe(44);
     expect(factOf(facts, 'EMP-010', 'W1').busyRate).toBeCloseTo(1.1, 5);
-    // W3 partial holiday reduces denominator; ratio-of-sums crosses yellow threshold.
-    expect(maybeFinding(detectOverbookIdle(facts, ctx()), 'EMP-010')).toMatchObject({
-      issueType: 'overbook',
-      ragColor: 'yellow',
-    });
+    // Capacity-adjusted plan keeps busy exactly at 110%, which remains green.
+    expect(maybeFinding(detectOverbookIdle(facts, ctx()), 'EMP-010')).toBeUndefined();
   });
 
   it('F-17 EMP-007: part-time normalized to 20h → idle yellow', () => {
     const facts = buildMemberWeekFacts({
       members: [ftMember('EMP-007', '2020-01-01', 20)],
-      allocations: [alloc('EMP-007', 'PRJ-002', 16)],
+      allocations: [alloc('EMP-007', 'PRJ-002', 16, 20)],
       timesheets: flatLogs('EMP-007', 15),
       leaves: [],
       weeks: WEEKS,

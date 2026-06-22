@@ -1,4 +1,4 @@
-import type { GeneratePmoReportOutput } from '../analytics/report.ts';
+import type { GeneratePmoReportOutput } from './report-output.ts';
 
 export const CANONICAL_REPORT_TYPES = ['idle', 'overbook'] as const;
 export type CanonicalReportType = (typeof CANONICAL_REPORT_TYPES)[number];
@@ -60,7 +60,13 @@ export interface ReportStatusResponse {
   dateRange: ReportDateRange;
   outputFormat: ReportOutputFormat;
   summary: GeneratePmoReportOutput['summary'] | null;
-  findingCounts: { red: number; yellow: number; idle: number; overbook: number } | null;
+  findingCounts: {
+    red: number;
+    yellow: number;
+    idle: number;
+    overbook: number;
+    mismatch: number;
+  } | null;
   artifacts: { html: ReportArtifactStatus; pdf: ReportArtifactStatus };
   failure: { code: string | null; message: string | null } | null;
   retryAllowed: boolean;

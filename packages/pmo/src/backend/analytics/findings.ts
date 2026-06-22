@@ -160,8 +160,8 @@ export interface SupportingMetricInput {
   N05: number | null;
   N06: number | null;
   N12: number | null;
-  /** Weekly worked hours, used by configured absolute OT cap. */
-  workedHours?: number | null;
+  /** Weekly overtime hours, used by configured absolute OT cap. */
+  overtimeHours?: number | null;
 }
 
 export interface SupportingMetricSignal {
@@ -200,9 +200,9 @@ export function classifySupportingMetrics(
     if (value === null) return [];
     const exceedsAbsoluteOtCap =
       metricId === 'N05' &&
-      input.workedHours !== undefined &&
-      input.workedHours !== null &&
-      input.workedHours > rules.limits.otMaxHoursPerWeek;
+      input.overtimeHours !== undefined &&
+      input.overtimeHours !== null &&
+      input.overtimeHours > rules.limits.otMaxHoursPerWeek;
     const ragColor = exceedsAbsoluteOtCap
       ? 'red'
       : classifyMetricRange(value, rules.metrics[metricId].bands);

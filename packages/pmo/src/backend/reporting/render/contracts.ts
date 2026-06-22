@@ -1,5 +1,5 @@
-import type { GeneratePmoReportOutput } from '../../analytics/report.ts';
 import type { ReportSourceMode } from '../contracts.ts';
+import type { GeneratePmoReportOutput } from '../report-output.ts';
 
 export interface PmoReportRenderModel {
   reportRunId: string;

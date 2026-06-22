@@ -84,10 +84,11 @@
     "maxScenariosPerSource": 100,
     "taskHistoryTopK": 3,
     "scoring": {
-      "skillCoverage": 0.35,
-      "taskHistorySimilarity": 0.35,
-      "capacityFit": 0.2,
-      "projectContext": 0.1
+      "skillMatch": 0.35,
+      "historyMatch": 0.25,
+      "roleContextMatch": 0.2,
+      "capacityFit": 0.15,
+      "riskAdjustment": 0.05
     },
     "confidence": {
       "high": { "gte": 0.8 },
