@@ -9,7 +9,6 @@ import {
 function session(overrides: Partial<PmoPlanningSession> = {}): PmoPlanningSession {
   return {
     ingestion_session_id: '00000000-0000-0000-0000-000000000001',
-    chat_thread_id: null,
     source_kind: 'workbook',
     workbook_name: 'PMO June.xlsx',
     workbook_size_bytes: 1234,

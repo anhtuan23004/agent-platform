@@ -32,13 +32,6 @@ const report: GeneratePmoReportOutput = {
   },
   summary: { memberCount: 0, idleCount: 0, overbookCount: 0, excludedWeekCount: 0 },
   members: [],
-  projectionFreshness: {
-    skillsCount: 0,
-    taskHistoryCount: 0,
-    lastSyncedAt: null,
-    degraded: true,
-  },
-  dataQuality: { recommendationDegraded: true, flags: ['candidate_data_unavailable'] },
   findings: [],
   recommendations: [],
 };

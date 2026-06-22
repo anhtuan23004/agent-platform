@@ -966,16 +966,10 @@ export function buildPmoRoutes(deps: RouteBuildDeps): Hono<SessionEnv> {
   app.get('/api/pmo/v1/ingestion-sessions', async (c) => {
     const session = c.get('user');
     const db = pmoDb();
-    const chatThreadId = c.req.query('chat_thread_id');
-    const chatThreadFilter =
-      chatThreadId && z.string().uuid().safeParse(chatThreadId).success
-        ? eq(ingestionSessions.chat_thread_id, chatThreadId)
-        : undefined;
 
     const rows = await db
       .select({
         id: ingestionSessions.id,
-        chat_thread_id: ingestionSessions.chat_thread_id,
         source_kind: ingestionSessions.source_kind,
         source_file_name: ingestionSessions.source_file_name,
         source_file_size_bytes: ingestionSessions.source_file_size_bytes,
@@ -1005,12 +999,7 @@ export function buildPmoRoutes(deps: RouteBuildDeps): Hono<SessionEnv> {
         planning_approved_at: ingestionSessions.planning_approved_at,
       })
       .from(ingestionSessions)
-      .where(
-        and(
-          eq(ingestionSessions.tenant_id, session.tenant_id),
-          ...(chatThreadFilter ? [chatThreadFilter] : []),
-        ),
-      )
+      .where(eq(ingestionSessions.tenant_id, session.tenant_id))
       .orderBy(ingestionSessions.created_at)
       .limit(100);
 
@@ -1030,7 +1019,6 @@ export function buildPmoRoutes(deps: RouteBuildDeps): Hono<SessionEnv> {
 
         return {
           ingestion_session_id: row.id,
-          chat_thread_id: row.chat_thread_id,
           source_kind: row.source_kind,
           workbook_name: row.source_file_name,
           workbook_size_bytes: row.source_file_size_bytes ?? 0,

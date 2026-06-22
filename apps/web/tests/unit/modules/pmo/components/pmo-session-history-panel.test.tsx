@@ -6,7 +6,6 @@ import { PmoSessionHistoryPanel } from '../../../../../src/modules/pmo/component
 function session(id: string): PmoPlanningSession {
   return {
     ingestion_session_id: id,
-    chat_thread_id: null,
     source_kind: 'workbook',
     workbook_name: `${id}.xlsx`,
     workbook_size_bytes: 1,
