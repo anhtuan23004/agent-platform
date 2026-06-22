@@ -86,7 +86,7 @@ const findingsStep = createStep({
     detectOverbookIdle(facts, ctx);
     detectMismatch(facts, ctx);
     return {
-      result: buildDemoAnalyticsResult(canonical, facts),
+      result: buildDemoAnalyticsResult(canonical),
     };
   },
 });

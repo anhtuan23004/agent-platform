@@ -12,6 +12,7 @@ import {
   loadMemberUtilizationDetail,
 } from '../../analytics/list-member-utilization.ts';
 import { verifyPublishedSession } from '../../reporting/generate-report.ts';
+import { formatMethodologySummary } from '../format-methodology-summary.ts';
 import { runPmoRebalanceCandidates, runPmoReportSummary } from '../report-delegates.ts';
 import type { PmoUtilizationQueryInput, PmoUtilizationQueryOutput } from '../schemas.ts';
 
@@ -166,6 +167,7 @@ export async function runUtilizationQuery(
     return {
       intent: input.intent,
       methodology,
+      summary: methodology ? formatMethodologySummary(methodology) : undefined,
     };
   }
 

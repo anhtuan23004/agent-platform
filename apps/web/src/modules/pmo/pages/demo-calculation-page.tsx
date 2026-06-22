@@ -2,12 +2,14 @@ import { Badge, EmptyState, PageChrome, PageChromeToolbar, Skeleton } from '@set
 import { useQuery } from '@tanstack/react-query';
 import { Database } from 'lucide-react';
 import { useState } from 'react';
+import { useSession } from '@/modules/identity/components/SessionProvider.tsx';
 import { type PmoPlanningSession, pmoApi } from '../api/client.ts';
 import type { DemoAnalyticsSettings } from '../api/demo-analytics.ts';
 import { useDemoAnalytics } from '../hooks/use-demo-analytics.ts';
 import { DemoCalculationFilters } from './demo-calculation/filters.tsx';
 import { DemoCalculationPipeline } from './demo-calculation/pipeline.tsx';
 import { useFilteredDemoAnalytics } from './demo-calculation/use-filtered-data.ts';
+import { UtilizationCharts } from './demo-calculation/utilization-charts.tsx';
 import {
   buildSourceUploadOptions,
   formatDisplayDate,
@@ -20,8 +22,9 @@ function uploadLabel(session: PmoPlanningSession): string {
 }
 
 export function DemoCalculationPage() {
+  const session = useSession();
   const [analyticsSettings, setAnalyticsSettings] = useState<DemoAnalyticsSettings | undefined>();
-  const { data, isLoading, isError, error, refetch, isFetching } =
+  const { data, isLoading, isError, error, refetch, isFetching, isPending } =
     useDemoAnalytics(analyticsSettings);
   const sessionsQuery = useQuery({
     queryKey: ['pmo', 'ingestion-sessions', 'utilization-filter'],
@@ -35,13 +38,24 @@ export function DemoCalculationPage() {
       ) ?? null)
     : null;
   const sessions = sessionsQuery.data?.items ?? [];
-  const uploadOptions = buildSourceUploadOptions(sessions);
+  const uploadOptions = buildSourceUploadOptions(sessions, session.user_id);
 
   const { filtered, members, projects, getMemberLabel, getProjectLabel } = useFilteredDemoAnalytics(
     data,
     memberFilter,
     projectFilter,
   );
+
+  const calculationScopeKey = [
+    analyticsSettings?.from ?? data?.reportingWindow.start ?? '',
+    analyticsSettings?.to ?? data?.reportingWindow.end ?? '',
+    analyticsSettings?.configEffectiveDate ?? '',
+    analyticsSettings?.ingestionSessionId ?? '',
+    analyticsSettings?.thresholds?.overbookThreshold ?? '',
+    analyticsSettings?.thresholds?.mismatchPctThreshold ?? '',
+  ].join('|');
+
+  const isRecalculating = isFetching && !isLoading;
 
   const noData = isError && error instanceof Error && error.message.includes('No PMO canonical');
   const emptyState = utilizationEmptyState({
@@ -69,7 +83,13 @@ export function DemoCalculationPage() {
       <PageChromeToolbar
         left={
           <Badge variant={filtered ? 'default' : 'secondary'}>
-            {isLoading ? 'Loading…' : filtered ? 'Published PMO data' : 'No data'}
+            {isLoading || isPending
+              ? 'Loading…'
+              : isRecalculating
+                ? 'Recalculating…'
+                : filtered
+                  ? 'Published PMO data'
+                  : 'No data'}
           </Badge>
         }
       />
@@ -143,11 +163,31 @@ export function DemoCalculationPage() {
             />
           </div>
 
-          <DemoCalculationPipeline
-            data={filtered}
-            getMemberLabel={getMemberLabel}
-            getProjectLabel={getProjectLabel}
-          />
+          <div
+            key={calculationScopeKey}
+            className={`space-y-6 transition-opacity ${isRecalculating ? 'pointer-events-none opacity-50' : ''}`}
+          >
+            <UtilizationCharts
+              data={filtered}
+              getMemberLabel={getMemberLabel}
+              getProjectLabel={getProjectLabel}
+              projectFilter={projectFilter}
+              selectedMemberId={memberFilter}
+              onSelectMember={setMemberFilter}
+              onScrollToFindings={() => {
+                document.getElementById('pmo-utilization-findings')?.scrollIntoView({
+                  behavior: 'smooth',
+                  block: 'start',
+                });
+              }}
+            />
+
+            <DemoCalculationPipeline
+              data={filtered}
+              getMemberLabel={getMemberLabel}
+              getProjectLabel={getProjectLabel}
+            />
+          </div>
         </div>
       ) : null}
     </PageChrome>

@@ -73,6 +73,7 @@ export const PmoUtilizationQueryOutputSchema = z.object({
   report: z.unknown().optional(),
   rebalance: z.unknown().optional(),
   methodology: z.unknown().optional(),
+  summary: z.string().optional(),
 });
 
 export type PmoUtilizationQueryOutput = z.infer<typeof PmoUtilizationQueryOutputSchema>;

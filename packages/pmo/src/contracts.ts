@@ -6,6 +6,7 @@ export type {
   DemoLeaveInput,
   DemoMemberAnalysisRow,
   DemoMemberInput,
+  DemoMemberWeekProjectRow,
   DemoMemberWeekRow,
   DemoProjectInput,
   DemoProjectMemberDependencyRow,

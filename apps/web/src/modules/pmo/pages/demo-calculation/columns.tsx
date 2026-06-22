@@ -2,12 +2,28 @@ import type { ColumnDef } from '@tanstack/react-table';
 import type {
   DemoMemberAnalysisRow,
   DemoMemberInput,
+  DemoMemberWeekProjectRow,
   DemoMemberWeekRow,
   DemoProjectMemberDependencyRow,
 } from '../../api/demo-analytics.ts';
-import { excludedCell, nullish, pct, ragBadge, reasonBadge } from './formatters.tsx';
+import {
+  excludedCell,
+  hours,
+  nullish,
+  pct,
+  projectStatusBadge,
+  ragBadge,
+  reasonBadge,
+} from './formatters.tsx';
 import { MetricHelpLabel } from './metric-help.tsx';
 import { METRIC_HELP } from './metric-help-copy.ts';
+
+function metricColumn(label: string, help: string) {
+  return {
+    header: () => <MetricHelpLabel help={help}>{label}</MetricHelpLabel>,
+    meta: { label },
+  };
+}
 
 function memberLabelCell(getMemberLabel: (memberId: string) => string) {
   return ({ row }: { row: { original: { memberId: string } } }) => (
@@ -35,17 +51,22 @@ export const projectMemberColumns = (
   getMemberLabel: (memberId: string) => string,
   getProjectLabel: (projectId: string) => string,
 ): ColumnDef<DemoProjectMemberDependencyRow>[] => [
+  { accessorKey: 'memberId', header: 'Member', cell: memberLabelCell(getMemberLabel) },
   { accessorKey: 'projectId', header: 'Project', cell: projectLabelCell(getProjectLabel) },
   {
     accessorKey: 'pmId',
     header: 'PM',
     cell: ({ row }) => {
-      const pm = row.original.pmId;
-      if (!pm) return <span className="text-ink-subtle">—</span>;
-      return <span className="font-medium text-ink">{pm}</span>;
+      const { pmId, pmName } = row.original;
+      if (!pmId && !pmName) return <span className="text-ink-subtle">—</span>;
+      return (
+        <div className="min-w-0">
+          <div className="truncate font-medium text-ink">{pmName ?? pmId ?? '—'}</div>
+          {pmId ? <div className="text-caption text-ink-subtle">{pmId}</div> : null}
+        </div>
+      );
     },
   },
-  { accessorKey: 'memberId', header: 'Delivery member', cell: memberLabelCell(getMemberLabel) },
   {
     accessorKey: 'memberRoleTitle',
     header: 'Member role',
@@ -56,7 +77,129 @@ export const projectMemberColumns = (
     header: 'RA role',
     cell: ({ row }) => nullish(row.original.allocationRole),
   },
-  { accessorKey: 'weeklyPlannedHours', header: 'Planned h/week' },
+  {
+    accessorKey: 'projectStatus',
+    header: 'Project status',
+    cell: ({ row }) => projectStatusBadge(row.original.projectStatus),
+  },
+  {
+    accessorKey: 'projectStartDate',
+    header: 'Project start',
+    cell: ({ row }) => nullish(row.original.projectStartDate),
+  },
+  {
+    accessorKey: 'projectEndDate',
+    header: 'Project end',
+    cell: ({ row }) => nullish(row.original.projectEndDate),
+  },
+  {
+    accessorKey: 'allocationStartDate',
+    header: 'RA start',
+    cell: ({ row }) => nullish(row.original.allocationStartDate),
+  },
+  {
+    accessorKey: 'allocationEndDate',
+    header: 'RA end',
+    cell: ({ row }) => nullish(row.original.allocationEndDate),
+  },
+  {
+    accessorKey: 'weeklyPlannedHours',
+    header: 'Plan h/wk',
+    cell: ({ row }) => (
+      <span className="tabular-nums">{hours(row.original.weeklyPlannedHours)}</span>
+    ),
+  },
+  {
+    accessorKey: 'capacityShare',
+    header: 'Cap. share',
+    cell: ({ row }) => <span className="tabular-nums">{pct(row.original.capacityShare)}</span>,
+  },
+  {
+    accessorKey: 'plannedHoursInWindow',
+    header: 'Planned (window)',
+    cell: ({ row }) => (
+      <span className="tabular-nums">{hours(row.original.plannedHoursInWindow)}</span>
+    ),
+  },
+  {
+    accessorKey: 'loggedHours',
+    header: 'Logged (window)',
+    cell: ({ row }) => <span className="tabular-nums">{hours(row.original.loggedHours)}</span>,
+  },
+  {
+    accessorKey: 'effortConsumption',
+    header: 'EC',
+    cell: ({ row }) => <span className="tabular-nums">{pct(row.original.effortConsumption)}</span>,
+  },
+];
+
+export const memberWeekProjectColumns = (
+  getMemberLabel: (memberId: string) => string,
+  getProjectLabel: (projectId: string) => string,
+): ColumnDef<DemoMemberWeekProjectRow>[] => [
+  {
+    accessorKey: 'memberId',
+    header: 'Member',
+    cell: ({ row }) => (
+      <span className="font-medium text-ink">{getMemberLabel(row.original.memberId)}</span>
+    ),
+  },
+  { accessorKey: 'weekId', header: 'Week' },
+  { accessorKey: 'projectId', header: 'Project', cell: projectLabelCell(getProjectLabel) },
+  {
+    accessorKey: 'projectStatus',
+    header: 'Status',
+    cell: ({ row }) => projectStatusBadge(row.original.projectStatus),
+  },
+  {
+    accessorKey: 'projectStartDate',
+    header: 'Project start',
+    cell: ({ row }) => nullish(row.original.projectStartDate),
+  },
+  {
+    accessorKey: 'projectEndDate',
+    header: 'Project end',
+    cell: ({ row }) => nullish(row.original.projectEndDate),
+  },
+  {
+    accessorKey: 'allocationStartDate',
+    header: 'RA start',
+    cell: ({ row }) => nullish(row.original.allocationStartDate),
+  },
+  {
+    accessorKey: 'allocationEndDate',
+    header: 'RA end',
+    cell: ({ row }) => nullish(row.original.allocationEndDate),
+  },
+  {
+    accessorKey: 'scopeStatus',
+    ...metricColumn('Scope', METRIC_HELP.scope),
+  },
+  {
+    accessorKey: 'suppressionReason',
+    ...metricColumn('Reason', METRIC_HELP.reason),
+    cell: ({ row }) => reasonBadge(row.original.suppressionReason),
+  },
+  {
+    accessorKey: 'plannedHours',
+    ...metricColumn('Planned', METRIC_HELP.planned),
+    cell: ({ row }) => <span className="tabular-nums">{hours(row.original.plannedHours)}</span>,
+  },
+  {
+    accessorKey: 'loggedHours',
+    ...metricColumn('Logged', METRIC_HELP.logged),
+    cell: ({ row }) => <span className="tabular-nums">{hours(row.original.loggedHours)}</span>,
+  },
+  {
+    accessorKey: 'capacityShare',
+    header: 'Cap. share',
+    cell: ({ row }) => <span className="tabular-nums">{pct(row.original.capacityShare)}</span>,
+  },
+  {
+    accessorKey: 'effortConsumption',
+    ...metricColumn('EC', METRIC_HELP.effortConsumption),
+    cell: ({ row }) => <span className="tabular-nums">{pct(row.original.effortConsumption)}</span>,
+  },
 ];
 
 export const factColumns = (
@@ -72,47 +215,47 @@ export const factColumns = (
   { accessorKey: 'weekId', header: 'Week' },
   {
     accessorKey: 'scopeStatus',
-    header: () => <MetricHelpLabel help={METRIC_HELP.scope}>Scope</MetricHelpLabel>,
+    ...metricColumn('Scope', METRIC_HELP.scope),
   },
   {
     accessorKey: 'suppressionReason',
-    header: () => <MetricHelpLabel help={METRIC_HELP.reason}>Reason</MetricHelpLabel>,
+    ...metricColumn('Reason', METRIC_HELP.reason),
     cell: ({ row }) => reasonBadge(row.original.suppressionReason),
   },
   {
     accessorKey: 'availableHours',
-    header: () => <MetricHelpLabel help={METRIC_HELP.available}>Available</MetricHelpLabel>,
+    ...metricColumn('Available', METRIC_HELP.available),
   },
   {
     accessorKey: 'plannedHours',
-    header: () => <MetricHelpLabel help={METRIC_HELP.planned}>Planned</MetricHelpLabel>,
+    ...metricColumn('Planned', METRIC_HELP.planned),
   },
   {
     accessorKey: 'loggedHours',
-    header: () => <MetricHelpLabel help={METRIC_HELP.logged}>Logged</MetricHelpLabel>,
+    ...metricColumn('Logged', METRIC_HELP.logged),
   },
   {
     accessorKey: 'expectedLoggedHours',
-    header: () => <MetricHelpLabel help={METRIC_HELP.expectedLogged}>Expected log</MetricHelpLabel>,
+    ...metricColumn('Expected log', METRIC_HELP.expectedLogged),
   },
   {
     accessorKey: 'busyRate',
-    header: () => <MetricHelpLabel help={METRIC_HELP.busyRate}>Busy rate</MetricHelpLabel>,
+    ...metricColumn('Busy rate', METRIC_HELP.busyRate),
     cell: ({ row }) => pct(row.original.busyRate),
   },
   {
     accessorKey: 'effortConsumption',
-    header: () => <MetricHelpLabel help={METRIC_HELP.effortConsumption}>EC</MetricHelpLabel>,
+    ...metricColumn('EC', METRIC_HELP.effortConsumption),
     cell: ({ row }) => pct(row.original.effortConsumption),
   },
   {
     accessorKey: 'ragColor',
-    header: () => <MetricHelpLabel help={METRIC_HELP.rag}>RAG</MetricHelpLabel>,
+    ...metricColumn('RAG', METRIC_HELP.rag),
     cell: ({ row }) => ragBadge(row.original.ragColor),
   },
   {
     accessorKey: 'issueType',
-    header: () => <MetricHelpLabel help={METRIC_HELP.issue}>Issue</MetricHelpLabel>,
+    ...metricColumn('Issue', METRIC_HELP.issue),
   },
 ];
 
@@ -128,23 +271,21 @@ export const analysisColumns = (
   },
   {
     accessorKey: 'inScopeWeekCount',
-    header: () => <MetricHelpLabel help={METRIC_HELP.inScopeWeeks}>In-scope weeks</MetricHelpLabel>,
+    ...metricColumn('In-scope weeks', METRIC_HELP.inScopeWeeks),
   },
   {
     accessorKey: 'busyRate',
-    header: () => <MetricHelpLabel help={METRIC_HELP.busyRate}>Busy rate</MetricHelpLabel>,
+    ...metricColumn('Busy rate', METRIC_HELP.busyRate),
     cell: ({ row }) => pct(row.original.busyRate),
   },
   {
     accessorKey: 'effortConsumption',
-    header: () => <MetricHelpLabel help={METRIC_HELP.effortConsumption}>EC</MetricHelpLabel>,
+    ...metricColumn('EC', METRIC_HELP.effortConsumption),
     cell: ({ row }) => pct(row.original.effortConsumption),
   },
   {
     id: 'excluded',
-    header: () => (
-      <MetricHelpLabel help={METRIC_HELP.excludedWeeks}>Excluded weeks</MetricHelpLabel>
-    ),
+    ...metricColumn('Excluded weeks', METRIC_HELP.excludedWeeks),
     cell: ({ row }) => excludedCell(row.original.excludedWeeks),
   },
 ];

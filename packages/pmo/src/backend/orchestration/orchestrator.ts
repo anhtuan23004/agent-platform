@@ -45,7 +45,7 @@ function instructionsText(): string {
     '- member_detail: follow-up "why" for a member — pass memberId; use last discussed member when user says "why" without a name.',
     '- report_summary: full idle+overbook report for a date range.',
     '- rebalance_candidates: who can take workload / transfer allocation.',
-    '- explain_methodology: formulas and thresholds.',
+    '- explain_methodology: formulas and thresholds — paste tool `summary` verbatim.',
     '',
     'If pmo_queryUtilization returns needsClarification, present clarificationOptions and STOP.',
     'Never map slang (chilling, not busy) to thresholds without user picking an option.',
@@ -62,6 +62,8 @@ function instructionsText(): string {
     '- Staffing/assignment → tell user to use Staffing Agent.',
     '',
     'FINAL ANSWER — after tools complete, write one concise answer with exact counts and member IDs from tool results.',
+    'For explain_methodology, paste the tool `summary` field verbatim — do not reformat.',
+    'Formulas: plain text only (e.g. busyRate = plannedHours / availableHours). Never use LaTeX, \\frac, or math delimiters.',
   ].join('\n');
 }
 

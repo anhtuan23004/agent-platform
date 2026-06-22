@@ -2,6 +2,7 @@ export interface DemoThresholds {
   overbookThreshold: number;
   overbookRedThreshold: number;
   idleThreshold: number;
+  idleYellowThreshold: number;
   mismatchPctThreshold: number;
   otMaxHoursPerWeek: number;
   requiredTrainingHours: number;
@@ -15,7 +16,11 @@ export interface DemoAnalyticsSettings {
   thresholds?: Partial<
     Pick<
       DemoThresholds,
-      'overbookThreshold' | 'overbookRedThreshold' | 'idleThreshold' | 'mismatchPctThreshold'
+      | 'overbookThreshold'
+      | 'overbookRedThreshold'
+      | 'idleThreshold'
+      | 'idleYellowThreshold'
+      | 'mismatchPctThreshold'
     >
   >;
 }
@@ -76,10 +81,20 @@ export interface DemoProjectMemberDependencyRow {
   memberRoleTitle: string | null;
   allocationRole: string | null;
   weeklyPlannedHours: number;
+  plannedHoursInWindow: number;
+  loggedHours: number;
+  capacityShare: number | null;
+  effortConsumption: number | null;
+  allocationStartDate: string;
+  allocationEndDate: string;
+  projectStartDate: string | null;
+  projectEndDate: string | null;
+  projectStatus: string | null;
 }
 
 export interface DemoTimesheetInput {
   memberId: string;
+  projectId: string | null;
   workDate: string;
   loggedHours: number;
   logCategory: string | null;
@@ -116,6 +131,24 @@ export interface DemoMemberWeekRow {
   suppressionReason: string | null;
 }
 
+export interface DemoMemberWeekProjectRow {
+  memberId: string;
+  weekId: string;
+  projectId: string;
+  projectName: string;
+  scopeStatus: string;
+  suppressionReason: string | null;
+  plannedHours: number;
+  loggedHours: number;
+  capacityShare: number | null;
+  effortConsumption: number | null;
+  allocationStartDate: string;
+  allocationEndDate: string;
+  projectStartDate: string | null;
+  projectEndDate: string | null;
+  projectStatus: string | null;
+}
+
 export interface DemoAnalyticsResult {
   reportingWindow: { start: string; end: string };
   thresholds: DemoThresholds;
@@ -146,9 +179,27 @@ export interface DemoAnalyticsResult {
   };
   projectMemberDependencies: DemoProjectMemberDependencyRow[];
   memberWeekFacts: DemoMemberWeekRow[];
+  memberWeekProjectFacts: DemoMemberWeekProjectRow[];
   memberAnalyses: DemoMemberAnalysisRow[];
   overbookIdleFindings: DemoFindingRow[];
   mismatchFindings: DemoFindingRow[];
+}
+
+export function demoAnalyticsQueryKey(settings?: DemoAnalyticsSettings) {
+  const thresholds = settings?.thresholds;
+  return [
+    'pmo',
+    'demo-analytics',
+    settings?.from ?? null,
+    settings?.to ?? null,
+    settings?.configEffectiveDate ?? null,
+    settings?.ingestionSessionId ?? null,
+    thresholds?.overbookThreshold ?? null,
+    thresholds?.overbookRedThreshold ?? null,
+    thresholds?.idleThreshold ?? null,
+    thresholds?.idleYellowThreshold ?? null,
+    thresholds?.mismatchPctThreshold ?? null,
+  ] as const;
 }
 
 function buildQuery(settings?: DemoAnalyticsSettings): string {
@@ -172,6 +223,9 @@ function buildQuery(settings?: DemoAnalyticsSettings): string {
   }
   if (thresholds?.idleThreshold !== undefined) {
     params.set('idleThreshold', String(thresholds.idleThreshold));
+  }
+  if (thresholds?.idleYellowThreshold !== undefined) {
+    params.set('idleYellowThreshold', String(thresholds.idleYellowThreshold));
   }
   if (thresholds?.mismatchPctThreshold !== undefined) {
     params.set('mismatchPctThreshold', String(thresholds.mismatchPctThreshold));

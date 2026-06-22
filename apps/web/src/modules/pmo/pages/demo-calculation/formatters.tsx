@@ -1,6 +1,11 @@
 import { Badge } from '@seta/shared-ui';
 import type { ReactNode } from 'react';
 
+export function hours(n: number | null | undefined, digits = 1): string {
+  if (n === null || n === undefined) return '—';
+  return n.toFixed(digits);
+}
+
 export function pct(n: number | null | undefined, digits = 1): string {
   if (n === null || n === undefined) return '—';
   return `${(n * 100).toFixed(digits)}%`;
@@ -18,11 +23,19 @@ export function ragBadge(color: string) {
   return <Badge variant={variant}>{color}</Badge>;
 }
 
+export function projectStatusBadge(status: string | null | undefined) {
+  if (!status) return <span className="text-ink-subtle">—</span>;
+  const normalized = status.trim().toLowerCase();
+  const variant =
+    normalized === 'active' ? 'success' : normalized === 'completed' ? 'secondary' : 'outline';
+  return <Badge variant={variant}>{status}</Badge>;
+}
+
 export function reasonBadge(reason: string | null) {
   if (!reason) return <span className="text-ink-subtle">—</span>;
   const label =
     reason === 'no_plan'
-      ? 'Unassigned (no plan)'
+      ? 'No plan'
       : reason === 'pre_hire'
         ? 'Pre-hire'
         : reason === 'holiday_week'

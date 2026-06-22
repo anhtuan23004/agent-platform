@@ -10,10 +10,13 @@ import {
 import { LEAVE_TYPE_APPROVED_OT_COMP, LEAVE_TYPE_TRAINING } from './leave-type.ts';
 import type { CanonicalInputs } from './load-canonical.ts';
 import { loadCanonicalInputs } from './load-canonical.ts';
-import { buildMemberWeekFacts } from './member-week-facts.ts';
-import { loadMemberWeekFacts } from './persist-facts.ts';
+import {
+  buildMemberProjectAllocationFacts,
+  type MemberProjectAllocationFact,
+} from './member-project-facts.ts';
+import { rollupMemberWeekFactsFromProjectFacts } from './member-week-facts.ts';
+import { buildMemberWeekProjectFacts } from './member-week-project-facts.ts';
 import { splitPmoPopulations } from './populations.ts';
-import { buildProjectMemberDependencies, type ProjectMemberDependency } from './project-members.ts';
 import type { ConfigRow } from './thresholds.ts';
 import { resolveThresholds, selectThresholdConfig } from './thresholds.ts';
 import type {
@@ -27,6 +30,13 @@ import type {
   TimesheetRow,
   WeekRow,
 } from './types.ts';
+import {
+  activeUtilizationProjectIds,
+  filterAllocationsForTrace,
+  filterAllocationsForUtilization,
+  filterTimesheetsForTrace,
+  filterTimesheetsForUtilization,
+} from './utilization-scope.ts';
 
 export class DemoAnalyticsNoDataError extends Error {
   constructor() {
@@ -70,6 +80,24 @@ export interface DemoMemberWeekRow {
   suppressionReason: string | null;
 }
 
+export interface DemoMemberWeekProjectRow {
+  memberId: string;
+  weekId: string;
+  projectId: string;
+  projectName: string;
+  scopeStatus: string;
+  suppressionReason: string | null;
+  plannedHours: number;
+  loggedHours: number;
+  capacityShare: number | null;
+  effortConsumption: number | null;
+  allocationStartDate: string;
+  allocationEndDate: string;
+  projectStartDate: string | null;
+  projectEndDate: string | null;
+  projectStatus: string | null;
+}
+
 export interface DemoMemberInput {
   memberId: string;
   fullName: string;
@@ -108,10 +136,20 @@ export interface DemoProjectMemberDependencyRow {
   memberRoleTitle: string | null;
   allocationRole: string | null;
   weeklyPlannedHours: number;
+  plannedHoursInWindow: number;
+  loggedHours: number;
+  capacityShare: number | null;
+  effortConsumption: number | null;
+  allocationStartDate: string;
+  allocationEndDate: string;
+  projectStartDate: string | null;
+  projectEndDate: string | null;
+  projectStatus: string | null;
 }
 
 export interface DemoTimesheetInput {
   memberId: string;
+  projectId: string | null;
   workDate: string;
   loggedHours: number;
   logCategory: string | null;
@@ -165,6 +203,7 @@ export interface DemoAnalyticsResult {
   };
   projectMemberDependencies: DemoProjectMemberDependencyRow[];
   memberWeekFacts: DemoMemberWeekRow[];
+  memberWeekProjectFacts: DemoMemberWeekProjectRow[];
   memberAnalyses: DemoMemberAnalysisRow[];
   overbookIdleFindings: DemoFindingRow[];
   mismatchFindings: DemoFindingRow[];
@@ -334,6 +373,7 @@ function serializeCanonical(
     })),
     timesheets: timesheets.map((t) => ({
       memberId: t.member_id,
+      projectId: t.project_id ?? null,
       workDate: isoDate(t.work_date) ?? '',
       loggedHours: t.logged_hours,
       logCategory: t.log_category ?? null,
@@ -356,7 +396,7 @@ function serializeCanonical(
 }
 
 function serializeProjectMemberDependency(
-  row: ProjectMemberDependency,
+  row: MemberProjectAllocationFact,
 ): DemoProjectMemberDependencyRow {
   return {
     projectId: row.projectId,
@@ -368,10 +408,28 @@ function serializeProjectMemberDependency(
     memberRoleTitle: row.memberRoleTitle,
     allocationRole: row.allocationRole,
     weeklyPlannedHours: row.weeklyPlannedHours,
+    plannedHoursInWindow: row.plannedHoursInWindow,
+    loggedHours: row.loggedHours,
+    capacityShare: row.capacityShare,
+    effortConsumption: row.effortConsumption,
+    allocationStartDate: row.allocationStartDate,
+    allocationEndDate: row.allocationEndDate,
+    projectStartDate: row.projectStartDate,
+    projectEndDate: row.projectEndDate,
+    projectStatus: row.projectStatus,
   };
 }
 
-function reportingWindow(weeks: WeekRow[]): { start: string; end: string } {
+function reportingWindow(
+  weeks: WeekRow[],
+  dateRange?: { from: Date; to: Date },
+): { start: string; end: string } {
+  if (dateRange) {
+    return {
+      start: isoDate(dateRange.from) ?? '',
+      end: isoDate(dateRange.to) ?? '',
+    };
+  }
   if (weeks.length === 0) return { start: '', end: '' };
   const starts = weeks.map((w) => w.week_start.getTime());
   const ends = weeks.map((w) => w.week_end.getTime());
@@ -419,8 +477,10 @@ function applyThresholdOverrides(base: Thresholds, overrides?: Partial<Threshold
 
 export function buildDemoAnalyticsResult(
   canonical: CanonicalInputs,
-  facts: MemberWeekFact[],
-  options: Pick<DemoAnalyticsOptions, 'configEffectiveDate' | 'thresholdOverrides'> = {},
+  options: Pick<
+    DemoAnalyticsOptions,
+    'configEffectiveDate' | 'thresholdOverrides' | 'dateRange'
+  > = {},
 ): DemoAnalyticsResult {
   const { members, projects, allocations, timesheets, leaves, weeks, configRows } = canonical;
   const selectedConfig = selectThresholdConfig(configRows, {
@@ -431,14 +491,44 @@ export function buildDemoAnalyticsResult(
     options.thresholdOverrides,
   );
   const weekIds = new Set(weeks.map((w) => w.week_id));
-  const scopedFacts = facts.filter((f) => weekIds.has(f.weekId));
   const { deliveryMembers, projectManagers } = splitPmoPopulations(members, projects);
-  const projectMemberDependencies = buildProjectMemberDependencies(
+  const utilizationAllocations = filterAllocationsForUtilization(allocations, projects);
+  const utilizationTimesheets = filterTimesheetsForUtilization(timesheets, projects);
+  const traceAllocations = filterAllocationsForTrace(allocations, projects);
+  const traceTimesheets = filterTimesheetsForTrace(timesheets, projects);
+  const memberWeekProjectFacts = buildMemberWeekProjectFacts(
     projects,
-    deliveryMembers,
-    allocations,
+    members,
+    traceAllocations,
+    traceTimesheets,
+    weeks,
+    leaves,
+    undefined,
+    options.dateRange,
   );
-
+  const activeProjectIds = activeUtilizationProjectIds(projects);
+  const deliveryMemberIds = new Set(deliveryMembers.map((member) => member.member_id));
+  const planningProjectFacts = memberWeekProjectFacts.filter(
+    (row) => activeProjectIds.has(row.projectId) && deliveryMemberIds.has(row.memberId),
+  );
+  const scopedFacts = rollupMemberWeekFactsFromProjectFacts(planningProjectFacts, {
+    members: deliveryMembers,
+    allocations: utilizationAllocations,
+    timesheets: utilizationTimesheets,
+    leaves,
+    weeks,
+    thresholds,
+    projects,
+    dateRange: options.dateRange,
+  }).filter((fact) => weekIds.has(fact.weekId));
+  const projectMemberDependencies = buildMemberProjectAllocationFacts(
+    projects,
+    members,
+    utilizationAllocations,
+    utilizationTimesheets,
+    weeks,
+    leaves,
+  );
   const weeksById = new Map(weeks.map((w) => [w.week_id, w]));
   const ctx = { leaves, weeksById, thresholds };
   const overbookIdle = detectOverbookIdle(scopedFacts, ctx);
@@ -454,7 +544,7 @@ export function buildDemoAnalyticsResult(
   }
 
   return {
-    reportingWindow: reportingWindow(weeks),
+    reportingWindow: reportingWindow(weeks, options.dateRange),
     thresholds,
     thresholdConfig: thresholdConfigMeta(selectedConfig),
     inputCounts: {
@@ -481,6 +571,31 @@ export function buildDemoAnalyticsResult(
       );
       return row;
     }),
+    memberWeekProjectFacts: memberWeekProjectFacts.map((row) => {
+      const parentFact = scopedFacts.find(
+        (fact) => fact.memberId === row.memberId && fact.weekId === row.weekId,
+      );
+      const week = weeksById.get(row.weekId);
+      return {
+        memberId: row.memberId,
+        weekId: row.weekId,
+        projectId: row.projectId,
+        projectName: row.projectName,
+        scopeStatus: row.scopeStatus,
+        suppressionReason: parentFact
+          ? suppressionReasonForFact(parentFact, week, memberIdToLeaves.get(row.memberId) ?? [])
+          : null,
+        plannedHours: row.plannedHours,
+        loggedHours: row.loggedHours,
+        capacityShare: row.capacityShare,
+        effortConsumption: row.effortConsumption,
+        allocationStartDate: row.allocationStartDate,
+        allocationEndDate: row.allocationEndDate,
+        projectStartDate: row.projectStartDate,
+        projectEndDate: row.projectEndDate,
+        projectStatus: row.projectStatus,
+      };
+    }),
     memberAnalyses: analyses
       .map(serializeAnalysis)
       .sort((a, b) => a.memberId.localeCompare(b.memberId)),
@@ -501,36 +616,13 @@ export async function runDemoAnalytics(
     throw new DemoAnalyticsNoDataError();
   }
 
-  const facts = options.ingestionSessionId
-    ? buildSessionScopedFacts(canonical)
-    : await loadPersistedFacts(
-        tenantId,
-        canonical.weeks.map((week) => week.week_id),
-      );
-  if (facts.length === 0) {
-    throw new DemoAnalyticsNoDataError();
+  if (!options.ingestionSessionId) {
+    await ensureFactsComputed(tenantId);
   }
 
-  return buildDemoAnalyticsResult(canonical, facts, {
+  return buildDemoAnalyticsResult(canonical, {
+    dateRange: options.dateRange,
     configEffectiveDate: options.configEffectiveDate ?? options.dateRange?.from,
     thresholdOverrides: options.thresholdOverrides,
-  });
-}
-
-async function loadPersistedFacts(tenantId: string, weekIds: string[]): Promise<MemberWeekFact[]> {
-  await ensureFactsComputed(tenantId);
-  return loadMemberWeekFacts(tenantId, { weekIds });
-}
-
-function buildSessionScopedFacts(canonical: CanonicalInputs): MemberWeekFact[] {
-  const thresholds = resolveThresholds(canonical.configRows);
-  const { deliveryMembers } = splitPmoPopulations(canonical.members, canonical.projects);
-  return buildMemberWeekFacts({
-    members: deliveryMembers,
-    allocations: canonical.allocations,
-    timesheets: canonical.timesheets,
-    leaves: canonical.leaves,
-    weeks: canonical.weeks,
-    thresholds,
   });
 }

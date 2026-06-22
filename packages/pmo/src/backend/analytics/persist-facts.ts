@@ -10,9 +10,13 @@ import {
   getCanonicalDataVersion,
 } from './fact-versions.ts';
 import { loadCanonicalInputs } from './load-canonical.ts';
-import { buildMemberWeekFacts } from './member-week-facts.ts';
+import { buildMemberWeekFacts, resolveProjectsForFacts } from './member-week-facts.ts';
 import { splitPmoPopulations } from './populations.ts';
 import type { MemberWeekFact, Thresholds } from './types.ts';
+import {
+  filterAllocationsForUtilization,
+  filterTimesheetsForUtilization,
+} from './utilization-scope.ts';
 
 export interface ComputeFactsResult {
   factCount: number;
@@ -51,15 +55,19 @@ export async function computeAndPersistFacts(
     ...mapReportRulesToLegacyThresholds(reportRules),
     requiredTrainingHours: 0,
   };
-  const { deliveryMembers } = splitPmoPopulations(inputs.members, inputs.projects);
+  const projects = resolveProjectsForFacts(inputs.projects, inputs.allocations, inputs.timesheets);
+  const { deliveryMembers } = splitPmoPopulations(inputs.members, projects);
+  const allocations = filterAllocationsForUtilization(inputs.allocations, projects);
+  const timesheets = filterTimesheetsForUtilization(inputs.timesheets, projects);
 
   const facts = buildMemberWeekFacts({
     members: deliveryMembers,
-    allocations: inputs.allocations,
-    timesheets: inputs.timesheets,
+    allocations,
+    timesheets,
     leaves: inputs.leaves,
     weeks: inputs.weeks,
     thresholds,
+    projects,
   });
 
   const canonicalDataVersion =

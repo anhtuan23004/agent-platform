@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import type { DemoAnalyticsResult, DemoProjectInput } from '../../api/demo-analytics.ts';
+import { filterDemoAnalyticsPopulations } from './use-filtered-data.logic.ts';
 
 export function useFilteredDemoAnalytics(
   data: DemoAnalyticsResult | undefined,
@@ -22,50 +23,34 @@ export function useFilteredDemoAnalytics(
     return map;
   }, [data]);
 
-  const getMemberLabel = (id: string) => id;
-  const getProjectLabel = (id: string) => id;
+  const memberById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of data?.canonical.members ?? []) {
+      map.set(m.memberId, m.fullName?.trim() || m.memberId);
+    }
+    return map;
+  }, [data]);
+
+  const getMemberLabel = (id: string) => memberById.get(id) ?? id;
+  const getProjectLabel = (id: string) => projectById.get(id)?.projectName?.trim() || id;
 
   const filtered = useMemo(() => {
     if (!data) return null;
-
-    const onlyProject = (id: string) => (projectFilter ? id === projectFilter : true);
-    const projectDependencyRows = projectFilter
-      ? data.projectMemberDependencies.filter((r) => r.projectId === projectFilter)
-      : data.projectMemberDependencies;
-    const projectMemberIds = new Set(projectDependencyRows.map((r) => r.memberId));
-    const projectPmIds = new Set(
-      data.canonical.projects
-        .filter((p) => onlyProject(p.projectId))
-        .map((p) => p.pmId)
-        .filter((id): id is string => Boolean(id)),
-    );
-
-    const onlyDeliveryMember = (id: string) => {
-      if (memberFilter) return id === memberFilter;
-      if (projectFilter) return projectMemberIds.has(id);
-      return true;
-    };
-
-    const onlyPopulationMember = (id: string) => {
-      if (memberFilter) return id === memberFilter;
-      if (projectFilter) return projectMemberIds.has(id) || projectPmIds.has(id);
-      return true;
-    };
-
     if (!memberFilter && !projectFilter) return data;
+
+    const { scopedRosterRows, deliveryMembers, projectManagers, onlyDeliveryMember } =
+      filterDemoAnalyticsPopulations(data, memberFilter, projectFilter);
+    const onlyProject = (id: string) => (projectFilter ? id === projectFilter : true);
 
     return {
       ...data,
       populations: {
-        deliveryMembers: data.populations.deliveryMembers.filter((m) =>
-          onlyDeliveryMember(m.memberId),
-        ),
-        projectManagers: data.populations.projectManagers.filter((m) =>
-          onlyPopulationMember(m.memberId),
-        ),
+        deliveryMembers,
+        projectManagers,
       },
-      projectMemberDependencies: data.projectMemberDependencies.filter(
-        (r) => onlyDeliveryMember(r.memberId) && onlyProject(r.projectId),
+      projectMemberDependencies: scopedRosterRows,
+      memberWeekProjectFacts: data.memberWeekProjectFacts.filter(
+        (fact) => onlyDeliveryMember(fact.memberId) && onlyProject(fact.projectId),
       ),
       memberWeekFacts: data.memberWeekFacts.filter((f) => onlyDeliveryMember(f.memberId)),
       memberAnalyses: data.memberAnalyses.filter((a) => onlyDeliveryMember(a.memberId)),

@@ -1,6 +1,7 @@
 import type { ComposerAttachment } from '@seta/shared-ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo, useState } from 'react';
+import { useSession } from '@/modules/identity/components/SessionProvider.tsx';
 import { type PmoPlanningSession, pmoApi } from '@/modules/pmo/api/client';
 
 interface Item {
@@ -15,7 +16,11 @@ export interface PmoChatUploadSource {
   ingestionSessionId: string;
   label: string;
   isPublished: boolean;
+  disabled: boolean;
+  group: 'published' | 'mine';
   uploadedAt: string | null;
+  reportingPeriodStart: string | null;
+  reportingPeriodEnd: string | null;
   /** True when this session was uploaded in the current chat thread. */
   fromCurrentThread: boolean;
 }
@@ -38,6 +43,7 @@ function sessionLabel(name: string | null, id: string): string {
 
 /** PMO Agent chat uploads: durable ingestion sessions via /api/pmo/v1/upload. */
 export function usePmoChatIngestAttachments(chatThreadId: string | null) {
+  const session = useSession();
   const [items, setItems] = useState<Item[]>([]);
   const [warning, setWarning] = useState<string | null>(null);
   const [explicitSelectedSessionId, setSelectedSessionId] = useState<string | null>(null);
@@ -126,15 +132,21 @@ export function usePmoChatIngestAttachments(chatThreadId: string | null) {
 
     const addSession = (session: PmoPlanningSession, fromCurrentThread: boolean) => {
       if (byId.has(session.ingestion_session_id)) return;
-      if (!session.is_published) return;
+      const isMine = session.operator === sessionUserId;
+      if (!isMine && !session.is_published) return;
       byId.set(session.ingestion_session_id, {
         ingestionSessionId: session.ingestion_session_id,
         label: sessionLabel(session.workbook_name, session.ingestion_session_id),
         isPublished: session.is_published,
+        disabled: !session.is_selectable,
+        group: isMine ? 'mine' : 'published',
         uploadedAt: session.uploaded_at,
+        reportingPeriodStart: session.reporting_period_start,
+        reportingPeriodEnd: session.reporting_period_end,
         fromCurrentThread,
       });
     };
+    const sessionUserId = session.user_id;
 
     for (const session of threadSessions.data?.items ?? []) {
       addSession(session, true);
@@ -148,22 +160,25 @@ export function usePmoChatIngestAttachments(chatThreadId: string | null) {
     }
 
     return [...byId.values()].sort((left, right) => {
+      if (left.group !== right.group) {
+        return left.group === 'published' ? -1 : 1;
+      }
       if (left.fromCurrentThread !== right.fromCurrentThread) {
         return left.fromCurrentThread ? -1 : 1;
       }
-      if (left.isPublished !== right.isPublished) return left.isPublished ? -1 : 1;
+      if (left.disabled !== right.disabled) return left.disabled ? 1 : -1;
       const leftTime = left.uploadedAt ? Date.parse(left.uploadedAt) : 0;
       const rightTime = right.uploadedAt ? Date.parse(right.uploadedAt) : 0;
       return rightTime - leftTime;
     });
-  }, [allSessions.data?.items, chatThreadId, threadSessions.data?.items]);
+  }, [allSessions.data?.items, chatThreadId, session.user_id, threadSessions.data?.items]);
 
   const selectedUploadSource = useMemo(() => {
     const explicit =
       explicitSelectedSessionId === null
         ? null
         : uploadSources.find((source) => source.ingestionSessionId === explicitSelectedSessionId);
-    return explicit ?? uploadSources[0] ?? null;
+    return explicit ?? uploadSources.find((source) => !source.disabled) ?? null;
   }, [explicitSelectedSessionId, uploadSources]);
   const selectedSessionId = selectedUploadSource?.ingestionSessionId ?? null;
 
@@ -197,6 +212,8 @@ export function usePmoChatIngestAttachments(chatThreadId: string | null) {
     selectedUploadSource,
     /** Published upload selected for scoped analytics in this chat turn. */
     scopedIngestSessionId:
-      selectedUploadSource?.isPublished === true ? selectedUploadSource.ingestionSessionId : null,
+      selectedUploadSource?.isPublished === true && !selectedUploadSource.disabled
+        ? selectedUploadSource.ingestionSessionId
+        : null,
   };
 }

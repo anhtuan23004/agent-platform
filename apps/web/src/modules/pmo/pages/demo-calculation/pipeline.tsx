@@ -12,7 +12,12 @@ import {
 } from '@seta/shared-ui';
 import type { ReactNode } from 'react';
 import type { DemoAnalyticsResult } from '../../api/demo-analytics.ts';
-import { analysisColumns, factColumns, memberColumns, projectMemberColumns } from './columns.tsx';
+import {
+  analysisColumns,
+  memberColumns,
+  memberWeekProjectColumns,
+  projectMemberColumns,
+} from './columns.tsx';
 import { DemoCalculationFindingsPanel } from './findings-panel.tsx';
 
 function SectionCard({
@@ -84,7 +89,7 @@ export function DemoCalculationPipeline({
   const findingCount = data.overbookIdleFindings.length + data.mismatchFindings.length;
 
   return (
-    <section className="space-y-4">
+    <section className="space-y-4" id="pmo-utilization-findings">
       <Tabs defaultValue="findings">
         <TabsList className="grid h-auto w-full grid-cols-2 gap-3 border-0 bg-transparent p-0 lg:grid-cols-4">
           <PipelineStageTab
@@ -101,9 +106,9 @@ export function DemoCalculationPipeline({
           />
           <PipelineStageTab
             value="facts"
-            label="Member × week"
-            count={data.memberWeekFacts.length}
-            hint="persisted facts"
+            label="Member × week × project"
+            count={data.memberWeekProjectFacts.length}
+            hint="planned & logged trace"
           />
           <PipelineStageTab
             value="analysis"
@@ -123,8 +128,8 @@ export function DemoCalculationPipeline({
 
         <TabsContent value="population" className="mt-6">
           <SectionCard
-            title="PM & delivery populations"
-            description="Project managers are separated from delivery members before utilization is calculated."
+            title="Allocation matrix"
+            description="Member × project plan and logged hours across the reporting window. Use this view to see how each person is split across projects before rebalancing."
           >
             <Tabs defaultValue="projectMembers" className="mt-1">
               <TabsList className="mb-4">
@@ -165,10 +170,13 @@ export function DemoCalculationPipeline({
 
         <TabsContent value="facts" className="mt-6">
           <SectionCard
-            title="Member × week facts"
-            description="Persisted read-model: availability, planned and logged hours, busy rate, and effort consumption per week."
+            title="Member × week × project facts"
+            description="Grain gốc: member × week × project. Findings và member × week rollup được tính từ đây (Active delivery projects)."
           >
-            <DataTable data={data.memberWeekFacts} columns={factColumns(getMemberLabel)} />
+            <DataTable
+              data={data.memberWeekProjectFacts}
+              columns={memberWeekProjectColumns(getMemberLabel, getProjectLabel)}
+            />
           </SectionCard>
         </TabsContent>
 
