@@ -470,6 +470,9 @@ function CalculationSettingsForm({
               />
             </div>
           </div>
+          <div className="text-[11px] leading-tight text-ink-muted">
+            Weeks cut by the range are prorated so plan and capacity match logged days in scope.
+          </div>
         </div>
 
         <div className="space-y-2">

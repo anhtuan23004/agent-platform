@@ -11,6 +11,15 @@ import type {
   WeekRow,
 } from './types.ts';
 
+function isoDate(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+function isoDateOrNull(d: Date | null | undefined): string | null {
+  if (!d) return null;
+  return isoDate(d);
+}
+
 export interface MemberProjectAllocationFact {
   projectId: string;
   projectName: string;
@@ -25,6 +34,11 @@ export interface MemberProjectAllocationFact {
   loggedHours: number;
   capacityShare: number | null;
   effortConsumption: number | null;
+  allocationStartDate: string;
+  allocationEndDate: string;
+  projectStartDate: string | null;
+  projectEndDate: string | null;
+  projectStatus: string | null;
 }
 
 function sumLoggedHoursForMemberProject(
@@ -114,6 +128,11 @@ export function buildMemberProjectAllocationFacts(
       capacityShare: stdHoursWeek > 0 ? round4(weeklyPlannedHours / stdHoursWeek) : null,
       effortConsumption:
         plannedHoursInWindow > 0 ? round4(loggedHours / plannedHoursInWindow) : null,
+      allocationStartDate: isoDate(allocation.start_date),
+      allocationEndDate: isoDate(allocation.end_date),
+      projectStartDate: isoDateOrNull(project.start_date),
+      projectEndDate: isoDateOrNull(project.end_date),
+      projectStatus: project.status ?? null,
     });
   }
 

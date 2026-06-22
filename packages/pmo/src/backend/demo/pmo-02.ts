@@ -60,16 +60,23 @@ function ftMember(id: string, joinDate = '2020-01-01', std = 40): MemberRow {
   return { member_id: id, full_name: id, std_hours_week: std, join_date: d(joinDate) };
 }
 
+const PROJECT_LIFECYCLE: Record<string, { start: string; end: string }> = {
+  'PRJ-001': { start: '2026-05-19', end: '2026-12-19' },
+  'PRJ-002': { start: '2026-04-06', end: '2026-12-31' },
+  'PRJ-003': { start: '2026-06-01', end: '2026-10-31' },
+};
+
 function proj(id: string): ProjectRow {
+  const lifecycle = PROJECT_LIFECYCLE[id];
   return {
     project_id: id,
     project_name: id,
     account_id: null,
     project_type: null,
-    status: null,
+    status: 'Active',
     pm_id: null,
-    start_date: null,
-    end_date: null,
+    start_date: lifecycle ? d(lifecycle.start) : null,
+    end_date: lifecycle ? d(lifecycle.end) : null,
   };
 }
 

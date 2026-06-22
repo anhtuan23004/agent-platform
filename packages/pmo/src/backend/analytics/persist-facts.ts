@@ -13,6 +13,10 @@ import { loadCanonicalInputs } from './load-canonical.ts';
 import { buildMemberWeekFacts } from './member-week-facts.ts';
 import { splitPmoPopulations } from './populations.ts';
 import type { MemberWeekFact, Thresholds } from './types.ts';
+import {
+  filterAllocationsForUtilization,
+  filterTimesheetsForUtilization,
+} from './utilization-scope.ts';
 
 export interface ComputeFactsResult {
   factCount: number;
@@ -52,14 +56,17 @@ export async function computeAndPersistFacts(
     requiredTrainingHours: 0,
   };
   const { deliveryMembers } = splitPmoPopulations(inputs.members, inputs.projects);
+  const allocations = filterAllocationsForUtilization(inputs.allocations, inputs.projects);
+  const timesheets = filterTimesheetsForUtilization(inputs.timesheets, inputs.projects);
 
   const facts = buildMemberWeekFacts({
     members: deliveryMembers,
-    allocations: inputs.allocations,
-    timesheets: inputs.timesheets,
+    allocations,
+    timesheets,
     leaves: inputs.leaves,
     weeks: inputs.weeks,
     thresholds,
+    projects: inputs.projects,
   });
 
   const canonicalDataVersion =

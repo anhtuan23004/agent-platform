@@ -1,36 +1,29 @@
 import { describe, expect, it } from 'vitest';
 import { buildDemoAnalyticsResult } from '../../../src/backend/analytics/demo-analytics.ts';
-import { buildMemberWeekFacts } from '../../../src/backend/analytics/member-week-facts.ts';
-import { splitPmoPopulations } from '../../../src/backend/analytics/populations.ts';
-import { resolveThresholds } from '../../../src/backend/analytics/thresholds.ts';
 import { buildPmo02AnswerKeyFixture } from '../../../src/backend/demo/pmo-02.ts';
 
-describe('buildDemoAnalyticsResult', () => {
-  it('PMO_02 persisted facts produce utilization findings', () => {
-    const fixture = buildPmo02AnswerKeyFixture();
-    const thresholds = resolveThresholds([]);
-    const { deliveryMembers } = splitPmoPopulations(fixture.members, fixture.projects);
-    const facts = buildMemberWeekFacts({
-      members: deliveryMembers,
-      allocations: fixture.allocations,
-      timesheets: fixture.timesheets,
-      leaves: fixture.leaves,
-      weeks: fixture.weeks,
-      thresholds,
-    });
+const d = (iso: string): Date => new Date(`${iso}T00:00:00.000Z`);
 
-    const result = buildDemoAnalyticsResult(
-      {
-        members: fixture.members,
-        projects: fixture.projects,
-        allocations: fixture.allocations,
-        timesheets: fixture.timesheets,
-        leaves: fixture.leaves,
-        weeks: fixture.weeks,
-        configRows: [],
-      },
-      facts,
-    );
+function canonicalFromFixture(
+  fixture: ReturnType<typeof buildPmo02AnswerKeyFixture>,
+  weeks = fixture.weeks,
+) {
+  return {
+    members: fixture.members,
+    projects: fixture.projects,
+    allocations: fixture.allocations,
+    timesheets: fixture.timesheets,
+    leaves: fixture.leaves,
+    weeks,
+    configRows: [],
+  };
+}
+
+describe('buildDemoAnalyticsResult', () => {
+  it('PMO_02 project-grain facts produce utilization findings', () => {
+    const fixture = buildPmo02AnswerKeyFixture();
+
+    const result = buildDemoAnalyticsResult(canonicalFromFixture(fixture));
 
     expect(result.overbookIdleFindings.length).toBeGreaterThan(0);
     expect(result.memberWeekFacts.length).toBeGreaterThan(0);
@@ -42,34 +35,19 @@ describe('buildDemoAnalyticsResult', () => {
     expect(result.projectMemberDependencies.every((row) => row.plannedHoursInWindow >= 0)).toBe(
       true,
     );
+    expect(
+      result.projectMemberDependencies.some(
+        (row) => row.projectStartDate != null && row.projectEndDate != null,
+      ),
+    ).toBe(true);
+    expect(result.memberWeekProjectFacts.length).toBeGreaterThan(result.memberWeekFacts.length);
   });
 
   it('limits result facts and reporting window to the selected weeks', () => {
     const fixture = buildPmo02AnswerKeyFixture();
-    const thresholds = resolveThresholds([]);
-    const { deliveryMembers } = splitPmoPopulations(fixture.members, fixture.projects);
-    const facts = buildMemberWeekFacts({
-      members: deliveryMembers,
-      allocations: fixture.allocations,
-      timesheets: fixture.timesheets,
-      leaves: fixture.leaves,
-      weeks: fixture.weeks,
-      thresholds,
-    });
     const selectedWeek = fixture.weeks[0]!;
 
-    const result = buildDemoAnalyticsResult(
-      {
-        members: fixture.members,
-        projects: fixture.projects,
-        allocations: fixture.allocations,
-        timesheets: fixture.timesheets,
-        leaves: fixture.leaves,
-        weeks: [selectedWeek],
-        configRows: [],
-      },
-      facts,
-    );
+    const result = buildDemoAnalyticsResult(canonicalFromFixture(fixture, [selectedWeek]));
 
     expect(result.memberWeekFacts.length).toBeGreaterThan(0);
     expect(result.memberWeekFacts.every((f) => f.weekId === selectedWeek.week_id)).toBe(true);
@@ -79,18 +57,8 @@ describe('buildDemoAnalyticsResult', () => {
     });
   });
 
-  it('applies temporary threshold overrides to findings', () => {
+  it('uses the selected date range for reportingWindow metadata', () => {
     const fixture = buildPmo02AnswerKeyFixture();
-    const thresholds = resolveThresholds([]);
-    const { deliveryMembers } = splitPmoPopulations(fixture.members, fixture.projects);
-    const facts = buildMemberWeekFacts({
-      members: deliveryMembers,
-      allocations: fixture.allocations,
-      timesheets: fixture.timesheets,
-      leaves: fixture.leaves,
-      weeks: fixture.weeks,
-      thresholds,
-    });
 
     const result = buildDemoAnalyticsResult(
       {
@@ -102,16 +70,23 @@ describe('buildDemoAnalyticsResult', () => {
         weeks: fixture.weeks,
         configRows: [],
       },
-      facts,
-      {
-        thresholdOverrides: {
-          overbookThreshold: 10,
-          overbookRedThreshold: 11,
-          idleThreshold: 0,
-          mismatchPctThreshold: 10,
-        },
-      },
+      { dateRange: { from: d('2026-06-29'), to: d('2026-07-07') } },
     );
+
+    expect(result.reportingWindow).toEqual({ start: '2026-06-29', end: '2026-07-07' });
+  });
+
+  it('applies temporary threshold overrides to findings', () => {
+    const fixture = buildPmo02AnswerKeyFixture();
+
+    const result = buildDemoAnalyticsResult(canonicalFromFixture(fixture), {
+      thresholdOverrides: {
+        overbookThreshold: 10,
+        overbookRedThreshold: 11,
+        idleThreshold: 0,
+        mismatchPctThreshold: 10,
+      },
+    });
 
     expect(result.thresholds.overbookThreshold).toBe(10);
     expect(result.overbookIdleFindings).toHaveLength(0);
@@ -120,24 +95,9 @@ describe('buildDemoAnalyticsResult', () => {
 
   it('selects the threshold config active on the requested effective date', () => {
     const fixture = buildPmo02AnswerKeyFixture();
-    const thresholds = resolveThresholds([]);
-    const { deliveryMembers } = splitPmoPopulations(fixture.members, fixture.projects);
-    const facts = buildMemberWeekFacts({
-      members: deliveryMembers,
-      allocations: fixture.allocations,
-      timesheets: fixture.timesheets,
-      leaves: fixture.leaves,
-      weeks: fixture.weeks,
-      thresholds,
-    });
 
     const canonical = {
-      members: fixture.members,
-      projects: fixture.projects,
-      allocations: fixture.allocations,
-      timesheets: fixture.timesheets,
-      leaves: fixture.leaves,
-      weeks: fixture.weeks,
+      ...canonicalFromFixture(fixture),
       configRows: [
         {
           config_id: 'seta-08-sop-001-2026-01-01',
@@ -164,10 +124,10 @@ describe('buildDemoAnalyticsResult', () => {
       ],
     };
 
-    const beforeChange = buildDemoAnalyticsResult(canonical, facts, {
+    const beforeChange = buildDemoAnalyticsResult(canonical, {
       configEffectiveDate: new Date('2026-06-28T00:00:00.000Z'),
     });
-    const afterChange = buildDemoAnalyticsResult(canonical, facts, {
+    const afterChange = buildDemoAnalyticsResult(canonical, {
       configEffectiveDate: new Date('2026-06-29T00:00:00.000Z'),
     });
 
@@ -176,5 +136,21 @@ describe('buildDemoAnalyticsResult', () => {
     expect(afterChange.thresholdConfig.effectiveDate).toBe('2026-06-29');
     expect(afterChange.thresholds.overbookThreshold).toBe(1.1);
     expect(afterChange.thresholds.idleThreshold).toBe(0.75);
+  });
+
+  it('rolls member-week totals up from member-week-project rows', () => {
+    const fixture = buildPmo02AnswerKeyFixture();
+    const result = buildDemoAnalyticsResult(canonicalFromFixture(fixture));
+
+    for (const weekFact of result.memberWeekFacts) {
+      const projectRows = result.memberWeekProjectFacts.filter(
+        (row) =>
+          row.memberId === weekFact.memberId &&
+          row.weekId === weekFact.weekId &&
+          row.scopeStatus === 'IN_SCOPE',
+      );
+      const planned = projectRows.reduce((sum, row) => sum + row.plannedHours, 0);
+      expect(weekFact.plannedHours).toBeCloseTo(planned, 4);
+    }
   });
 });

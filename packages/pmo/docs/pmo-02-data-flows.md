@@ -18,11 +18,19 @@ Workbook sheets
 
 Quy tắc quan trọng về grain:
 
-- `member_week_facts` là fact theo tuần để trace số liệu.
+- `member_week_project_facts` là **grain gốc** (member × week × project): plan/log từng project;
+  gồm cả project **Completed** khi RA/timesheet còn trong cửa sổ báo cáo.
+- `member_week_facts` (persisted) là **rollup** từ project grain → member × week cho finding,
+  RAG, busy/idle. Planned = SUM(project); logged/billable vẫn đọc full timesheet member.
+- **Allocation matrix** (member × project, window rollup): chỉ project **Active** — dùng rebalance.
 - PM (`project_master.pm_id` hoặc role title PM/Project Manager/PMO) là population
-  riêng. Không trộn PM vào utilization finding của delivery member.
+  riêng. Không trộn PM vào utilization finding của delivery member, nhưng vẫn xuất hiện
+  trong trace nếu có RA/log.
 - Finding PMO là verdict ở cấp member. Đừng kết luận từ một tuần lẻ trước khi
   áp dụng loại trừ holiday, leave, training, approved OT.
+- Project **Completed** trong DS05 (vd. `PRJ-H-*`) thường là lịch sử: không có RA/timesheet
+  trong cửa sổ hiện tại nên không hiện ở trace — mở rộng date range về tuần còn overlap
+  lifecycle project để thấy chi tiết.
 
 ## Luồng 1: Workbook sheet -> canonical table
 

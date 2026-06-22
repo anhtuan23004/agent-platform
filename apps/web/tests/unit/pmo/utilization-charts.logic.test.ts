@@ -145,6 +145,11 @@ describe('utilization-charts.logic', () => {
           loggedHours: 240,
           capacityShare: 1,
           effortConsumption: 1,
+          allocationStartDate: '2026-06-29',
+          allocationEndDate: '2026-08-07',
+          projectStartDate: '2026-01-01',
+          projectEndDate: '2026-12-31',
+          projectStatus: 'Active',
         },
         {
           projectId: 'PRJ-2',
@@ -160,6 +165,10 @@ describe('utilization-charts.logic', () => {
           loggedHours: 120,
           capacityShare: 0.5,
           effortConsumption: 1,
+          allocationStartDate: '2026-06-29',
+          allocationEndDate: '2026-08-07',
+          projectStartDate: '2026-01-01',
+          projectEndDate: '2026-12-31',
         },
       ],
       memberWeekFacts: [

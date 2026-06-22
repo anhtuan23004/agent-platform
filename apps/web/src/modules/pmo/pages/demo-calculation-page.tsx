@@ -24,7 +24,7 @@ function uploadLabel(session: PmoPlanningSession): string {
 export function DemoCalculationPage() {
   const session = useSession();
   const [analyticsSettings, setAnalyticsSettings] = useState<DemoAnalyticsSettings | undefined>();
-  const { data, isLoading, isError, error, refetch, isFetching } =
+  const { data, isLoading, isError, error, refetch, isFetching, isPending } =
     useDemoAnalytics(analyticsSettings);
   const sessionsQuery = useQuery({
     queryKey: ['pmo', 'ingestion-sessions', 'utilization-filter'],
@@ -45,6 +45,17 @@ export function DemoCalculationPage() {
     memberFilter,
     projectFilter,
   );
+
+  const calculationScopeKey = [
+    analyticsSettings?.from ?? data?.reportingWindow.start ?? '',
+    analyticsSettings?.to ?? data?.reportingWindow.end ?? '',
+    analyticsSettings?.configEffectiveDate ?? '',
+    analyticsSettings?.ingestionSessionId ?? '',
+    analyticsSettings?.thresholds?.overbookThreshold ?? '',
+    analyticsSettings?.thresholds?.mismatchPctThreshold ?? '',
+  ].join('|');
+
+  const isRecalculating = isFetching && !isLoading;
 
   const noData = isError && error instanceof Error && error.message.includes('No PMO canonical');
   const emptyState = utilizationEmptyState({
@@ -72,7 +83,13 @@ export function DemoCalculationPage() {
       <PageChromeToolbar
         left={
           <Badge variant={filtered ? 'default' : 'secondary'}>
-            {isLoading ? 'Loading…' : filtered ? 'Published PMO data' : 'No data'}
+            {isLoading || isPending
+              ? 'Loading…'
+              : isRecalculating
+                ? 'Recalculating…'
+                : filtered
+                  ? 'Published PMO data'
+                  : 'No data'}
           </Badge>
         }
       />
@@ -146,26 +163,31 @@ export function DemoCalculationPage() {
             />
           </div>
 
-          <UtilizationCharts
-            data={filtered}
-            getMemberLabel={getMemberLabel}
-            getProjectLabel={getProjectLabel}
-            projectFilter={projectFilter}
-            selectedMemberId={memberFilter}
-            onSelectMember={setMemberFilter}
-            onScrollToFindings={() => {
-              document.getElementById('pmo-utilization-findings')?.scrollIntoView({
-                behavior: 'smooth',
-                block: 'start',
-              });
-            }}
-          />
+          <div
+            key={calculationScopeKey}
+            className={`space-y-6 transition-opacity ${isRecalculating ? 'pointer-events-none opacity-50' : ''}`}
+          >
+            <UtilizationCharts
+              data={filtered}
+              getMemberLabel={getMemberLabel}
+              getProjectLabel={getProjectLabel}
+              projectFilter={projectFilter}
+              selectedMemberId={memberFilter}
+              onSelectMember={setMemberFilter}
+              onScrollToFindings={() => {
+                document.getElementById('pmo-utilization-findings')?.scrollIntoView({
+                  behavior: 'smooth',
+                  block: 'start',
+                });
+              }}
+            />
 
-          <DemoCalculationPipeline
-            data={filtered}
-            getMemberLabel={getMemberLabel}
-            getProjectLabel={getProjectLabel}
-          />
+            <DemoCalculationPipeline
+              data={filtered}
+              getMemberLabel={getMemberLabel}
+              getProjectLabel={getProjectLabel}
+            />
+          </div>
         </div>
       ) : null}
     </PageChrome>

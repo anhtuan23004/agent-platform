@@ -85,6 +85,11 @@ export interface DemoProjectMemberDependencyRow {
   loggedHours: number;
   capacityShare: number | null;
   effortConsumption: number | null;
+  allocationStartDate: string;
+  allocationEndDate: string;
+  projectStartDate: string | null;
+  projectEndDate: string | null;
+  projectStatus: string | null;
 }
 
 export interface DemoTimesheetInput {
@@ -126,6 +131,24 @@ export interface DemoMemberWeekRow {
   suppressionReason: string | null;
 }
 
+export interface DemoMemberWeekProjectRow {
+  memberId: string;
+  weekId: string;
+  projectId: string;
+  projectName: string;
+  scopeStatus: string;
+  suppressionReason: string | null;
+  plannedHours: number;
+  loggedHours: number;
+  capacityShare: number | null;
+  effortConsumption: number | null;
+  allocationStartDate: string;
+  allocationEndDate: string;
+  projectStartDate: string | null;
+  projectEndDate: string | null;
+  projectStatus: string | null;
+}
+
 export interface DemoAnalyticsResult {
   reportingWindow: { start: string; end: string };
   thresholds: DemoThresholds;
@@ -156,9 +179,27 @@ export interface DemoAnalyticsResult {
   };
   projectMemberDependencies: DemoProjectMemberDependencyRow[];
   memberWeekFacts: DemoMemberWeekRow[];
+  memberWeekProjectFacts: DemoMemberWeekProjectRow[];
   memberAnalyses: DemoMemberAnalysisRow[];
   overbookIdleFindings: DemoFindingRow[];
   mismatchFindings: DemoFindingRow[];
+}
+
+export function demoAnalyticsQueryKey(settings?: DemoAnalyticsSettings) {
+  const thresholds = settings?.thresholds;
+  return [
+    'pmo',
+    'demo-analytics',
+    settings?.from ?? null,
+    settings?.to ?? null,
+    settings?.configEffectiveDate ?? null,
+    settings?.ingestionSessionId ?? null,
+    thresholds?.overbookThreshold ?? null,
+    thresholds?.overbookRedThreshold ?? null,
+    thresholds?.idleThreshold ?? null,
+    thresholds?.idleYellowThreshold ?? null,
+    thresholds?.mismatchPctThreshold ?? null,
+  ] as const;
 }
 
 function buildQuery(settings?: DemoAnalyticsSettings): string {

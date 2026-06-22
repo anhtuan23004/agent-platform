@@ -37,20 +37,20 @@ const projects: ProjectRow[] = [
     project_name: 'Alpha',
     account_id: null,
     project_type: null,
-    status: null,
+    status: 'Active',
     pm_id: null,
-    start_date: null,
-    end_date: null,
+    start_date: d('2026-01-01'),
+    end_date: d('2026-12-31'),
   },
   {
     project_id: 'PRJ-002',
     project_name: 'Beta',
     account_id: null,
     project_type: null,
-    status: null,
+    status: 'Active',
     pm_id: null,
-    start_date: null,
-    end_date: null,
+    start_date: d('2026-03-01'),
+    end_date: d('2026-09-30'),
   },
 ];
 
@@ -115,6 +115,11 @@ describe('buildMemberProjectAllocationFacts', () => {
       loggedHours: 38,
       plannedHoursInWindow: 64,
       effortConsumption: 0.5938,
+      allocationStartDate: '2026-06-29',
+      allocationEndDate: '2026-07-10',
+      projectStartDate: '2026-01-01',
+      projectEndDate: '2026-12-31',
+      projectStatus: 'Active',
     });
     expect(rows[1]).toMatchObject({
       memberId: 'EMP-004',

@@ -23,6 +23,14 @@ export function ragBadge(color: string) {
   return <Badge variant={variant}>{color}</Badge>;
 }
 
+export function projectStatusBadge(status: string | null | undefined) {
+  if (!status) return <span className="text-ink-subtle">—</span>;
+  const normalized = status.trim().toLowerCase();
+  const variant =
+    normalized === 'active' ? 'success' : normalized === 'completed' ? 'secondary' : 'outline';
+  return <Badge variant={variant}>{status}</Badge>;
+}
+
 export function reasonBadge(reason: string | null) {
   if (!reason) return <span className="text-ink-subtle">—</span>;
   const label =
