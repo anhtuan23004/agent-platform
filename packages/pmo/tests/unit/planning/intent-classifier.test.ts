@@ -116,4 +116,45 @@ describe('PMO multi-axis intent validation', () => {
       ]),
     );
   });
+
+  it('classifies RA preparation workbook ingest as publish with approval', () => {
+    const intent = buildClassifiedPmoIntentForTests({
+      dataSourceMode: 'uploaded_file',
+      actionMode: 'publish',
+      writePolicy: 'requires_approval',
+      confidence: 'high',
+    });
+
+    expect(intent.writePolicy).toBe('requires_approval');
+    expect(intent.allowed_action_ids).toEqual([
+      'workbook_profiling',
+      'column_mapping',
+      'normalize_to_staging',
+      'database_change_summary',
+      'publish_after_approval',
+    ]);
+  });
+
+  it('catalog includes RA preparation examples that route to publish', () => {
+    const catalog = loadPmoPlannerCatalog();
+
+    expect(catalog.classification_rules.map((item) => item.rule).join('\n')).toMatch(
+      /resource allocation|RA/i,
+    );
+    expect(catalog.examples).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          goal: 'Ingest this workbook and prepare data for RA calculation',
+          dataSourceMode: 'uploaded_file',
+          actionMode: 'publish',
+          writePolicy: 'requires_approval',
+        }),
+        expect.objectContaining({
+          goal: expect.stringMatching(/publish to PMO.*report/i),
+          actionMode: 'publish_then_report',
+          writePolicy: 'requires_approval',
+        }),
+      ]),
+    );
+  });
 });
