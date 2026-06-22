@@ -35,15 +35,11 @@ This is the supported self-host install path. End-to-end clock time on a fresh U
    docker compose run --rm migrator
    ```
 
-5. (Optional, for demo data) Seed hackathon CSVs (+ PMO_02 when `mock-data.db` is mounted):
+5. (Optional, for demo data) Seed hackathon CSVs + PMO_02 (bundled in the server image):
    ```bash
    docker compose run --rm seeder
-   # PMO_02 on a host (demo EC2): mount the SQLite file built in CI, not baked in the image
-   docker compose run --rm \
-     -v /opt/seta/demo-assets/mock-data.db:/app/apps/cli/mock-data.db:ro \
-     -e PMO_MOCK_DB_PATH=/app/apps/cli/mock-data.db \
-     seeder seed --only pmo --tenant hackathon
    ```
+   PMO canonical rows load from `hackathon/data/pmo_02_mock-data.db` inside the image — no volume mount required. Override with `-e PMO_MOCK_DB_PATH=/path/to/other.db` if needed.
    `seeder` is a dedicated one-shot service behind the `seed` profile; `docker compose run` auto-enables the profile of the named service, so `up -d` (no args) skips it.
 
 6. Open `https://${PLATFORM_DOMAIN}` and log in with the bootstrap credentials printed to the `server` logs:
