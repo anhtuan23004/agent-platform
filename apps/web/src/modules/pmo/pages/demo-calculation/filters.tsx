@@ -125,8 +125,6 @@ export function DemoCalculationFilters({
     analyticsSettings?.configEffectiveDate,
   ].join(':');
 
-  const activeFrom = analyticsSettings?.from ?? reportingWindow.start;
-  const activeTo = analyticsSettings?.to ?? reportingWindow.end;
   const hasFilter = Boolean(
     selectedUploadId ||
       memberFilter ||
@@ -162,6 +160,8 @@ export function DemoCalculationFilters({
       }),
     );
   };
+  const publishedUploadOptions = uploadOptions.filter((upload) => upload.group === 'published');
+  const myUploadOptions = uploadOptions.filter((upload) => upload.group === 'mine');
 
   return (
     <div className="space-y-3">
@@ -189,16 +189,16 @@ export function DemoCalculationFilters({
                 <CommandInput placeholder="Search source upload…" />
                 <CommandList>
                   <CommandEmpty>No uploads found.</CommandEmpty>
-                  <CommandGroup heading="Source uploads">
+                  <CommandGroup heading="Published data">
                     <CommandItem
                       onSelect={() => {
                         setUploadFilter(null);
                         setUploadOpen(false);
                       }}
                     >
-                      All published data
+                      Current published data
                     </CommandItem>
-                    {uploadOptions.map((upload) => (
+                    {publishedUploadOptions.map((upload) => (
                       <CommandItem
                         key={upload.id}
                         disabled={upload.disabled}
@@ -220,6 +220,31 @@ export function DemoCalculationFilters({
                       </CommandItem>
                     ))}
                   </CommandGroup>
+                  {myUploadOptions.length > 0 ? (
+                    <CommandGroup heading="Your uploads">
+                      {myUploadOptions.map((upload) => (
+                        <CommandItem
+                          key={upload.id}
+                          disabled={upload.disabled}
+                          onSelect={() => {
+                            if (upload.disabled) return;
+                            setUploadFilter(upload);
+                            setUploadOpen(false);
+                          }}
+                        >
+                          <div className="min-w-0">
+                            <div className="truncate">{upload.label}</div>
+                            <div className="text-caption text-ink-muted">
+                              {upload.uploadedAtLabel} · {upload.statusLabel}
+                            </div>
+                            <div className="text-caption text-ink-subtle">
+                              {upload.reportingPeriodLabel}
+                            </div>
+                          </div>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  ) : null}
                 </CommandList>
               </Command>
             </PopoverContent>
@@ -290,11 +315,6 @@ export function DemoCalculationFilters({
           {selectedUploadId ? (
             <Badge variant="secondary">Source: {selectedUploadLabel ?? selectedUploadId}</Badge>
           ) : null}
-          {activeFrom && activeTo ? (
-            <Badge variant="secondary">
-              Date range: {activeFrom} to {activeTo}
-            </Badge>
-          ) : null}
           {memberFilter ? <Badge variant="secondary">Member: {memberFilter}</Badge> : null}
           {projectFilter ? <Badge variant="secondary">Project: {projectFilter}</Badge> : null}
 
@@ -363,7 +383,6 @@ function CalculationSettingsForm({
   const isRuleDateAfterWindowStart = Boolean(
     configEffectiveDate && from && configEffectiveDate > from,
   );
-
   const applyCalculationSettings = () => {
     onAnalyticsSettingsChange(
       compactSettings({
@@ -400,12 +419,9 @@ function CalculationSettingsForm({
     <div className="space-y-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 space-y-0.5">
-          <div className="text-body-sm font-semibold text-ink">Reporting window</div>
+          <div className="text-body-sm font-semibold text-ink">Calculation settings</div>
           <div className="max-w-full text-caption text-ink-muted">
-            {thresholdConfig.ruleName ?? 'Threshold config'}
-            {thresholdConfig.effectiveDate
-              ? ` · Active from ${thresholdConfig.effectiveDate}`
-              : ' · No active config'}
+            Adjust the date range and thresholds used for this calculation.
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">

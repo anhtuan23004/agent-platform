@@ -42,13 +42,22 @@ export function AgentComposer({ compact = false }: AgentComposerProps) {
   const setSelectedSessionId = isPmo ? pmoIngestAttachments.setSelectedSessionId : () => {};
   const selectedUploadSource = isPmo ? pmoIngestAttachments.selectedUploadSource : null;
   const scopedIngestSessionId = isPmo ? pmoIngestAttachments.scopedIngestSessionId : null;
+  const publishedUploadSources = isPmo
+    ? uploadSources.filter((source) => source.group === 'published')
+    : [];
+  const myUploadSources = isPmo ? uploadSources.filter((source) => source.group === 'mine') : [];
 
   const submit = () => {
     if (!value.trim() || isRunning) return;
     if (attachmentsBlockSend(attachments)) return;
     clearRunError();
     if (isPmo && scopedIngestSessionId) {
-      pmoIngestSendRef.current = { ingestionSessionId: scopedIngestSessionId };
+      const from = selectedUploadSource?.reportingPeriodStart?.slice(0, 10);
+      const to = selectedUploadSource?.reportingPeriodEnd?.slice(0, 10);
+      pmoIngestSendRef.current = {
+        ingestionSessionId: scopedIngestSessionId,
+        ...(from && to ? { reportingDateFrom: from, reportingDateTo: to } : {}),
+      };
     } else if (isPmo) {
       pmoIngestSendRef.current = {};
     } else {
@@ -123,13 +132,35 @@ export function AgentComposer({ compact = false }: AgentComposerProps) {
                     value={selectedSessionId ?? ''}
                     onChange={(event) => setSelectedSessionId(event.target.value || null)}
                   >
-                    {uploadSources.map((source) => (
-                      <option key={source.ingestionSessionId} value={source.ingestionSessionId}>
-                        {source.label}
-                        {source.fromCurrentThread ? '' : ' · other thread'}
-                        {source.isPublished ? ' · published' : ' · not published yet'}
-                      </option>
-                    ))}
+                    {publishedUploadSources.length > 0 ? (
+                      <optgroup label="Published data">
+                        {publishedUploadSources.map((source) => (
+                          <option
+                            key={source.ingestionSessionId}
+                            value={source.ingestionSessionId}
+                            disabled={source.disabled}
+                          >
+                            {source.label}
+                            {source.fromCurrentThread ? '' : ' · other thread'}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ) : null}
+                    {myUploadSources.length > 0 ? (
+                      <optgroup label="Your uploads">
+                        {myUploadSources.map((source) => (
+                          <option
+                            key={source.ingestionSessionId}
+                            value={source.ingestionSessionId}
+                            disabled={source.disabled}
+                          >
+                            {source.label}
+                            {source.isPublished ? ' · published' : ' · not published yet'}
+                            {source.fromCurrentThread ? ' · this thread' : ''}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ) : null}
                   </select>
                 </>
               ) : null}

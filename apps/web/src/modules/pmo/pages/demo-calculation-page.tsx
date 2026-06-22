@@ -2,6 +2,7 @@ import { Badge, EmptyState, PageChrome, PageChromeToolbar, Skeleton } from '@set
 import { useQuery } from '@tanstack/react-query';
 import { Database } from 'lucide-react';
 import { useState } from 'react';
+import { useSession } from '@/modules/identity/components/SessionProvider.tsx';
 import { type PmoPlanningSession, pmoApi } from '../api/client.ts';
 import type { DemoAnalyticsSettings } from '../api/demo-analytics.ts';
 import { useDemoAnalytics } from '../hooks/use-demo-analytics.ts';
@@ -20,6 +21,7 @@ function uploadLabel(session: PmoPlanningSession): string {
 }
 
 export function DemoCalculationPage() {
+  const session = useSession();
   const [analyticsSettings, setAnalyticsSettings] = useState<DemoAnalyticsSettings | undefined>();
   const { data, isLoading, isError, error, refetch, isFetching } =
     useDemoAnalytics(analyticsSettings);
@@ -35,7 +37,7 @@ export function DemoCalculationPage() {
       ) ?? null)
     : null;
   const sessions = sessionsQuery.data?.items ?? [];
-  const uploadOptions = buildSourceUploadOptions(sessions);
+  const uploadOptions = buildSourceUploadOptions(sessions, session.user_id);
 
   const { filtered, members, projects, getMemberLabel, getProjectLabel } = useFilteredDemoAnalytics(
     data,
