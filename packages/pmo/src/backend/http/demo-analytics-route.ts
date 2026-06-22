@@ -20,6 +20,7 @@ const DemoAnalyticsQuerySchema = z
     overbookThreshold: z.coerce.number().min(0).max(5).optional(),
     overbookRedThreshold: z.coerce.number().min(0).max(5).optional(),
     idleThreshold: z.coerce.number().min(0).max(5).optional(),
+    idleYellowThreshold: z.coerce.number().min(0).max(5).optional(),
     mismatchPctThreshold: z.coerce.number().min(0).max(5).optional(),
   })
   .refine((q) => (q.from && q.to) || (!q.from && !q.to), {
@@ -66,6 +67,7 @@ export function registerDemoAnalyticsRoutes(app: Hono<SessionEnv>): void {
           overbookThreshold: q.overbookThreshold,
           overbookRedThreshold: q.overbookRedThreshold,
           idleThreshold: q.idleThreshold,
+          idleYellowThreshold: q.idleYellowThreshold,
           mismatchPctThreshold: q.mismatchPctThreshold,
         },
       });

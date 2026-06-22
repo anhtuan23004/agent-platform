@@ -2,6 +2,7 @@ export interface DemoThresholds {
   overbookThreshold: number;
   overbookRedThreshold: number;
   idleThreshold: number;
+  idleYellowThreshold: number;
   mismatchPctThreshold: number;
   otMaxHoursPerWeek: number;
   requiredTrainingHours: number;
@@ -15,7 +16,11 @@ export interface DemoAnalyticsSettings {
   thresholds?: Partial<
     Pick<
       DemoThresholds,
-      'overbookThreshold' | 'overbookRedThreshold' | 'idleThreshold' | 'mismatchPctThreshold'
+      | 'overbookThreshold'
+      | 'overbookRedThreshold'
+      | 'idleThreshold'
+      | 'idleYellowThreshold'
+      | 'mismatchPctThreshold'
     >
   >;
 }
@@ -172,6 +177,9 @@ function buildQuery(settings?: DemoAnalyticsSettings): string {
   }
   if (thresholds?.idleThreshold !== undefined) {
     params.set('idleThreshold', String(thresholds.idleThreshold));
+  }
+  if (thresholds?.idleYellowThreshold !== undefined) {
+    params.set('idleYellowThreshold', String(thresholds.idleYellowThreshold));
   }
   if (thresholds?.mismatchPctThreshold !== undefined) {
     params.set('mismatchPctThreshold', String(thresholds.mismatchPctThreshold));
