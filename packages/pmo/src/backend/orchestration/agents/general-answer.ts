@@ -1,7 +1,7 @@
 import { Agent } from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
 import { RequestContext } from '@mastra/core/request-context';
-import type { AgentResult, SpecializedAgentRunCtx, SpecializedAgentSpec } from '@seta/agent-sdk';
+import type { AgentResult, SpecializedAgentSpec } from '@seta/agent-sdk';
 import type { z } from 'zod';
 import { GeneralAnswerInputSchema, GeneralAnswerOutputSchema } from '../schemas.ts';
 
