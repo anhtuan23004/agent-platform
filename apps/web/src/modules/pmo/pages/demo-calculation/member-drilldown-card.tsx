@@ -1,5 +1,6 @@
-import { IssueBadge, ragAccentClass } from './finding-ui.tsx';
+import { ragAccentClass } from './finding-metadata.ts';
 import { hours, nullish, pct } from './formatters.tsx';
+import { IssueBadge } from './issue-badge.tsx';
 import { MetricHelpLabel } from './metric-help.tsx';
 import { METRIC_HELP } from './metric-help-copy.ts';
 import type { MemberDrilldownSummary } from './utilization-charts.logic.ts';

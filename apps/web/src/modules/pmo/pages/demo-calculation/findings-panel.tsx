@@ -2,7 +2,7 @@ import { Badge, Button, EmptyState } from '@seta/shared-ui';
 import { CheckCircle2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { DemoFindingRow } from '../../api/demo-analytics.ts';
-import { issueMeta, ragAccentClass } from './finding-ui.tsx';
+import { issueMeta, ragAccentClass } from './finding-metadata.ts';
 import { pct, ragBadge } from './formatters.tsx';
 import { MetricHelpLabel } from './metric-help.tsx';
 import { METRIC_HELP } from './metric-help-copy.ts';
