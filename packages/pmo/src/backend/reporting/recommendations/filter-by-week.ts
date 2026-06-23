@@ -1,4 +1,12 @@
+<<<<<<< HEAD
 import type { GeneratePmoReportOutput } from '../report-output.ts';
+=======
+import type {
+  PmoReportDateRange,
+  PmoReportFinding,
+  WorkloadReportOutput,
+} from '../report-output.ts';
+>>>>>>> 853f2503 (fix(pmo): narrow workload rebalance report helpers)
 import type { RebalanceRecommendationGroup } from './contracts.ts';
 
 export interface WeekBounds {
@@ -7,6 +15,7 @@ export interface WeekBounds {
   weekEnd: string;
 }
 
+<<<<<<< HEAD
 export function resolveWeekBounds(
   weekId: string,
   findings: GeneratePmoReportOutput['findings'],
@@ -19,6 +28,59 @@ export function resolveWeekBounds(
     }
   }
   return null;
+=======
+export interface WorkloadRecommendationSlice {
+  dateRange: PmoReportDateRange;
+  findings: WorkloadReportOutput['findings'];
+  recommendations: WorkloadReportOutput['recommendations'];
+}
+
+function formatIsoDate(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function parseIsoDate(value: string): Date {
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`invalid_report_date:${value}`);
+  }
+  return parsed;
+}
+
+function addDays(value: Date, days: number): Date {
+  const next = new Date(value);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
+function parseWeekOrdinal(weekId: string): number | null {
+  const match = /^W(\d+)$/.exec(weekId.trim());
+  if (!match) return null;
+  const ordinal = Number(match[1]);
+  return Number.isInteger(ordinal) && ordinal > 0 ? ordinal : null;
+}
+
+export function resolveWeekBounds(
+  weekId: string,
+  dateRange: PmoReportDateRange,
+): WeekBounds | null {
+  const ordinal = parseWeekOrdinal(weekId);
+  if (!ordinal) return null;
+
+  const rangeStart = parseIsoDate(dateRange.from);
+  const rangeEnd = parseIsoDate(dateRange.to);
+  const weekStart = addDays(rangeStart, (ordinal - 1) * 7);
+  if (weekStart.getTime() > rangeEnd.getTime()) return null;
+
+  const naturalWeekEnd = addDays(weekStart, 6);
+  const weekEnd = naturalWeekEnd.getTime() > rangeEnd.getTime() ? rangeEnd : naturalWeekEnd;
+
+  return {
+    weekId,
+    weekStart: formatIsoDate(weekStart),
+    weekEnd: formatIsoDate(weekEnd),
+  };
+>>>>>>> 853f2503 (fix(pmo): narrow workload rebalance report helpers)
 }
 
 export function dateRangesOverlap(
@@ -59,6 +121,7 @@ export function recommendationGroupOverlapsWeek(
   );
 }
 
+<<<<<<< HEAD
 export function findingHasWeekEvidence(
   finding: GeneratePmoReportOutput['findings'][number],
   weekId: string,
@@ -71,10 +134,32 @@ export function filterReportOutputByWeek(
   weekId: string,
 ): Pick<GeneratePmoReportOutput, 'findings' | 'recommendations'> {
   const bounds = resolveWeekBounds(weekId, report.findings);
+=======
+export function findingMatchesWeek(
+  finding: PmoReportFinding,
+  weekId: string,
+  matchingSourceMemberIds: ReadonlySet<string>,
+): boolean {
+  if (finding.issueType !== 'overbook') return false;
+  if (!matchingSourceMemberIds.has(finding.memberId)) return false;
+
+  // The workload report no longer carries per-week positive evidence.
+  // Keep the week filter conservative by excluding findings when the
+  // selected week was explicitly suppressed for that member.
+  return !finding.excludedWeeks.some((week) => week.weekId === weekId);
+}
+
+export function filterReportOutputByWeek(
+  report: WorkloadRecommendationSlice,
+  weekId: string,
+): Pick<WorkloadReportOutput, 'findings' | 'recommendations'> {
+  const bounds = resolveWeekBounds(weekId, report.dateRange);
+>>>>>>> 853f2503 (fix(pmo): narrow workload rebalance report helpers)
   if (!bounds) {
     throw new Error(`unknown_week_id:${weekId}`);
   }
 
+<<<<<<< HEAD
   const findings = report.findings.filter(
     (finding) => finding.issueType === 'overbook' && findingHasWeekEvidence(finding, weekId),
   );
@@ -82,6 +167,14 @@ export function filterReportOutputByWeek(
   const recommendations = report.recommendations.filter(
     (group) =>
       sourceMemberIds.has(group.sourceMemberId) && recommendationGroupOverlapsWeek(group, bounds),
+=======
+  const recommendations = report.recommendations.filter((group) =>
+    recommendationGroupOverlapsWeek(group, bounds),
+  );
+  const sourceMemberIds = new Set(recommendations.map((group) => group.sourceMemberId));
+  const findings = report.findings.filter((finding) =>
+    findingMatchesWeek(finding, weekId, sourceMemberIds),
+>>>>>>> 853f2503 (fix(pmo): narrow workload rebalance report helpers)
   );
 
   return { findings, recommendations };

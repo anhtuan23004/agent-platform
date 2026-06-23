@@ -6,12 +6,21 @@ import {
   recommendationGroupOverlapsWeek,
   resolveWeekBounds,
 } from '../../../../src/backend/reporting/recommendations/filter-by-week.ts';
+<<<<<<< HEAD
 import type { GeneratePmoReportOutput } from '../../../../src/backend/reporting/report-output.ts';
 
 function finding(
   memberId: string,
   issueWeeks: NonNullable<GeneratePmoReportOutput['findings'][number]['issueWeeks']>,
 ): GeneratePmoReportOutput['findings'][number] {
+=======
+import type { WorkloadReportOutput } from '../../../../src/backend/reporting/report-output.ts';
+
+function finding(
+  memberId: string,
+  excludedWeeks: WorkloadReportOutput['findings'][number]['excludedWeeks'] = [],
+): WorkloadReportOutput['findings'][number] {
+>>>>>>> 853f2503 (fix(pmo): narrow workload rebalance report helpers)
   return {
     memberId,
     issueType: 'overbook',
@@ -19,8 +28,12 @@ function finding(
     busyRate: 1.2,
     effortConsumption: 1,
     detail: 'overbook',
+<<<<<<< HEAD
     excludedWeeks: [],
     issueWeeks,
+=======
+    excludedWeeks,
+>>>>>>> 853f2503 (fix(pmo): narrow workload rebalance report helpers)
     annotations: [],
     reviewRequired: true,
     suggestedActionCode: 'REBALANCE_ALLOCATION',
@@ -40,7 +53,11 @@ function finding(
 function group(
   opportunityId: string,
   sourceMemberId: string,
+<<<<<<< HEAD
 ): GeneratePmoReportOutput['recommendations'][number] {
+=======
+): WorkloadReportOutput['recommendations'][number] {
+>>>>>>> 853f2503 (fix(pmo): narrow workload rebalance report helpers)
   return {
     opportunityId,
     sourceMemberId,
@@ -68,6 +85,7 @@ function group(
 }
 
 describe('filter-by-week', () => {
+<<<<<<< HEAD
   it('resolves week bounds from issue week evidence', () => {
     expect(
       resolveWeekBounds('W2', [
@@ -87,6 +105,10 @@ describe('filter-by-week', () => {
         ]),
       ]),
     ).toEqual({
+=======
+  it('resolves week bounds from the report date range', () => {
+    expect(resolveWeekBounds('W2', { from: '2026-06-29', to: '2026-07-20' })).toEqual({
+>>>>>>> 853f2503 (fix(pmo): narrow workload rebalance report helpers)
       weekId: 'W2',
       weekStart: '2026-07-06',
       weekEnd: '2026-07-12',
@@ -102,6 +124,7 @@ describe('filter-by-week', () => {
 
   it('filters findings and recommendations to a week context', () => {
     const report = {
+<<<<<<< HEAD
       findings: [
         finding('EMP-001', [
           {
@@ -132,6 +155,10 @@ describe('filter-by-week', () => {
           },
         ]),
       ],
+=======
+      dateRange: { from: '2026-06-29', to: '2026-07-26' },
+      findings: [finding('EMP-001'), finding('EMP-003')],
+>>>>>>> 853f2503 (fix(pmo): narrow workload rebalance report helpers)
       recommendations: [
         group('EMP-001:PRJ-1:BE:2026-07-06:2026-08-07', 'EMP-001'),
         group('EMP-003:PRJ-2:DE:2026-07-20:2026-08-07', 'EMP-003'),
@@ -144,6 +171,7 @@ describe('filter-by-week', () => {
     });
   });
 
+<<<<<<< HEAD
   it('throws when week id is not present in report evidence', () => {
     expect(() =>
       filterReportOutputByWeek(
@@ -164,6 +192,14 @@ describe('filter-by-week', () => {
               },
             ]),
           ],
+=======
+  it('throws when week id is outside the report range', () => {
+    expect(() =>
+      filterReportOutputByWeek(
+        {
+          dateRange: { from: '2026-06-29', to: '2026-07-05' },
+          findings: [finding('EMP-001')],
+>>>>>>> 853f2503 (fix(pmo): narrow workload rebalance report helpers)
           recommendations: [],
         },
         'W9',
@@ -171,6 +207,22 @@ describe('filter-by-week', () => {
     ).toThrow('unknown_week_id:W9');
   });
 
+<<<<<<< HEAD
+=======
+  it('excludes findings when the selected week was suppressed', () => {
+    const report = {
+      dateRange: { from: '2026-06-29', to: '2026-07-12' },
+      findings: [finding('EMP-001', [{ weekId: 'W1', reason: 'approved_ot' }])],
+      recommendations: [group('EMP-001:PRJ-1:BE:2026-06-29:2026-07-05', 'EMP-001')],
+    };
+
+    expect(filterReportOutputByWeek(report, 'W1')).toEqual({
+      findings: [],
+      recommendations: [report.recommendations[0]],
+    });
+  });
+
+>>>>>>> 853f2503 (fix(pmo): narrow workload rebalance report helpers)
   it('detects overlap between opportunity period and week bounds', () => {
     expect(
       recommendationGroupOverlapsWeek(group('EMP-001:PRJ-1:BE:2026-07-06:2026-08-07', 'EMP-001'), {

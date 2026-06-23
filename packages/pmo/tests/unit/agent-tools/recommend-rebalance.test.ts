@@ -1,6 +1,10 @@
 import { RequestContext } from '@mastra/core/request-context';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+<<<<<<< HEAD
 import type { GeneratePmoReportOutput } from '../../../src/backend/analytics/report.ts';
+=======
+import type { WorkloadReportOutput } from '../../../src/backend/reporting/report-output.ts';
+>>>>>>> 853f2503 (fix(pmo): narrow workload rebalance report helpers)
 
 const mocks = vi.hoisted(() => ({
   generatePmoReport: vi.fn(),
@@ -19,20 +23,32 @@ const { pmoRecommendRebalanceTool } = await import(
   '../../../src/backend/agent-tools/recommend-rebalance.ts'
 );
 
+<<<<<<< HEAD
 function report(): GeneratePmoReportOutput {
   return {
     dateRange: { from: '2026-06-29', to: '2026-07-05' },
+=======
+function report(): WorkloadReportOutput {
+  return {
+    reportFamily: 'workload',
+    dateRange: { from: '2026-06-29', to: '2026-07-12' },
+>>>>>>> 853f2503 (fix(pmo): narrow workload rebalance report helpers)
     sourceVersion: {
       factsVersion: 'facts-v1',
       canonicalDataVersion: 'canonical-v1',
       factsComputedAt: '2026-07-05T12:00:00.000Z',
     },
+<<<<<<< HEAD
     summary: { memberCount: 3, overbookCount: 2, idleCount: 0, excludedWeekCount: 0 },
+=======
+    summary: { memberCount: 3, overbookCount: 2, idleCount: 0, excludedWeekCount: 1 },
+>>>>>>> 853f2503 (fix(pmo): narrow workload rebalance report helpers)
     members: [
       { memberId: 'EMP-001', fullName: 'Source One', department: 'Delivery', roleTitle: 'BE' },
       { memberId: 'EMP-002', fullName: 'Target Two', department: 'Delivery', roleTitle: 'BE' },
       { memberId: 'EMP-003', fullName: 'Source Three', department: 'Data', roleTitle: 'DE' },
     ],
+<<<<<<< HEAD
     findings: [
       {
         memberId: 'EMP-001',
@@ -107,6 +123,9 @@ function report(): GeneratePmoReportOutput {
         },
       },
     ],
+=======
+    findings: [finding('EMP-001'), finding('EMP-003', [{ weekId: 'W1', reason: 'approved_ot' }])],
+>>>>>>> 853f2503 (fix(pmo): narrow workload rebalance report helpers)
     recommendations: [
       group('EMP-001:PRJ-1:BE:2026-06-29:2026-07-05', 'EMP-001', 'EMP-002'),
       group('EMP-003:PRJ-1:BE:2026-07-06:2026-07-12', 'EMP-003', 'EMP-002'),
@@ -114,19 +133,60 @@ function report(): GeneratePmoReportOutput {
   };
 }
 
+<<<<<<< HEAD
+=======
+function finding(
+  memberId: string,
+  excludedWeeks: WorkloadReportOutput['findings'][number]['excludedWeeks'] = [],
+): WorkloadReportOutput['findings'][number] {
+  return {
+    memberId,
+    issueType: 'overbook',
+    ragColor: 'red',
+    busyRate: 1.2,
+    effortConsumption: 1,
+    detail: 'overbook',
+    excludedWeeks,
+    annotations: [],
+    reviewRequired: true,
+    suggestedActionCode: 'REBALANCE_ALLOCATION',
+    suggestedActions: [],
+    metricEvidence: {
+      N01: 1.2,
+      N02: 1,
+      N03: 1,
+      N04: 0,
+      N05: 0,
+      N06: 1,
+      N12: null,
+    },
+  };
+}
+
+>>>>>>> 853f2503 (fix(pmo): narrow workload rebalance report helpers)
 function group(
   opportunityId: string,
   sourceMemberId: string,
   targetMemberId: string,
+<<<<<<< HEAD
 ): GeneratePmoReportOutput['recommendations'][number] {
+=======
+): WorkloadReportOutput['recommendations'][number] {
+  const [, , , from = '', to = ''] = opportunityId.split(':');
+>>>>>>> 853f2503 (fix(pmo): narrow workload rebalance report helpers)
   return {
     opportunityId,
     sourceMemberId,
     projectId: 'PRJ-1',
     roleNeeded: 'BE',
     severity: 'red',
+<<<<<<< HEAD
     evidenceWindow: { from: '2026-06-29', to: '2026-07-05' },
     planningPeriod: { from: '2026-06-29', to: '2026-07-05' },
+=======
+    evidenceWindow: { from, to },
+    planningPeriod: { from, to },
+>>>>>>> 853f2503 (fix(pmo): narrow workload rebalance report helpers)
     currentRaBusyRate: 1.2,
     targetRaBusyRate: 0.95,
     requiredReductionPct: 0.2,
@@ -149,8 +209,13 @@ function group(
         opportunityId,
         projectId: 'PRJ-1',
         roleNeeded: 'BE',
+<<<<<<< HEAD
         effectiveFrom: '2026-06-29',
         effectiveTo: '2026-07-05',
+=======
+        effectiveFrom: from,
+        effectiveTo: to,
+>>>>>>> 853f2503 (fix(pmo): narrow workload rebalance report helpers)
         transferPct: 0.2,
         transferHoursPerWeek: 8,
         score: 0.91,
@@ -243,7 +308,11 @@ describe('pmo_recommendRebalance tool', () => {
     expect(mocks.generatePmoReport).toHaveBeenCalledTimes(1);
   });
 
+<<<<<<< HEAD
   it('filters by week id using calendar week evidence', async () => {
+=======
+  it('filters by week id using the report date range and opportunity dates', async () => {
+>>>>>>> 853f2503 (fix(pmo): narrow workload rebalance report helpers)
     mocks.generatePmoReport.mockResolvedValueOnce(report());
 
     const result = await execute({
