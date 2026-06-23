@@ -63,6 +63,7 @@ describe('ensureFactsComputed (DB)', () => {
       initPools({ databaseUrl });
       try {
         const tenant = crypto.randomUUID();
+        await seedPublishedSession(pool, tenant, SESSION_A, '2026-06-01T10:00:00.000Z');
         await seedCanonicalMember(pool, tenant);
         await seedWeek(pool, tenant);
 
@@ -88,6 +89,7 @@ describe('ensureFactsComputed (DB)', () => {
       initPools({ databaseUrl });
       try {
         const tenant = crypto.randomUUID();
+        await seedPublishedSession(pool, tenant, SESSION_A, '2026-06-01T10:00:00.000Z');
         await seedCanonicalMember(pool, tenant);
         await seedWeek(pool, tenant);
 
@@ -115,9 +117,9 @@ describe('ensureFactsComputed (DB)', () => {
       initPools({ databaseUrl });
       try {
         const tenant = crypto.randomUUID();
+        await seedPublishedSession(pool, tenant, SESSION_A, '2026-06-01T10:00:00.000Z');
         await seedCanonicalMember(pool, tenant);
         await seedWeek(pool, tenant);
-        await seedPublishedSession(pool, tenant, SESSION_A, '2026-06-01T10:00:00.000Z');
 
         const first = await ensureFactsComputed(tenant, { force: true, sessionId: SESSION_A });
         expect(first.recomputed).toBe(true);
@@ -142,11 +144,12 @@ describe('ensureFactsComputed (DB)', () => {
       initPools({ databaseUrl });
       try {
         const tenant = crypto.randomUUID();
+        await seedPublishedSession(pool, tenant, SESSION_A, '2026-06-01T10:00:00.000Z');
         await seedCanonicalMember(pool, tenant);
         await seedWeek(pool, tenant);
 
-        await ensureFactsComputed(tenant, { force: true });
-        const again = await ensureFactsComputed(tenant, { force: true });
+        await ensureFactsComputed(tenant, { force: true, sessionId: SESSION_A });
+        const again = await ensureFactsComputed(tenant, { force: true, sessionId: SESSION_A });
         expect(again.recomputed).toBe(true);
       } finally {
         await closePools();

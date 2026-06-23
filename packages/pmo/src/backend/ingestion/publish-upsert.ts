@@ -11,6 +11,7 @@ import {
   stagingChanges,
   timesheets,
 } from '../db/schema.ts';
+import { clearSessionCanonicalData } from './clear-session-canonical.ts';
 import { computeSourceRowHash } from './stage-changes.ts';
 
 export interface PublishResult {
@@ -193,7 +194,7 @@ export function collectPublishValidationIssues(
   const issues: PublishValidationIssue[] = [];
 
   for (const change of changes) {
-    if (change.change_type === 'exact_duplicate' || change.change_type === 'duplicate_in_upload') {
+    if (change.change_type === 'duplicate_in_upload') {
       continue;
     }
 
@@ -231,8 +232,7 @@ export function collectPublishValidationIssues(
 }
 
 /**
- * Reads staging_changes for a session and executes upserts into canonical tables.
- * Returns counts of written/updated/skipped rows.
+ * Replaces the canonical snapshot for one ingestion session from approved staging rows.
  */
 export async function publishUpsert(
   ingestionSessionId: string,
@@ -250,6 +250,8 @@ export async function publishUpsert(
       throw new Error(formatValidationError(validationIssues));
     }
 
+    await clearSessionCanonicalData(tx as ReturnType<typeof pmoDb>, tenantId, ingestionSessionId);
+
     const rowsWritten: Record<string, number> = {};
     const rowsUpdated: Record<string, number> = {};
     const rowsSkipped: Record<string, number> = {};
@@ -260,10 +262,7 @@ export async function publishUpsert(
       if (!rowsUpdated[tableIdRaw]) rowsUpdated[tableIdRaw] = 0;
       if (!rowsSkipped[tableIdRaw]) rowsSkipped[tableIdRaw] = 0;
 
-      if (
-        change.change_type === 'exact_duplicate' ||
-        change.change_type === 'duplicate_in_upload'
-      ) {
+      if (change.change_type === 'duplicate_in_upload') {
         rowsSkipped[tableIdRaw]++;
         continue;
       }
@@ -276,12 +275,7 @@ export async function publishUpsert(
 
       const values = requireObjectValues(change);
       const sourceRowHash = computeSourceRowHash(tableId, values);
-
-      if (change.change_type === 'new_record') {
-        rowsWritten[tableIdRaw]++;
-      } else if (change.change_type === 'updated_record') {
-        rowsUpdated[tableIdRaw]++;
-      }
+      rowsWritten[tableIdRaw]++;
 
       await upsertRow(tx as ReturnType<typeof pmoDb>, {
         tableId,
@@ -335,7 +329,11 @@ async function upsertRow(
       .insert(resourceAllocations)
       .values(row)
       .onConflictDoUpdate({
-        target: [resourceAllocations.tenant_id, resourceAllocations.natural_key_hash],
+        target: [
+          resourceAllocations.tenant_id,
+          resourceAllocations.last_ingestion_session_id,
+          resourceAllocations.natural_key_hash,
+        ],
         set: {
           source_row_hash: row.source_row_hash,
           last_ingestion_session_id: row.last_ingestion_session_id,
@@ -374,7 +372,11 @@ async function upsertRow(
       .insert(timesheets)
       .values(row)
       .onConflictDoUpdate({
-        target: [timesheets.tenant_id, timesheets.natural_key_hash],
+        target: [
+          timesheets.tenant_id,
+          timesheets.last_ingestion_session_id,
+          timesheets.natural_key_hash,
+        ],
         set: {
           source_row_hash: row.source_row_hash,
           last_ingestion_session_id: row.last_ingestion_session_id,
@@ -413,7 +415,11 @@ async function upsertRow(
       .insert(leaveRecords)
       .values(row)
       .onConflictDoUpdate({
-        target: [leaveRecords.tenant_id, leaveRecords.natural_key_hash],
+        target: [
+          leaveRecords.tenant_id,
+          leaveRecords.last_ingestion_session_id,
+          leaveRecords.natural_key_hash,
+        ],
         set: {
           source_row_hash: row.source_row_hash,
           last_ingestion_session_id: row.last_ingestion_session_id,
@@ -456,7 +462,11 @@ async function upsertRow(
       .insert(memberMaster)
       .values(row)
       .onConflictDoUpdate({
-        target: [memberMaster.tenant_id, memberMaster.natural_key_hash],
+        target: [
+          memberMaster.tenant_id,
+          memberMaster.last_ingestion_session_id,
+          memberMaster.natural_key_hash,
+        ],
         set: {
           source_row_hash: row.source_row_hash,
           last_ingestion_session_id: row.last_ingestion_session_id,
@@ -500,7 +510,11 @@ async function upsertRow(
       .insert(projectMaster)
       .values(row)
       .onConflictDoUpdate({
-        target: [projectMaster.tenant_id, projectMaster.natural_key_hash],
+        target: [
+          projectMaster.tenant_id,
+          projectMaster.last_ingestion_session_id,
+          projectMaster.natural_key_hash,
+        ],
         set: {
           source_row_hash: row.source_row_hash,
           last_ingestion_session_id: row.last_ingestion_session_id,
@@ -542,7 +556,11 @@ async function upsertRow(
       .insert(overbookIdleConfig)
       .values(row)
       .onConflictDoUpdate({
-        target: [overbookIdleConfig.tenant_id, overbookIdleConfig.natural_key_hash],
+        target: [
+          overbookIdleConfig.tenant_id,
+          overbookIdleConfig.last_ingestion_session_id,
+          overbookIdleConfig.natural_key_hash,
+        ],
         set: {
           source_row_hash: row.source_row_hash,
           last_ingestion_session_id: row.last_ingestion_session_id,
@@ -583,7 +601,11 @@ async function upsertRow(
       .insert(calendarWeeks)
       .values(row)
       .onConflictDoUpdate({
-        target: [calendarWeeks.tenant_id, calendarWeeks.natural_key_hash],
+        target: [
+          calendarWeeks.tenant_id,
+          calendarWeeks.last_ingestion_session_id,
+          calendarWeeks.natural_key_hash,
+        ],
         set: {
           source_row_hash: row.source_row_hash,
           last_ingestion_session_id: row.last_ingestion_session_id,
@@ -622,7 +644,7 @@ async function upsertRow(
       .insert(kpiNorms)
       .values(row)
       .onConflictDoUpdate({
-        target: [kpiNorms.tenant_id, kpiNorms.natural_key_hash],
+        target: [kpiNorms.tenant_id, kpiNorms.last_ingestion_session_id, kpiNorms.natural_key_hash],
         set: {
           source_row_hash: row.source_row_hash,
           last_ingestion_session_id: row.last_ingestion_session_id,
