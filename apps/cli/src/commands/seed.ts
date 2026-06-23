@@ -14,13 +14,12 @@ import {
   listTasks,
 } from '@seta/planner';
 import {
-  seedPmoDefaultThresholdConfigsForTenant,
-  seedRecommendationProjectionsForTenant,
   DEFAULT_PMO02_WORKBOOK_PATH,
   pmoMockDbExists,
   resolvePmoMockDbPath,
   seedPmo02FromMockDbForTenant,
   seedPmoDefaultThresholdConfigsForTenant,
+  seedRecommendationProjectionsForTenant,
 } from '@seta/pmo';
 import {
   buildRegistry,

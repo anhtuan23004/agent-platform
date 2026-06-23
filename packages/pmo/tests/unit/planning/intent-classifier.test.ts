@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { loadPmoPlannerCatalog } from '../../../src/backend/planning/catalog.ts';
 import {
   buildClassifiedPmoIntentForTests,
   PmoIntentClassificationSchema,
