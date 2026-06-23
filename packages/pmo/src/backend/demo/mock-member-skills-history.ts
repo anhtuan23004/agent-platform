@@ -408,10 +408,13 @@ export function resolvePlannerTaskStatusesForEntries<
   T extends { allocation_role: string; task_title: string },
 >(entries: T[], hasActiveAllocation: boolean): PlannerTaskStatus[] {
   const orderedIndexes = [...entries.keys()]
-    .map((index) => ({
-      index,
-      dutyIndex: dutyIndexForRoleTitle(entries[index]!.allocation_role, entries[index]!.task_title),
-    }))
+    .map((index) => {
+      const entry = entries[index];
+      return {
+        index,
+        dutyIndex: dutyIndexForRoleTitle(entry?.allocation_role ?? '', entry?.task_title ?? ''),
+      };
+    })
     .sort((left, right) => left.dutyIndex - right.dutyIndex || left.index - right.index)
     .map((item) => item.index);
   const distribution = distributePlannerTaskStatuses(entries.length, hasActiveAllocation);

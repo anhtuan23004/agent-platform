@@ -470,9 +470,10 @@ export function derivePlannerSeedFromMockDb(
   }
 
   const statusByHistoryId = new Map<string, PlannerTaskStatus>();
-  const taskHistoryByMemberProject = new Map<string, typeof activeTaskHistory>();
+  type MemberProjectKey = `${string}::${string}`;
+  const taskHistoryByMemberProject = new Map<MemberProjectKey, typeof activeTaskHistory>();
   for (const entry of activeTaskHistory) {
-    const key = `${entry.member_id}::${entry.project_id}`;
+    const key = `${entry.member_id}::${entry.project_id}` as MemberProjectKey;
     const bucket = taskHistoryByMemberProject.get(key) ?? [];
     bucket.push(entry);
     taskHistoryByMemberProject.set(key, bucket);
