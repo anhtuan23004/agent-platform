@@ -1,13 +1,8 @@
 import { Badge, Button, EmptyState } from '@seta/shared-ui';
-import {
-  AlertTriangle,
-  CheckCircle2,
-  type LucideIcon,
-  TrendingDown,
-  TrendingUp,
-} from 'lucide-react';
+import { CheckCircle2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { DemoFindingRow } from '../../api/demo-analytics.ts';
+import { issueMeta, ragAccentClass } from './finding-ui.tsx';
 import { pct, ragBadge } from './formatters.tsx';
 import { MetricHelpLabel } from './metric-help.tsx';
 import { METRIC_HELP } from './metric-help-copy.ts';
@@ -32,31 +27,6 @@ function matchesKind(finding: DemoFindingRow, filter: FindingKindFilter): boolea
     return type.includes('underlog') || type.includes('mismatch_under');
   if (filter === 'mismatch_over') return type.includes('overlog') || type.includes('mismatch_over');
   return true;
-}
-
-function issueMeta(issueType: string): {
-  label: string;
-  icon: LucideIcon;
-  tone: 'warning' | 'danger' | 'secondary';
-} {
-  const normalized = issueType.toLowerCase();
-  if (normalized.includes('overbook')) {
-    return { label: issueType, icon: TrendingUp, tone: 'warning' };
-  }
-  if (normalized.includes('idle')) {
-    return { label: issueType, icon: TrendingDown, tone: 'secondary' };
-  }
-  if (normalized.includes('mismatch')) {
-    return { label: issueType, icon: AlertTriangle, tone: 'danger' };
-  }
-  return { label: issueType, icon: AlertTriangle, tone: 'secondary' };
-}
-
-function ragAccentClass(color: string): string {
-  if (color === 'red') return 'border-l-danger bg-danger-tint/30';
-  if (color === 'yellow') return 'border-l-warning bg-warning-tint/30';
-  if (color === 'green') return 'border-l-success bg-success-tint/30';
-  return 'border-l-hairline-strong bg-surface-1';
 }
 
 function FindingCard({

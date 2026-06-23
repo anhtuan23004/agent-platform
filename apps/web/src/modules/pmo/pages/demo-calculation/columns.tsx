@@ -34,9 +34,16 @@ function metricColumn(label: string, help: string) {
 }
 
 function memberLabelCell(getMemberLabel: (memberId: string) => string) {
-  return ({ row }: { row: { original: { memberId: string } } }) => (
-    <span className="font-medium text-ink">{getMemberLabel(row.original.memberId)}</span>
-  );
+  return ({ row }: { row: { original: { memberId: string } } }) => {
+    const { memberId } = row.original;
+    const label = getMemberLabel(memberId);
+    return (
+      <div className="min-w-0">
+        <div className="truncate font-medium text-ink">{label}</div>
+        {label !== memberId ? <div className="text-caption text-ink-subtle">{memberId}</div> : null}
+      </div>
+    );
+  };
 }
 
 function projectLabelCell(getProjectLabel: (projectId: string) => string) {
@@ -49,7 +56,6 @@ export const memberColumns = (
   getMemberLabel: (memberId: string) => string,
 ): ColumnDef<DemoMemberInput>[] => [
   { accessorKey: 'memberId', header: 'Member', cell: memberLabelCell(getMemberLabel) },
-  { accessorKey: 'fullName', header: 'Name', cell: ({ row }) => nullish(row.original.fullName) },
   { accessorKey: 'roleTitle', header: 'Role', cell: ({ row }) => nullish(row.original.roleTitle) },
   { accessorKey: 'stdHoursWeek', header: 'Std h/week' },
   { accessorKey: 'joinDate', header: 'Join date' },
@@ -145,13 +151,7 @@ export const memberWeekProjectColumns = (
   getMemberLabel: (memberId: string) => string,
   getProjectLabel: (projectId: string) => string,
 ): ColumnDef<DemoMemberWeekProjectRow>[] => [
-  {
-    accessorKey: 'memberId',
-    header: 'Member',
-    cell: ({ row }) => (
-      <span className="font-medium text-ink">{getMemberLabel(row.original.memberId)}</span>
-    ),
-  },
+  { accessorKey: 'memberId', header: 'Member', cell: memberLabelCell(getMemberLabel) },
   { accessorKey: 'weekId', header: 'Week' },
   { accessorKey: 'projectId', header: 'Project', cell: projectLabelCell(getProjectLabel) },
   {
@@ -213,13 +213,7 @@ export const memberWeekProjectColumns = (
 export const factColumns = (
   getMemberLabel: (memberId: string) => string,
 ): ColumnDef<DemoMemberWeekRow>[] => [
-  {
-    accessorKey: 'memberId',
-    header: 'Member',
-    cell: ({ row }) => (
-      <span className="font-medium text-ink">{getMemberLabel(row.original.memberId)}</span>
-    ),
-  },
+  { accessorKey: 'memberId', header: 'Member', cell: memberLabelCell(getMemberLabel) },
   { accessorKey: 'weekId', header: 'Week' },
   {
     accessorKey: 'scopeStatus',
@@ -270,13 +264,7 @@ export const factColumns = (
 export const analysisColumns = (
   getMemberLabel: (memberId: string) => string,
 ): ColumnDef<DemoMemberAnalysisRow>[] => [
-  {
-    accessorKey: 'memberId',
-    header: 'Member',
-    cell: ({ row }) => (
-      <span className="font-medium text-ink">{getMemberLabel(row.original.memberId)}</span>
-    ),
-  },
+  { accessorKey: 'memberId', header: 'Member', cell: memberLabelCell(getMemberLabel) },
   {
     accessorKey: 'inScopeWeekCount',
     ...metricColumn('In-scope weeks', METRIC_HELP.inScopeWeeks),

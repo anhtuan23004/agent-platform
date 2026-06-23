@@ -7,9 +7,12 @@ import {
 } from '@seta/shared-ui';
 import { useMemo, useState } from 'react';
 import type { DemoAnalyticsResult } from '../../api/demo-analytics.ts';
+import { MemberDrilldownCard } from './member-drilldown-card.tsx';
 import {
   buildFindingsDonutSlices,
   buildMemberBusyRateRows,
+  buildMemberDrilldownSummary,
+  buildMemberProjectSplitRows,
   buildMemberWeekTimelineRows,
   buildProjectWorkloadMetrics,
   buildProjectWorkloadRows,
@@ -53,6 +56,7 @@ export function UtilizationCharts({
   onScrollToFindings,
 }: UtilizationChartsProps) {
   const [workloadView, setWorkloadView] = useState<UtilizationWorkloadView>('member');
+  const showMemberDrilldown = workloadView === 'member' && selectedMemberId;
 
   const memberRows = useMemo(
     () => buildMemberBusyRateRows(data.memberAnalyses, data.thresholds, getMemberLabel),
@@ -81,6 +85,20 @@ export function UtilizationCharts({
       workloadView === 'member' ? effortByMember : undefined,
     );
   }, [workloadView, memberRows, projectRows, weekRows, data.thresholds, effortByMember]);
+
+  const memberDrilldown = useMemo(
+    () =>
+      selectedMemberId ? buildMemberDrilldownSummary(data, selectedMemberId, getMemberLabel) : null,
+    [data, selectedMemberId, getMemberLabel],
+  );
+
+  const memberProjectRows = useMemo(
+    () =>
+      selectedMemberId
+        ? buildMemberProjectSplitRows(data, selectedMemberId, data.thresholds, getProjectLabel)
+        : [],
+    [data, selectedMemberId, getProjectLabel],
+  );
 
   const donutSlices = useMemo(() => {
     if (workloadView === 'member') {
@@ -112,10 +130,10 @@ export function UtilizationCharts({
     () =>
       Math.max(
         Math.ceil(data.thresholds.overbookRedThreshold * 100),
-        ...workloadRows.map((row) => row.value),
+        ...(showMemberDrilldown ? memberProjectRows : workloadRows).map((row) => row.value),
         100,
       ),
-    [data.thresholds.overbookRedThreshold, workloadRows],
+    [data.thresholds.overbookRedThreshold, showMemberDrilldown, memberProjectRows, workloadRows],
   );
 
   const workloadCopy = useMemo(() => {
@@ -168,44 +186,12 @@ export function UtilizationCharts({
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <ChartCard
-          title="Utilization overview"
-          subtitle={
-            <>
-              {workloadView === 'member'
-                ? 'Snapshot of member busy-rate bands.'
-                : workloadView === 'project'
-                  ? 'How many projects sit in each busy-rate band.'
-                  : 'How many weeks sit in each busy-rate band.'}{' '}
-              {onScrollToFindings ? (
-                <button
-                  type="button"
-                  className="text-primary hover:underline"
-                  onClick={onScrollToFindings}
-                >
-                  View all findings
-                </button>
-              ) : null}
-            </>
-          }
-          testId="chart-utilization-mix"
-        >
-          <DonutChart
-            slices={donutSlices}
-            centerValue={overviewCenter.value}
-            centerLabel={overviewCenter.label}
-            legend="right"
-            legendStyle="detailed"
-            height={200}
-          />
-        </ChartCard>
-
-        <ChartCard
-          title={workloadCopy.title}
-          subtitle={workloadCopy.subtitle}
-          testId="chart-busy-rate-members"
-          action={
-            workloadView === 'member' && selectedMemberId ? (
+        {showMemberDrilldown && memberDrilldown ? (
+          <ChartCard
+            title="Member overview"
+            subtitle="Busy rate, effort consumption, and hour totals for the selected member."
+            testId="chart-member-drilldown"
+            action={
               <button
                 type="button"
                 className="text-caption text-primary hover:underline"
@@ -213,12 +199,56 @@ export function UtilizationCharts({
               >
                 Clear selection
               </button>
-            ) : null
+            }
+          >
+            <MemberDrilldownCard summary={memberDrilldown} />
+          </ChartCard>
+        ) : (
+          <ChartCard
+            title="Utilization overview"
+            subtitle={
+              <>
+                {workloadView === 'member'
+                  ? 'Snapshot of member busy-rate bands.'
+                  : workloadView === 'project'
+                    ? 'How many projects sit in each busy-rate band.'
+                    : 'How many weeks sit in each busy-rate band.'}{' '}
+                {onScrollToFindings ? (
+                  <button
+                    type="button"
+                    className="text-primary hover:underline"
+                    onClick={onScrollToFindings}
+                  >
+                    View all findings
+                  </button>
+                ) : null}
+              </>
+            }
+            testId="chart-utilization-mix"
+          >
+            <DonutChart
+              slices={donutSlices}
+              centerValue={overviewCenter.value}
+              centerLabel={overviewCenter.label}
+              legend="right"
+              legendStyle="detailed"
+              height={200}
+            />
+          </ChartCard>
+        )}
+
+        <ChartCard
+          title={showMemberDrilldown ? 'Workload by project' : workloadCopy.title}
+          subtitle={
+            showMemberDrilldown
+              ? 'Capacity share per active project assignment for this member.'
+              : workloadCopy.subtitle
           }
+          testId="chart-busy-rate-members"
         >
           <WorkloadBarList
-            key={workloadView}
-            rows={workloadRows.map((row) => ({
+            key={showMemberDrilldown ? `member-projects-${selectedMemberId}` : workloadView}
+            rows={(showMemberDrilldown ? memberProjectRows : workloadRows).map((row) => ({
               key: row.key,
               label: row.label,
               value: row.value,
@@ -226,28 +256,43 @@ export function UtilizationCharts({
             }))}
             scaleMax={barScaleMax}
             maxVisible={WORKLOAD_LIST_MAX_VISIBLE}
-            assigneeColumnLabel={workloadCopy.assignee}
-            distributionColumnLabel={workloadCopy.distribution}
-            selectedKey={workloadView === 'member' ? selectedMemberId : null}
+            assigneeColumnLabel={showMemberDrilldown ? 'Project' : workloadCopy.assignee}
+            distributionColumnLabel={
+              showMemberDrilldown ? 'Capacity share' : workloadCopy.distribution
+            }
+            selectedKey={
+              !showMemberDrilldown && workloadView === 'member' ? selectedMemberId : null
+            }
             onRowClick={
-              workloadView === 'member'
+              !showMemberDrilldown && workloadView === 'member'
                 ? (row) => onSelectMember(selectedMemberId === row.key ? null : row.key)
                 : undefined
             }
-            emptyMessage={`No ${workloadCopy.assignee.toLowerCase()} busy rates in this reporting window.`}
+            emptyMessage={
+              showMemberDrilldown
+                ? 'No project assignments for this member in the reporting window.'
+                : `No ${workloadCopy.assignee.toLowerCase()} busy rates in this reporting window.`
+            }
           />
         </ChartCard>
       </div>
 
-      {workloadView === 'member' && selectedMemberId ? (
+      {showMemberDrilldown ? (
         <ChartCard
-          title={`Weekly busy rate — ${getMemberLabel(selectedMemberId)}`}
-          subtitle="Member × week trend for in-scope weeks"
+          title={`Weekly trend — ${getMemberLabel(selectedMemberId)}`}
+          subtitle="Busy rate and effort consumption by in-scope week."
           testId="chart-member-week-timeline"
         >
           <SeriesLineChart
             rows={memberTimelineRows}
-            series={[{ key: 'busyRate', name: 'Busy rate', color: 'var(--color-primary)' }]}
+            series={[
+              { key: 'busyRate', name: 'Busy rate', color: 'var(--color-primary)' },
+              {
+                key: 'effortConsumption',
+                name: 'Effort consumption',
+                color: 'var(--color-warning)',
+              },
+            ]}
             referenceLines={referenceLines}
             valueFormatter={pctLabel}
           />
