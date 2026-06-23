@@ -125,11 +125,24 @@ describe('createGenerateReportHandler', () => {
     if (result.kind !== 'suspend') throw new Error('expected suspend');
     expect(result.card.primary.argsPatch).toMatchObject({
       workloadDateRange: { from: '2026-06-01', to: '2026-06-30' },
+      forwardAllocationDateRange: { from: '2026-06-01', to: '2026-06-30' },
       dateRangeStrategy: 'sheet_derived',
       rangeSource: 'sheet_or_database',
     });
+    expect(result.card.primary.argsPatch).toMatchObject({
+      reportSections: [
+        expect.objectContaining({ kind: 'workload' }),
+        expect.objectContaining({ kind: 'forward_allocation' }),
+      ],
+    });
     expect(result.runtimeContextPatch?.report_request).toMatchObject({
+      reportTypes: ['idle_members', 'overbook_members', 'forward_allocation'],
       workloadDateRange: {
+        from: '2026-06-01',
+        to: '2026-06-30',
+        source: 'sheet_suggested_pending',
+      },
+      forwardAllocationDateRange: {
         from: '2026-06-01',
         to: '2026-06-30',
         source: 'sheet_suggested_pending',
@@ -144,19 +157,30 @@ describe('createGenerateReportHandler', () => {
         resumeData: {
           decision: 'approve',
           workloadDateRange: { from: '2026-06-01', to: '2026-06-30' },
+          forwardAllocationDateRange: { from: '2026-06-29', to: '2026-08-07' },
         },
       }),
     );
 
     expect(result.kind).toBe('completed');
     if (result.kind !== 'completed') throw new Error('expected completed');
-    expect(mockCreateReportRun).toHaveBeenCalledWith({
+    expect(mockCreateReportRun).toHaveBeenNthCalledWith(1, {
       tenantId: '11111111-1111-1111-1111-111111111111',
       actorId: '22222222-2222-2222-2222-222222222222',
       sourceMode: 'after_upload_publish',
       ingestionSessionId: '33333333-3333-3333-3333-333333333333',
       dateRange: { from: '2026-06-01', to: '2026-06-30' },
       reportTypes: ['idle_members', 'overbook_members'],
+      outputFormat: 'pdf',
+    });
+    expect(mockCreateReportRun).toHaveBeenNthCalledWith(2, {
+      tenantId: '11111111-1111-1111-1111-111111111111',
+      actorId: '22222222-2222-2222-2222-222222222222',
+      sourceMode: 'after_upload_publish',
+      ingestionSessionId: '33333333-3333-3333-3333-333333333333',
+      dateRange: { from: '2026-06-01', to: '2026-06-30' },
+      planningDateRange: { from: '2026-06-29', to: '2026-08-07' },
+      reportTypes: ['forward_allocation'],
       outputFormat: 'pdf',
     });
     expect(mockEnqueueReportRun).toHaveBeenCalledWith(
@@ -168,8 +192,14 @@ describe('createGenerateReportHandler', () => {
     expect(result.outputSummary?.workload_report_run_id).toBe(
       '44444444-4444-4444-4444-444444444444',
     );
+    expect(result.outputSummary?.forward_allocation_report_run_id).toBe(
+      '44444444-4444-4444-4444-444444444444',
+    );
     expect(result.terminalOutput?.reportRunId).toBe('44444444-4444-4444-4444-444444444444');
-    expect(result.terminalOutput?.reportRunIds).toEqual(['44444444-4444-4444-4444-444444444444']);
+    expect(result.terminalOutput?.reportRunIds).toEqual([
+      '44444444-4444-4444-4444-444444444444',
+      '44444444-4444-4444-4444-444444444444',
+    ]);
   });
 
   it('uses classifier-extracted dates before derived ranges', async () => {
@@ -187,15 +217,26 @@ describe('createGenerateReportHandler', () => {
     );
 
     expect(result.kind).toBe('completed');
-    expect(mockCreateReportRun).toHaveBeenCalledWith(
+    expect(mockCreateReportRun).toHaveBeenNthCalledWith(
+      1,
       expect.objectContaining({
         dateRange: { from: '2026-06-05', to: '2026-06-20' },
+        reportTypes: ['idle_members', 'overbook_members'],
+        outputFormat: 'pdf',
+      }),
+    );
+    expect(mockCreateReportRun).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        dateRange: { from: '2026-06-05', to: '2026-06-20' },
+        planningDateRange: { from: '2026-06-05', to: '2026-06-20' },
+        reportTypes: ['forward_allocation'],
         outputFormat: 'pdf',
       }),
     );
   });
 
-  it('passes forward allocation through the published upload report flow', async () => {
+  it('always includes workload and forward allocation through the published upload report flow', async () => {
     const result = await createGenerateReportHandler(deps).execute(
       makeInput({
         planningGoal: 'Publish demand plan and generate forward allocation recommendations',
@@ -211,10 +252,21 @@ describe('createGenerateReportHandler', () => {
     );
 
     expect(result.kind).toBe('completed');
-    expect(mockCreateReportRun).toHaveBeenCalledWith(
+    expect(mockCreateReportRun).toHaveBeenNthCalledWith(
+      1,
       expect.objectContaining({
         sourceMode: 'after_upload_publish',
         dateRange: { from: '2026-08-01', to: '2026-08-31' },
+        reportTypes: ['idle_members', 'overbook_members'],
+        outputFormat: 'pdf',
+      }),
+    );
+    expect(mockCreateReportRun).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        sourceMode: 'after_upload_publish',
+        dateRange: { from: '2026-08-01', to: '2026-08-31' },
+        planningDateRange: { from: '2026-08-01', to: '2026-08-31' },
         reportTypes: ['forward_allocation'],
         outputFormat: 'pdf',
       }),
@@ -244,15 +296,26 @@ describe('createGenerateReportHandler', () => {
     );
 
     expect(result.kind).toBe('completed');
-    expect(mockCreateReportRun).toHaveBeenCalledWith(
+    expect(mockCreateReportRun).toHaveBeenNthCalledWith(
+      1,
       expect.objectContaining({
         dateRange: { from: '2026-06-01', to: '2026-06-30' },
+        reportTypes: ['idle_members', 'overbook_members'],
+        outputFormat: 'pdf',
+      }),
+    );
+    expect(mockCreateReportRun).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        dateRange: { from: '2026-06-01', to: '2026-06-30' },
+        planningDateRange: { from: '2026-06-01', to: '2026-06-30' },
+        reportTypes: ['forward_allocation'],
         outputFormat: 'pdf',
       }),
     );
   });
 
-  it('offers database bounds when a database-only report has no explicit range', async () => {
+  it('offers both workload and forward allocation ranges when a database-only report has no explicit range', async () => {
     const result = await createGenerateReportHandler({
       ...deps,
       getReportDateBounds: vi.fn().mockResolvedValue({
@@ -277,7 +340,14 @@ describe('createGenerateReportHandler', () => {
     if (result.kind !== 'suspend') throw new Error('expected suspend');
     expect(result.card.primary.argsPatch).toMatchObject({
       workloadDateRange: { from: '2026-02-01', to: '2026-11-30' },
+      forwardAllocationDateRange: { from: '2026-02-01', to: '2026-11-30' },
       dateRangeStrategy: 'manual_database',
+    });
+    expect(result.card.primary.argsPatch).toMatchObject({
+      reportSections: [
+        expect.objectContaining({ kind: 'workload' }),
+        expect.objectContaining({ kind: 'forward_allocation' }),
+      ],
     });
     expect(JSON.stringify(result.card.details)).toContain('2026-02-01');
     expect(JSON.stringify(result.card.details)).toContain('2026-11-30');
@@ -317,7 +387,7 @@ describe('createGenerateReportHandler', () => {
     ).rejects.toThrow('report_date_range_outside_database_bounds');
   });
 
-  it('allows forward allocation planning ranges beyond current database max', async () => {
+  it('keeps forward allocation ranges beyond current database max while still requiring workload confirmation', async () => {
     const result = await createGenerateReportHandler({
       ...deps,
       getReportDateBounds: vi.fn().mockResolvedValue({
@@ -340,12 +410,16 @@ describe('createGenerateReportHandler', () => {
       }),
     );
 
-    expect(result.kind).toBe('completed');
-    expect(mockCreateReportRun).toHaveBeenCalledWith(
-      expect.objectContaining({
-        planningDateRange: { from: '2026-12-01', to: '2027-01-31' },
-        reportTypes: ['forward_allocation'],
-      }),
-    );
+    expect(result.kind).toBe('suspend');
+    if (result.kind !== 'suspend') throw new Error('expected suspend');
+    expect(result.card.primary.argsPatch).toMatchObject({
+      workloadDateRange: { from: '2026-06-01', to: '2026-06-30' },
+      forwardAllocationDateRange: { from: '2026-12-01', to: '2027-01-31' },
+      reportSections: [
+        expect.objectContaining({ kind: 'workload' }),
+        expect.objectContaining({ kind: 'forward_allocation' }),
+      ],
+    });
+    expect(mockCreateReportRun).not.toHaveBeenCalled();
   });
 });

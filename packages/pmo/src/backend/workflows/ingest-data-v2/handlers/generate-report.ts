@@ -35,6 +35,12 @@ type ForwardAllocationRangeValue = {
   source: ForwardAllocationRangeSource;
 };
 
+const DEFAULT_REPORT_TYPES: CombinedReportType[] = [
+  'idle_members',
+  'overbook_members',
+  'forward_allocation',
+];
+
 function isoDate(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
@@ -93,8 +99,12 @@ function readIntentReportRequest(plan: unknown): IntentReportRequest | null {
 
   return {
     dateRange,
-    reportTypes: reportTypes.length > 0 ? reportTypes : ['idle_members', 'overbook_members'],
+    reportTypes: normalizeReportTypes(reportTypes),
   };
+}
+
+function normalizeReportTypes(_reportTypes: CombinedReportType[]): CombinedReportType[] {
+  return DEFAULT_REPORT_TYPES;
 }
 
 function assertRangeWithinBounds(
@@ -245,8 +255,9 @@ export function createGenerateReportHandler(
         tenantId: input.tenantId,
         step: input.step,
       });
-      const reportTypes = input.runtimeContext.report_request?.reportTypes ??
-        intentRequest?.reportTypes ?? ['idle_members', 'overbook_members'];
+      const reportTypes = normalizeReportTypes(
+        input.runtimeContext.report_request?.reportTypes ?? intentRequest?.reportTypes ?? [],
+      );
       const split = splitReportTypes(reportTypes);
       const databaseBounds = await (deps.getReportDateBounds ?? getPmoReportDateBounds)(
         input.tenantId,
@@ -309,8 +320,23 @@ export function createGenerateReportHandler(
         input.resumeData,
         'forwardAllocationDateRange',
       );
-      const forwardAllocationDateRange: ForwardAllocationRangeValue | null =
+      let forwardAllocationDateRange: ForwardAllocationRangeValue | null =
         resumedForwardRange ?? explicitForwardRange;
+
+      if (!forwardAllocationDateRange && split.forwardAllocation.length > 0 && workloadDateRange) {
+        forwardAllocationDateRange = {
+          from: workloadDateRange.from,
+          to: workloadDateRange.to,
+          source:
+            workloadDateRange.source === 'user_confirmed'
+              ? 'user_confirmed'
+              : workloadDateRange.source === 'goal_explicit'
+                ? 'goal_explicit'
+                : workloadDateRange.source === 'sheet_derived'
+                  ? 'sheet_derived'
+                  : 'sheet_suggested_pending',
+        };
+      }
 
       const needsRangeConfirmation =
         (split.workload.length > 0 &&
