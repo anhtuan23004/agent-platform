@@ -10,10 +10,13 @@ import {
   TabsList,
   TabsTrigger,
 } from '@seta/shared-ui';
+import type { VisibilityState } from '@tanstack/react-table';
 import type { ReactNode } from 'react';
+import { useState } from 'react';
 import type { DemoAnalyticsResult } from '../../api/demo-analytics.ts';
 import {
   analysisColumns,
+  DEFAULT_PROJECT_METADATA_COLUMN_VISIBILITY,
   memberColumns,
   memberWeekProjectColumns,
   projectMemberColumns,
@@ -87,6 +90,12 @@ export function DemoCalculationPipeline({
   getProjectLabel,
 }: DemoCalculationPipelineProps) {
   const findingCount = data.overbookIdleFindings.length + data.mismatchFindings.length;
+  const [rosterColumnVisibility, setRosterColumnVisibility] = useState<VisibilityState>(
+    DEFAULT_PROJECT_METADATA_COLUMN_VISIBILITY,
+  );
+  const [factsColumnVisibility, setFactsColumnVisibility] = useState<VisibilityState>(
+    DEFAULT_PROJECT_METADATA_COLUMN_VISIBILITY,
+  );
 
   return (
     <section className="space-y-4" id="pmo-utilization-findings">
@@ -150,6 +159,8 @@ export function DemoCalculationPipeline({
                 <DataTable
                   data={data.projectMemberDependencies}
                   columns={projectMemberColumns(getMemberLabel, getProjectLabel)}
+                  columnVisibility={rosterColumnVisibility}
+                  onColumnVisibilityChange={setRosterColumnVisibility}
                 />
               </TabsContent>
               <TabsContent value="deliveryMembers">
@@ -176,6 +187,8 @@ export function DemoCalculationPipeline({
             <DataTable
               data={data.memberWeekProjectFacts}
               columns={memberWeekProjectColumns(getMemberLabel, getProjectLabel)}
+              columnVisibility={factsColumnVisibility}
+              onColumnVisibilityChange={setFactsColumnVisibility}
             />
           </SectionCard>
         </TabsContent>
