@@ -1,4 +1,4 @@
-import type { ColumnDef } from '@tanstack/react-table';
+import type { ColumnDef, VisibilityState } from '@tanstack/react-table';
 import type {
   DemoMemberAnalysisRow,
   DemoMemberInput,
@@ -17,6 +17,14 @@ import {
 } from './formatters.tsx';
 import { MetricHelpLabel } from './metric-help.tsx';
 import { METRIC_HELP } from './metric-help-copy.ts';
+
+/** Hidden until the user enables them in the table Columns menu. */
+export const DEFAULT_PROJECT_METADATA_COLUMN_VISIBILITY: VisibilityState = {
+  projectStartDate: false,
+  projectEndDate: false,
+  allocationStartDate: false,
+  allocationEndDate: false,
+};
 
 function metricColumn(label: string, help: string) {
   return {
