@@ -1,4 +1,8 @@
-import type { GeneratePmoReportOutput } from '../report-output.ts';
+import type {
+  PmoReportDateRange,
+  PmoReportFinding,
+  WorkloadReportOutput,
+} from '../report-output.ts';
 import type { RebalanceRecommendationGroup } from './contracts.ts';
 
 export interface WeekBounds {
@@ -7,18 +11,57 @@ export interface WeekBounds {
   weekEnd: string;
 }
 
+export interface WorkloadRecommendationSlice {
+  dateRange: PmoReportDateRange;
+  findings: WorkloadReportOutput['findings'];
+  recommendations: WorkloadReportOutput['recommendations'];
+}
+
+function formatIsoDate(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function parseIsoDate(value: string): Date {
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`invalid_report_date:${value}`);
+  }
+  return parsed;
+}
+
+function addDays(value: Date, days: number): Date {
+  const next = new Date(value);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
+function parseWeekOrdinal(weekId: string): number | null {
+  const match = /^W(\d+)$/.exec(weekId.trim());
+  if (!match) return null;
+  const ordinal = Number(match[1]);
+  return Number.isInteger(ordinal) && ordinal > 0 ? ordinal : null;
+}
+
 export function resolveWeekBounds(
   weekId: string,
-  findings: GeneratePmoReportOutput['findings'],
+  dateRange: PmoReportDateRange,
 ): WeekBounds | null {
-  for (const finding of findings) {
-    for (const week of finding.issueWeeks ?? []) {
-      if (week.weekId !== weekId) continue;
-      if (!week.weekStart || !week.weekEnd) continue;
-      return { weekId, weekStart: week.weekStart, weekEnd: week.weekEnd };
-    }
-  }
-  return null;
+  const ordinal = parseWeekOrdinal(weekId);
+  if (!ordinal) return null;
+
+  const rangeStart = parseIsoDate(dateRange.from);
+  const rangeEnd = parseIsoDate(dateRange.to);
+  const weekStart = addDays(rangeStart, (ordinal - 1) * 7);
+  if (weekStart.getTime() > rangeEnd.getTime()) return null;
+
+  const naturalWeekEnd = addDays(weekStart, 6);
+  const weekEnd = naturalWeekEnd.getTime() > rangeEnd.getTime() ? rangeEnd : naturalWeekEnd;
+
+  return {
+    weekId,
+    weekStart: formatIsoDate(weekStart),
+    weekEnd: formatIsoDate(weekEnd),
+  };
 }
 
 export function dateRangesOverlap(
@@ -59,29 +102,35 @@ export function recommendationGroupOverlapsWeek(
   );
 }
 
-export function findingHasWeekEvidence(
-  finding: GeneratePmoReportOutput['findings'][number],
+export function findingMatchesWeek(
+  finding: PmoReportFinding,
   weekId: string,
+  matchingSourceMemberIds: ReadonlySet<string>,
 ): boolean {
-  return finding.issueWeeks?.some((week) => week.weekId === weekId) ?? false;
+  if (finding.issueType !== 'overbook') return false;
+  if (!matchingSourceMemberIds.has(finding.memberId)) return false;
+
+  // The workload report no longer carries per-week positive evidence.
+  // Keep the week filter conservative by excluding findings when the
+  // selected week was explicitly suppressed for that member.
+  return !finding.excludedWeeks.some((week) => week.weekId === weekId);
 }
 
 export function filterReportOutputByWeek(
-  report: Pick<GeneratePmoReportOutput, 'findings' | 'recommendations'>,
+  report: WorkloadRecommendationSlice,
   weekId: string,
-): Pick<GeneratePmoReportOutput, 'findings' | 'recommendations'> {
-  const bounds = resolveWeekBounds(weekId, report.findings);
+): Pick<WorkloadReportOutput, 'findings' | 'recommendations'> {
+  const bounds = resolveWeekBounds(weekId, report.dateRange);
   if (!bounds) {
     throw new Error(`unknown_week_id:${weekId}`);
   }
 
-  const findings = report.findings.filter(
-    (finding) => finding.issueType === 'overbook' && findingHasWeekEvidence(finding, weekId),
+  const recommendations = report.recommendations.filter((group) =>
+    recommendationGroupOverlapsWeek(group, bounds),
   );
-  const sourceMemberIds = new Set(findings.map((finding) => finding.memberId));
-  const recommendations = report.recommendations.filter(
-    (group) =>
-      sourceMemberIds.has(group.sourceMemberId) && recommendationGroupOverlapsWeek(group, bounds),
+  const sourceMemberIds = new Set(recommendations.map((group) => group.sourceMemberId));
+  const findings = report.findings.filter((finding) =>
+    findingMatchesWeek(finding, weekId, sourceMemberIds),
   );
 
   return { findings, recommendations };

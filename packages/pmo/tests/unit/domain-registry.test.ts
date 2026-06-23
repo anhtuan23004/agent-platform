@@ -118,7 +118,7 @@ describe('parseDomainConfig', () => {
   it('parses PMO domain config successfully', () => {
     const config = parseDomainConfig(PMO_DOMAIN_CONFIG);
     expect(config.domainId).toBe('pmo');
-    expect(config.tables).toHaveLength(8);
+    expect(config.tables).toHaveLength(9);
     expect(config.referenceRules.length).toBeGreaterThan(0);
   });
 });

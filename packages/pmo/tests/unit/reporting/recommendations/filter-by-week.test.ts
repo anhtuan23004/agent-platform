@@ -6,12 +6,12 @@ import {
   recommendationGroupOverlapsWeek,
   resolveWeekBounds,
 } from '../../../../src/backend/reporting/recommendations/filter-by-week.ts';
-import type { GeneratePmoReportOutput } from '../../../../src/backend/reporting/report-output.ts';
+import type { WorkloadReportOutput } from '../../../../src/backend/reporting/report-output.ts';
 
 function finding(
   memberId: string,
-  issueWeeks: NonNullable<GeneratePmoReportOutput['findings'][number]['issueWeeks']>,
-): GeneratePmoReportOutput['findings'][number] {
+  excludedWeeks: WorkloadReportOutput['findings'][number]['excludedWeeks'] = [],
+): WorkloadReportOutput['findings'][number] {
   return {
     memberId,
     issueType: 'overbook',
@@ -19,8 +19,7 @@ function finding(
     busyRate: 1.2,
     effortConsumption: 1,
     detail: 'overbook',
-    excludedWeeks: [],
-    issueWeeks,
+    excludedWeeks,
     annotations: [],
     reviewRequired: true,
     suggestedActionCode: 'REBALANCE_ALLOCATION',
@@ -40,7 +39,7 @@ function finding(
 function group(
   opportunityId: string,
   sourceMemberId: string,
-): GeneratePmoReportOutput['recommendations'][number] {
+): WorkloadReportOutput['recommendations'][number] {
   return {
     opportunityId,
     sourceMemberId,
@@ -68,25 +67,8 @@ function group(
 }
 
 describe('filter-by-week', () => {
-  it('resolves week bounds from issue week evidence', () => {
-    expect(
-      resolveWeekBounds('W2', [
-        finding('EMP-001', [
-          {
-            weekId: 'W2',
-            weekStart: '2026-07-06',
-            weekEnd: '2026-07-12',
-            issueType: 'overbook',
-            ragColor: 'red',
-            availableHours: 40,
-            plannedHours: 48,
-            loggedHours: 40,
-            busyRate: 1.2,
-            effortConsumption: 1,
-          },
-        ]),
-      ]),
-    ).toEqual({
+  it('resolves week bounds from the report date range', () => {
+    expect(resolveWeekBounds('W2', { from: '2026-06-29', to: '2026-07-20' })).toEqual({
       weekId: 'W2',
       weekStart: '2026-07-06',
       weekEnd: '2026-07-12',
@@ -102,36 +84,8 @@ describe('filter-by-week', () => {
 
   it('filters findings and recommendations to a week context', () => {
     const report = {
-      findings: [
-        finding('EMP-001', [
-          {
-            weekId: 'W2',
-            weekStart: '2026-07-06',
-            weekEnd: '2026-07-12',
-            issueType: 'overbook',
-            ragColor: 'red',
-            availableHours: 40,
-            plannedHours: 48,
-            loggedHours: 40,
-            busyRate: 1.2,
-            effortConsumption: 1,
-          },
-        ]),
-        finding('EMP-003', [
-          {
-            weekId: 'W4',
-            weekStart: '2026-07-20',
-            weekEnd: '2026-07-26',
-            issueType: 'overbook',
-            ragColor: 'yellow',
-            availableHours: 40,
-            plannedHours: 45,
-            loggedHours: 40,
-            busyRate: 1.12,
-            effortConsumption: 1,
-          },
-        ]),
-      ],
+      dateRange: { from: '2026-06-29', to: '2026-07-26' },
+      findings: [finding('EMP-001'), finding('EMP-003')],
       recommendations: [
         group('EMP-001:PRJ-1:BE:2026-07-06:2026-08-07', 'EMP-001'),
         group('EMP-003:PRJ-2:DE:2026-07-20:2026-08-07', 'EMP-003'),
@@ -144,31 +98,30 @@ describe('filter-by-week', () => {
     });
   });
 
-  it('throws when week id is not present in report evidence', () => {
+  it('throws when week id is outside the report range', () => {
     expect(() =>
       filterReportOutputByWeek(
         {
-          findings: [
-            finding('EMP-001', [
-              {
-                weekId: 'W1',
-                weekStart: '2026-06-29',
-                weekEnd: '2026-07-05',
-                issueType: 'overbook',
-                ragColor: 'red',
-                availableHours: 40,
-                plannedHours: 48,
-                loggedHours: 40,
-                busyRate: 1.2,
-                effortConsumption: 1,
-              },
-            ]),
-          ],
+          dateRange: { from: '2026-06-29', to: '2026-07-05' },
+          findings: [finding('EMP-001')],
           recommendations: [],
         },
         'W9',
       ),
     ).toThrow('unknown_week_id:W9');
+  });
+
+  it('excludes findings when the selected week was suppressed', () => {
+    const report = {
+      dateRange: { from: '2026-06-29', to: '2026-07-12' },
+      findings: [finding('EMP-001', [{ weekId: 'W1', reason: 'approved_ot' }])],
+      recommendations: [group('EMP-001:PRJ-1:BE:2026-06-29:2026-07-05', 'EMP-001')],
+    };
+
+    expect(filterReportOutputByWeek(report, 'W1')).toEqual({
+      findings: [],
+      recommendations: [report.recommendations[0]],
+    });
   });
 
   it('detects overlap between opportunity period and week bounds', () => {

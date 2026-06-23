@@ -283,8 +283,14 @@ export async function completeReportRun(input: {
       payload: {
         report_run_id: input.reportRunId,
         status: 'completed',
-        member_count: input.report.summary.memberCount,
-        finding_count: input.report.findings.length,
+        member_count:
+          input.report.reportFamily === 'workload'
+            ? input.report.summary.memberCount
+            : input.report.summary.memberAvailabilityCount,
+        finding_count:
+          input.report.reportFamily === 'workload'
+            ? input.report.findings.length
+            : input.report.rows.length,
         facts_version: input.report.sourceVersion.factsVersion,
       },
     });
@@ -359,6 +365,9 @@ function readEmbeddingVersions(report: GeneratePmoReportOutput): {
   modelIds: string[];
   sourceVersions: string[];
 } {
+  if (report.reportFamily !== 'workload') {
+    return { modelIds: [], sourceVersions: [] };
+  }
   return {
     modelIds: [
       ...new Set(

@@ -6,6 +6,7 @@ import {
   leaveRecords,
   memberMaster,
   overbookIdleConfig,
+  projectDemandPlan,
   projectMaster,
   resourceAllocations,
   stagingChanges,
@@ -26,6 +27,7 @@ type CanonicalTableId =
   | 'leave'
   | 'member_master'
   | 'project_master'
+  | 'project_demand_plan'
   | 'overbook_idle_config'
   | 'calendar_weeks'
   | 'kpi_norms';
@@ -36,6 +38,7 @@ const TABLE_IDS = new Set<CanonicalTableId>([
   'leave',
   'member_master',
   'project_master',
+  'project_demand_plan',
   'overbook_idle_config',
   'calendar_weeks',
   'kpi_norms',
@@ -47,6 +50,7 @@ const REQUIRED_FIELDS: Record<CanonicalTableId, string[]> = {
   leave: ['leave_date', 'leave_type'],
   member_master: ['member_id', 'full_name'],
   project_master: ['project_id', 'project_name'],
+  project_demand_plan: ['demand_id', 'project_id', 'role_needed', 'demand_start', 'demand_end'],
   overbook_idle_config: ['config_id', 'rule_name', 'overbook_threshold', 'idle_threshold'],
   calendar_weeks: ['week_id', 'week_start', 'week_end', 'working_days'],
   kpi_norms: ['norm_id', 'metric'],
@@ -159,6 +163,22 @@ function normalizeOptionalDate(value: unknown): Date | null {
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
   return null;
+}
+
+function normalizeOptionalStringArray(value: unknown): string[] | null {
+  if (value === null || value === undefined) return null;
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => normalizeOptionalString(item))
+      .filter((item): item is string => Boolean(item))
+      .map((item) => item.toLowerCase());
+  }
+  const normalized = normalizeOptionalString(value);
+  if (normalized === null) return [];
+  return normalized
+    .split('|')
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
 }
 
 function requireDate(
@@ -527,6 +547,58 @@ async function upsertRow(
           pm_id: row.pm_id,
           start_date: row.start_date,
           end_date: row.end_date,
+          source_row: row.source_row,
+          updated_at: new Date(),
+        },
+      });
+    return;
+  }
+
+  if (tableId === 'project_demand_plan') {
+    const row = {
+      tenant_id: tenantId,
+      natural_key_hash: naturalKeyHash,
+      source_row_hash: sourceRowHash,
+      last_ingestion_session_id: sessionId,
+      is_active: true,
+      demand_id: requireString(values, 'demand_id', tableId),
+      project_id: requireString(values, 'project_id', tableId),
+      role_needed: requireString(values, 'role_needed', tableId),
+      required_skills: normalizeOptionalStringArray(values.required_skills) ?? [],
+      demand_start: requireDate(values, 'demand_start', tableId),
+      demand_end: requireDate(values, 'demand_end', tableId),
+      demand_pct: normalizeOptionalNumber(values.demand_pct),
+      demand_hours_per_week: normalizeOptionalNumber(values.demand_hours_per_week),
+      urgency: normalizeOptionalString(values.urgency)?.toLowerCase() ?? 'medium',
+      priority_score: normalizeOptionalNumber(values.priority_score),
+      confirmed: normalizeOptionalBoolean(values.confirmed) ?? false,
+      demand_source: normalizeOptionalString(values.demand_source) ?? 'uploaded_workbook',
+      note: normalizeOptionalString(values.note),
+      source_row: normalizeOptionalInteger(values.source_row),
+    };
+
+    await db
+      .insert(projectDemandPlan)
+      .values(row)
+      .onConflictDoUpdate({
+        target: [projectDemandPlan.tenant_id, projectDemandPlan.natural_key_hash],
+        set: {
+          source_row_hash: row.source_row_hash,
+          last_ingestion_session_id: row.last_ingestion_session_id,
+          is_active: true,
+          demand_id: row.demand_id,
+          project_id: row.project_id,
+          role_needed: row.role_needed,
+          required_skills: row.required_skills,
+          demand_start: row.demand_start,
+          demand_end: row.demand_end,
+          demand_pct: row.demand_pct,
+          demand_hours_per_week: row.demand_hours_per_week,
+          urgency: row.urgency,
+          priority_score: row.priority_score,
+          confirmed: row.confirmed,
+          demand_source: row.demand_source,
+          note: row.note,
           source_row: row.source_row,
           updated_at: new Date(),
         },

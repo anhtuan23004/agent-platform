@@ -5,6 +5,7 @@ import {
 } from '../../../analytics/report-date-bounds.ts';
 import type { ParsedSheet, WorkbookParseResult } from '../../../ingestion/parse-workbook.ts';
 import type {
+  ForwardAllocationReportType,
   LegacyReportType as PmoReportType,
   ReportSourceMode,
 } from '../../../reporting/contracts.ts';
@@ -20,6 +21,26 @@ const REPORT_DATE_FIELDS_BY_TABLE = new Map<string, string[]>([
   ['calendar_weeks', ['week_start', 'week_end']],
 ]);
 
+type CombinedReportType = PmoReportType | ForwardAllocationReportType;
+type WorkloadRangeSource =
+  | 'goal_explicit'
+  | 'user_confirmed'
+  | 'sheet_derived'
+  | 'sheet_suggested_pending';
+type ForwardAllocationRangeSource = WorkloadRangeSource;
+type WorkloadRangeValue = { from: string; to: string; source: WorkloadRangeSource };
+type ForwardAllocationRangeValue = {
+  from: string;
+  to: string;
+  source: ForwardAllocationRangeSource;
+};
+
+const DEFAULT_REPORT_TYPES: CombinedReportType[] = [
+  'idle_members',
+  'overbook_members',
+  'forward_allocation',
+];
+
 function isoDate(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
@@ -33,19 +54,22 @@ function parseDateLike(value: unknown): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function readDateRangeFromResume(resumeData: Record<string, unknown> | undefined) {
-  const raw = resumeData?.dateRange;
+function readNamedDateRangeFromResume(
+  resumeData: Record<string, unknown> | undefined,
+  key: 'dateRange' | 'workloadDateRange' | 'forwardAllocationDateRange',
+): WorkloadRangeValue | null {
+  const raw = resumeData?.[key];
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const range = raw as { from?: unknown; to?: unknown };
   const from = parseDateLike(range.from);
   const to = parseDateLike(range.to);
   if (!from || !to || from.getTime() > to.getTime()) return null;
-  return { from: isoDate(from), to: isoDate(to), source: 'user_confirmed' as const };
+  return { from: isoDate(from), to: isoDate(to), source: 'user_confirmed' };
 }
 
 interface IntentReportRequest {
   dateRange: { from: string; to: string } | null;
-  reportTypes: PmoReportType[];
+  reportTypes: CombinedReportType[];
 }
 
 function readIntentReportRequest(plan: unknown): IntentReportRequest | null {
@@ -68,14 +92,19 @@ function readIntentReportRequest(plan: unknown): IntentReportRequest | null {
       : null;
   const reportTypes = Array.isArray(raw.extractedReportTypes)
     ? raw.extractedReportTypes.filter(
-        (type): type is PmoReportType => type === 'idle_members' || type === 'overbook_members',
+        (type): type is CombinedReportType =>
+          type === 'idle_members' || type === 'overbook_members' || type === 'forward_allocation',
       )
     : [];
 
   return {
     dateRange,
-    reportTypes: reportTypes.length > 0 ? reportTypes : ['idle_members', 'overbook_members'],
+    reportTypes: normalizeReportTypes(reportTypes),
   };
+}
+
+function normalizeReportTypes(_reportTypes: CombinedReportType[]): CombinedReportType[] {
+  return DEFAULT_REPORT_TYPES;
 }
 
 function assertRangeWithinBounds(
@@ -84,6 +113,14 @@ function assertRangeWithinBounds(
 ): void {
   if (range.from < bounds.min || range.to > bounds.max) {
     throw new Error('report_date_range_outside_database_bounds');
+  }
+}
+
+function assertValidFuturePlanningRange(range: { from: string; to: string }): void {
+  const from = parseDateLike(range.from);
+  const to = parseDateLike(range.to);
+  if (!from || !to || from.getTime() > to.getTime()) {
+    throw new Error('invalid_report_date_range');
   }
 }
 
@@ -146,7 +183,7 @@ function collectMappedWorkbookDates(params: {
   return dates;
 }
 
-async function resolveSuggestedRange(input: {
+async function resolveSuggestedWorkloadRange(input: {
   reportingPeriodStart?: Date | null;
   reportingPeriodEnd?: Date | null;
   getWorkbookParseResult: () => Promise<WorkbookParseResult>;
@@ -181,6 +218,17 @@ function assertPublishedCheckpoint(runtimeContext: DynamicIngestRuntimeContext):
   }
 }
 
+function splitReportTypes(reportTypes: CombinedReportType[]) {
+  return {
+    workload: reportTypes.filter(
+      (type): type is PmoReportType => type === 'idle_members' || type === 'overbook_members',
+    ),
+    forwardAllocation: reportTypes.includes('forward_allocation')
+      ? ['forward_allocation' as const]
+      : [],
+  };
+}
+
 export function createGenerateReportHandler(
   deps: Pick<
     DynamicHandlerDeps,
@@ -207,25 +255,98 @@ export function createGenerateReportHandler(
         tenantId: input.tenantId,
         step: input.step,
       });
-      const reportTypes = input.runtimeContext.report_request?.reportTypes ??
-        intentRequest?.reportTypes ?? ['idle_members', 'overbook_members'];
-      const persistedRange = input.runtimeContext.report_request?.dateRange;
-      const explicitRange =
-        persistedRange?.source === 'goal_explicit' ||
-        persistedRange?.source === 'user_confirmed' ||
-        persistedRange?.source === 'sheet_derived'
-          ? persistedRange
-          : intentRequest?.dateRange
-            ? { ...intentRequest.dateRange, source: 'goal_explicit' as const }
-            : null;
-      const resumedRange = readDateRangeFromResume(input.resumeData);
-      const dateRange = resumedRange ?? explicitRange;
+      const reportTypes = normalizeReportTypes(
+        input.runtimeContext.report_request?.reportTypes ?? intentRequest?.reportTypes ?? [],
+      );
+      const split = splitReportTypes(reportTypes);
       const databaseBounds = await (deps.getReportDateBounds ?? getPmoReportDateBounds)(
         input.tenantId,
       );
       if (!databaseBounds) throw new Error('report_date_bounds_unavailable');
 
-      if (!dateRange) {
+      const persistedWorkloadRange = input.runtimeContext.report_request?.workloadDateRange;
+      const explicitWorkloadRange =
+        persistedWorkloadRange?.source === 'goal_explicit' ||
+        persistedWorkloadRange?.source === 'user_confirmed' ||
+        persistedWorkloadRange?.source === 'sheet_derived'
+          ? persistedWorkloadRange
+          : intentRequest?.dateRange && split.workload.length > 0
+            ? { ...intentRequest.dateRange, source: 'goal_explicit' as const }
+            : null;
+      const resumedWorkloadRange =
+        readNamedDateRangeFromResume(input.resumeData, 'workloadDateRange') ??
+        readNamedDateRangeFromResume(input.resumeData, 'dateRange');
+      let workloadDateRange = resumedWorkloadRange ?? explicitWorkloadRange;
+
+      if (!workloadDateRange && split.workload.length > 0) {
+        let suggestedWorkloadDateRange: { from: string; to: string };
+        if (databaseOnly) {
+          suggestedWorkloadDateRange = { from: databaseBounds.min, to: databaseBounds.max };
+        } else {
+          const cached = input.runtimeContext.report_request?.suggestedWorkloadDateRange;
+          if (cached) {
+            suggestedWorkloadDateRange = cached;
+          } else {
+            try {
+              suggestedWorkloadDateRange = await resolveSuggestedWorkloadRange({
+                reportingPeriodStart: input.reportingPeriodStart,
+                reportingPeriodEnd: input.reportingPeriodEnd,
+                getWorkbookParseResult: () => deps.getWorkbookParseResult(input),
+                runtimeContext: input.runtimeContext,
+              });
+            } catch {
+              suggestedWorkloadDateRange = { from: databaseBounds.min, to: databaseBounds.max };
+            }
+          }
+        }
+        workloadDateRange = {
+          ...suggestedWorkloadDateRange,
+          source: 'sheet_suggested_pending',
+        };
+      }
+
+      const persistedForwardRange = input.runtimeContext.report_request?.forwardAllocationDateRange;
+      const explicitForwardRange: ForwardAllocationRangeValue | null =
+        persistedForwardRange?.source === 'goal_explicit' ||
+        persistedForwardRange?.source === 'user_confirmed' ||
+        persistedForwardRange?.source === 'sheet_derived'
+          ? persistedForwardRange
+          : intentRequest?.dateRange &&
+              split.forwardAllocation.length > 0 &&
+              split.workload.length === 0
+            ? { ...intentRequest.dateRange, source: 'goal_explicit' as const }
+            : null;
+      const resumedForwardRange = readNamedDateRangeFromResume(
+        input.resumeData,
+        'forwardAllocationDateRange',
+      );
+      let forwardAllocationDateRange: ForwardAllocationRangeValue | null =
+        resumedForwardRange ?? explicitForwardRange;
+
+      if (!forwardAllocationDateRange && split.forwardAllocation.length > 0 && workloadDateRange) {
+        forwardAllocationDateRange = {
+          from: workloadDateRange.from,
+          to: workloadDateRange.to,
+          source:
+            workloadDateRange.source === 'user_confirmed'
+              ? 'user_confirmed'
+              : workloadDateRange.source === 'goal_explicit'
+                ? 'goal_explicit'
+                : workloadDateRange.source === 'sheet_derived'
+                  ? 'sheet_derived'
+                  : 'sheet_suggested_pending',
+        };
+      }
+
+      const needsRangeConfirmation =
+        (split.workload.length > 0 &&
+          !resumedWorkloadRange &&
+          workloadDateRange?.source === 'sheet_suggested_pending') ||
+        (split.forwardAllocation.length > 0 &&
+          !resumedForwardRange &&
+          forwardAllocationDateRange?.source === 'sheet_suggested_pending');
+
+      if (needsRangeConfirmation) {
         if (input.resumeData?.decision === 'reject') {
           return {
             kind: 'completed',
@@ -233,7 +354,10 @@ export function createGenerateReportHandler(
             runtimeContextPatch: {
               report_request: {
                 reportTypes,
-                suggestedDateRange: input.runtimeContext.report_request?.suggestedDateRange,
+                suggestedWorkloadDateRange:
+                  input.runtimeContext.report_request?.suggestedWorkloadDateRange,
+                suggestedForwardAllocationDateRange:
+                  input.runtimeContext.report_request?.suggestedForwardAllocationDateRange,
               },
             },
             outputSummary: {
@@ -243,33 +367,22 @@ export function createGenerateReportHandler(
           };
         }
 
-        let suggestedDateRange: { from: string; to: string };
-        if (databaseOnly) {
-          suggestedDateRange = { from: databaseBounds.min, to: databaseBounds.max };
-        } else {
-          const cached = input.runtimeContext.report_request?.suggestedDateRange;
-          if (cached) {
-            suggestedDateRange = cached;
-          } else {
-            try {
-              suggestedDateRange = await resolveSuggestedRange({
-                reportingPeriodStart: input.reportingPeriodStart,
-                reportingPeriodEnd: input.reportingPeriodEnd,
-                getWorkbookParseResult: () => deps.getWorkbookParseResult(input),
-                runtimeContext: input.runtimeContext,
-              });
-            } catch {
-              // Fallback to database bounds when sheet range is unavailable.
-              suggestedDateRange = { from: databaseBounds.min, to: databaseBounds.max };
-            }
-          }
-        }
-
         return {
           kind: 'suspend',
           card: buildReportRangeCard({
             ingestionSessionId: input.ingestionSessionId,
-            suggestedDateRange,
+            suggestedWorkloadDateRange: workloadDateRange
+              ? { from: workloadDateRange.from, to: workloadDateRange.to }
+              : { from: databaseBounds.min, to: databaseBounds.max },
+            suggestedForwardAllocationDateRange:
+              split.forwardAllocation.length > 0 && forwardAllocationDateRange
+                ? {
+                    from: forwardAllocationDateRange.from,
+                    to: forwardAllocationDateRange.to,
+                  }
+                : split.forwardAllocation.length > 0
+                  ? { from: databaseBounds.min, to: databaseBounds.max }
+                  : null,
             databaseDateBounds: databaseBounds,
             rangeSource: databaseOnly ? 'database' : 'sheet_or_database',
             reportTypes,
@@ -281,41 +394,113 @@ export function createGenerateReportHandler(
           runtimeContextPatch: {
             report_request: {
               reportTypes,
-              dateRange: {
-                ...suggestedDateRange,
-                source: 'sheet_suggested_pending',
-              },
-              suggestedDateRange: {
-                ...suggestedDateRange,
-                source: databaseOnly ? 'database' : 'sheet',
-              },
+              ...(workloadDateRange ? { workloadDateRange } : {}),
+              ...(forwardAllocationDateRange ? { forwardAllocationDateRange } : {}),
+              ...(workloadDateRange
+                ? {
+                    suggestedWorkloadDateRange: {
+                      from: workloadDateRange.from,
+                      to: workloadDateRange.to,
+                      source: databaseOnly ? 'database' : 'sheet',
+                    },
+                  }
+                : {}),
+              ...(forwardAllocationDateRange
+                ? {
+                    suggestedForwardAllocationDateRange: {
+                      from: forwardAllocationDateRange.from,
+                      to: forwardAllocationDateRange.to,
+                      source: databaseOnly ? 'database' : 'database',
+                    },
+                  }
+                : {}),
             },
           },
           outputSummary: {
             status: 'needs_range_confirmation',
-            suggested_from: suggestedDateRange.from,
-            suggested_to: suggestedDateRange.to,
+            workload_from: workloadDateRange?.from ?? null,
+            workload_to: workloadDateRange?.to ?? null,
+            forward_allocation_from: forwardAllocationDateRange?.from ?? null,
+            forward_allocation_to: forwardAllocationDateRange?.to ?? null,
           },
         };
       }
 
-      assertRangeWithinBounds(dateRange, databaseBounds);
-
       const sourceMode: ReportSourceMode =
         reportSource === 'published_batch' ? 'after_upload_publish' : 'canonical_db';
-      const reportRunId = await (deps.createReportRun ?? createReportRun)({
-        tenantId: input.tenantId,
-        actorId: input.userId,
-        sourceMode,
-        ingestionSessionId: input.ingestionSessionId,
-        dateRange: {
-          from: dateRange.from,
-          to: dateRange.to,
-        },
-        reportTypes,
-        outputFormat: 'pdf',
-      });
-      await (deps.enqueueReportRun ?? enqueueReportRunFromPool)(input.tenantId, reportRunId, 'pdf');
+      const reportRunIds: string[] = [];
+      const outputSummary: Record<string, unknown> = { status: 'queued' };
+      const reportResult: NonNullable<DynamicIngestRuntimeContext['report_result']> = {
+        reportRunIds,
+      };
+
+      if (split.workload.length > 0) {
+        if (!workloadDateRange) throw new Error('workload_report_range_required');
+        assertRangeWithinBounds(workloadDateRange, databaseBounds);
+        const workloadReportRunId = await (deps.createReportRun ?? createReportRun)({
+          tenantId: input.tenantId,
+          actorId: input.userId,
+          sourceMode,
+          ingestionSessionId: input.ingestionSessionId,
+          dateRange: {
+            from: workloadDateRange.from,
+            to: workloadDateRange.to,
+          },
+          reportTypes: split.workload,
+          outputFormat: 'pdf',
+        });
+        await (deps.enqueueReportRun ?? enqueueReportRunFromPool)(
+          input.tenantId,
+          workloadReportRunId,
+          'pdf',
+        );
+        reportRunIds.push(workloadReportRunId);
+        outputSummary.workload_report_run_id = workloadReportRunId;
+        outputSummary.workload_from = workloadDateRange.from;
+        outputSummary.workload_to = workloadDateRange.to;
+        reportResult.workload = {
+          reportRunId: workloadReportRunId,
+          dateRange: { from: workloadDateRange.from, to: workloadDateRange.to },
+        };
+      }
+
+      if (split.forwardAllocation.length > 0) {
+        if (!forwardAllocationDateRange)
+          throw new Error('forward_allocation_report_range_required');
+        assertValidFuturePlanningRange(forwardAllocationDateRange);
+        const forwardAllocationReportRunId = await (deps.createReportRun ?? createReportRun)({
+          tenantId: input.tenantId,
+          actorId: input.userId,
+          sourceMode,
+          ingestionSessionId: input.ingestionSessionId,
+          dateRange: {
+            from: workloadDateRange?.from ?? forwardAllocationDateRange.from,
+            to: workloadDateRange?.to ?? forwardAllocationDateRange.to,
+          },
+          planningDateRange: {
+            from: forwardAllocationDateRange.from,
+            to: forwardAllocationDateRange.to,
+          },
+          reportTypes: split.forwardAllocation,
+          outputFormat: 'pdf',
+        });
+        await (deps.enqueueReportRun ?? enqueueReportRunFromPool)(
+          input.tenantId,
+          forwardAllocationReportRunId,
+          'pdf',
+        );
+        reportRunIds.push(forwardAllocationReportRunId);
+        outputSummary.forward_allocation_report_run_id = forwardAllocationReportRunId;
+        outputSummary.forward_allocation_from = forwardAllocationDateRange.from;
+        outputSummary.forward_allocation_to = forwardAllocationDateRange.to;
+        reportResult.forwardAllocation = {
+          reportRunId: forwardAllocationReportRunId,
+          dateRange: {
+            from: forwardAllocationDateRange.from,
+            to: forwardAllocationDateRange.to,
+          },
+        };
+      }
 
       return {
         kind: 'completed',
@@ -323,20 +508,21 @@ export function createGenerateReportHandler(
         runtimeContextPatch: {
           report_request: {
             reportTypes,
-            dateRange,
-            suggestedDateRange: input.runtimeContext.report_request?.suggestedDateRange,
+            ...(workloadDateRange ? { workloadDateRange } : {}),
+            ...(forwardAllocationDateRange ? { forwardAllocationDateRange } : {}),
+            suggestedWorkloadDateRange:
+              input.runtimeContext.report_request?.suggestedWorkloadDateRange,
+            suggestedForwardAllocationDateRange:
+              input.runtimeContext.report_request?.suggestedForwardAllocationDateRange,
           },
+          report_result: reportResult,
         },
-        outputSummary: {
-          status: 'queued',
-          report_run_id: reportRunId,
-          from: dateRange.from,
-          to: dateRange.to,
-        },
+        outputSummary,
         terminalOutput: {
           ingestionSessionId: input.ingestionSessionId,
           status: 'completed',
-          reportRunId,
+          reportRunId: reportRunIds[0] ?? null,
+          reportRunIds,
         },
       };
     },

@@ -81,27 +81,38 @@ export interface DynamicIngestRuntimeContext {
     requiresReview: boolean;
   } & ReviewCheckpointState;
   report_request?: {
-    reportTypes: Array<'idle_members' | 'overbook_members'>;
-    dateRange?: {
+    reportTypes: Array<'idle_members' | 'overbook_members' | 'forward_allocation'>;
+    workloadDateRange?: {
       from: string;
       to: string;
       source: 'goal_explicit' | 'user_confirmed' | 'sheet_derived' | 'sheet_suggested_pending';
     };
-    suggestedDateRange?: {
+    forwardAllocationDateRange?: {
+      from: string;
+      to: string;
+      source: 'goal_explicit' | 'user_confirmed' | 'sheet_derived' | 'sheet_suggested_pending';
+    };
+    suggestedWorkloadDateRange?: {
       from: string;
       to: string;
       source: 'sheet' | 'database';
     };
+    suggestedForwardAllocationDateRange?: {
+      from: string;
+      to: string;
+      source: 'database';
+    };
   };
   report_result?: {
-    dateRange: { from: string; to: string };
-    summary: {
-      memberCount: number;
-      overbookCount: number;
-      idleCount: number;
-      excludedWeekCount: number;
+    reportRunIds?: string[];
+    workload?: {
+      reportRunId: string;
+      dateRange: { from: string; to: string };
     };
-    findings: unknown[];
+    forwardAllocation?: {
+      reportRunId: string;
+      dateRange: { from: string; to: string };
+    };
   };
 }
 
@@ -143,6 +154,7 @@ export type PmoDynamicHandlerResult =
         rowsUpdated?: Record<string, number>;
         rowsSkipped?: Record<string, number>;
         reportRunId?: string | null;
+        reportRunIds?: string[];
         report?: unknown;
       };
     }
@@ -158,6 +170,7 @@ export type PmoDynamicHandlerResult =
         rowsUpdated?: Record<string, number>;
         rowsSkipped?: Record<string, number>;
         reportRunId?: string | null;
+        reportRunIds?: string[];
         report?: unknown;
       };
     };

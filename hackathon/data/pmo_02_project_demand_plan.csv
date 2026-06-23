@@ -1,0 +1,4 @@
+demand_id,project_id,role_needed,required_skills,demand_start,demand_end,demand_pct,demand_hours_per_week,urgency,priority_score,confirmed,demand_source,note,is_active
+DEM-001,PRJ-105,Designer,figma|ux-research|wireframing,2026-08-10,2026-09-18,0.5,20,high,0.95,true,seeded_mock,Confirmed design demand for post-rollout phase,true
+DEM-002,PRJ-001,BE,java|spring-boot|rest-api,2026-08-10,2026-12-31,0.25,10,high,0.9,true,seeded_mock,Confirmed backend demand continuation,true
+DEM-003,PRJ-110,QA,test-automation|api-testing,2026-08-17,2026-09-30,0.5,20,medium,0.72,false,seeded_mock,Soft demand for QA hardening,true

@@ -1,6 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import pino from 'pino';
 import { generatePmoReport } from '../analytics/report.ts';
+import { generateForwardAllocationReport } from './forward-allocation/report.ts';
 import type { GeneratePmoReportOutput } from './report-output.ts';
 
 const log = pino({ name: 'pmo/reporting' });
@@ -10,6 +11,7 @@ import { ingestionSessions } from '../db/schema.ts';
 import {
   type CreateReportRunInput,
   type GenerateReportResult,
+  inferReportFamily,
   normalizeReportTypes,
   type ReportRunEnvelope,
   toLegacyReportTypes,
@@ -37,6 +39,7 @@ export interface ReportApplicationDeps {
   saveComputed: typeof saveComputedReportRun;
   fail: typeof failReportRun;
   computeAnalytics: typeof generatePmoReport;
+  computeForwardAllocation: typeof generateForwardAllocationReport;
   verifyPublishedSession: typeof verifyPublishedSession;
 }
 
@@ -49,6 +52,7 @@ const DEFAULT_DEPS: ReportApplicationDeps = {
   saveComputed: saveComputedReportRun,
   fail: failReportRun,
   computeAnalytics: generatePmoReport,
+  computeForwardAllocation: generateForwardAllocationReport,
   verifyPublishedSession,
 };
 
@@ -87,10 +91,22 @@ export async function createReportRun(
   validateCandidateCount(input.recommendationCandidateCount, rules);
   const reportTypes = normalizeReportTypes(input.reportTypes);
   if (reportTypes.length === 0) throw new Error('report_types_required');
+  const reportFamily = input.reportFamily ?? inferReportFamily(input.reportTypes);
+  const planningDateRange =
+    reportFamily === 'forward_allocation'
+      ? (input.planningDateRange ?? input.dateRange)
+      : undefined;
+  if (
+    reportFamily === 'forward_allocation' &&
+    (reportTypes.length !== 1 || reportTypes[0] !== 'forward_allocation')
+  ) {
+    throw new Error('forward_allocation_report_type_required');
+  }
   log.info(
     {
       tenantId: input.tenantId,
       sourceMode: input.sourceMode,
+      reportFamily,
       dateRange: dateRange.normalized,
       reportTypes,
     },
@@ -98,8 +114,10 @@ export async function createReportRun(
   );
   const envelope: ReportRunEnvelope = {
     request: {
+      reportFamily,
       sourceMode: input.sourceMode,
       dateRange: dateRange.normalized,
+      ...(planningDateRange ? { planningDateRange } : {}),
       reportTypes,
       ...(input.recommendationCandidateCount === undefined
         ? {}
@@ -131,20 +149,29 @@ export async function computeReportPayload(
   const computeStartMs = Date.now();
   try {
     const request = run.envelope.request;
-    const report = sortReportPayload(
-      await deps.computeAnalytics({
-        tenantId: input.tenantId,
-        ingestionSessionId: run.ingestionSessionId ?? undefined,
-        dateRange: request.dateRange,
-        reportTypes: toLegacyReportTypes(request.reportTypes),
-        reportSource:
-          request.sourceMode === 'after_upload_publish' ? 'published_batch' : 'canonical_db',
-        recommendationCandidateCount: request.recommendationCandidateCount,
-      }),
-    );
+    const report =
+      request.reportFamily === 'forward_allocation'
+        ? await deps.computeForwardAllocation({
+            tenantId: input.tenantId,
+            dateRange: request.dateRange,
+            planningDateRange: request.planningDateRange ?? request.dateRange,
+            recommendationCandidateCount: request.recommendationCandidateCount,
+          })
+        : sortReportPayload(
+            await deps.computeAnalytics({
+              tenantId: input.tenantId,
+              ingestionSessionId: run.ingestionSessionId ?? undefined,
+              dateRange: request.dateRange,
+              reportTypes: toLegacyReportTypes(request.reportTypes as Array<'idle' | 'overbook'>),
+              reportSource:
+                request.sourceMode === 'after_upload_publish' ? 'published_batch' : 'canonical_db',
+              recommendationCandidateCount: request.recommendationCandidateCount,
+            }),
+          );
     const limits = run.envelope.ruleSnapshot.rules as PmoReportRuleSet;
     if (
       request.outputFormat === 'pdf' &&
+      report.reportFamily === 'workload' &&
       (report.summary.memberCount > limits.reportLimits.maxMembersForPdf ||
         report.findings.length > limits.reportLimits.maxFindingsForPdf)
     ) {
@@ -154,8 +181,13 @@ export async function computeReportPayload(
       {
         reportRunId: input.reportRunId,
         tenantId: input.tenantId,
-        memberCount: report.summary.memberCount,
-        findingCount: report.findings.length,
+        reportFamily: report.reportFamily,
+        memberCount:
+          report.reportFamily === 'workload'
+            ? report.summary.memberCount
+            : report.summary.memberAvailabilityCount,
+        findingCount:
+          report.reportFamily === 'workload' ? report.findings.length : report.rows.length,
         durationMs: Date.now() - computeStartMs,
       },
       'report payload computed',
@@ -198,6 +230,7 @@ function buildRuleSnapshot(rules: ResolvedReportRules): ReportRunEnvelope['ruleS
 }
 
 export function sortReportPayload(report: GeneratePmoReportOutput): GeneratePmoReportOutput {
+  if (report.reportFamily !== 'workload') return report;
   const severity = { red: 0, yellow: 1, green: 2, none: 3 } as const;
   const issue = { overbook: 0, idle: 1, mismatch_under: 2, mismatch_over: 3, ok: 4 } as const;
   return {

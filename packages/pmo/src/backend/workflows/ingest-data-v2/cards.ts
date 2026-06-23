@@ -102,14 +102,17 @@ interface NormalizationCardInput {
 
 interface ReportRangeCardInput {
   ingestionSessionId: string;
-  suggestedDateRange: { from: string; to: string };
+  suggestedWorkloadDateRange: { from: string; to: string };
+  suggestedForwardAllocationDateRange: { from: string; to: string } | null;
   databaseDateBounds: { min: string; max: string };
   rangeSource: 'database' | 'sheet_or_database';
-  reportTypes: Array<'idle_members' | 'overbook_members'>;
+  reportTypes: Array<'idle_members' | 'overbook_members' | 'forward_allocation'>;
   identity: CardIdentity;
   toolCallId: string;
   plannerStep?: PmoPlannerStepMetadata | null;
 }
+
+type ReportRangeCardReportType = ReportRangeCardInput['reportTypes'][number];
 
 interface NormalizationReviewCardColumn {
   key: string;
@@ -1055,9 +1058,45 @@ export function buildNormalizationReviewCard(input: NormalizationCardInput): App
 }
 
 export function buildReportRangeCard(input: ReportRangeCardInput): ApprovalCard {
+  const workloadTypes = input.reportTypes.filter(
+    (type): type is Extract<ReportRangeCardReportType, 'idle_members' | 'overbook_members'> =>
+      type === 'idle_members' || type === 'overbook_members',
+  );
+  const hasForwardAllocation = input.reportTypes.includes('forward_allocation');
   const reportLabel = input.reportTypes
-    .map((type) => (type === 'idle_members' ? 'Idle members' : 'Overbook members'))
+    .map((type) => {
+      if (type === 'idle_members') return 'Idle members';
+      if (type === 'overbook_members') return 'Overbook members';
+      return 'Forward allocation';
+    })
     .join(', ');
+  const reportSections = [
+    ...(workloadTypes.length > 0
+      ? [
+          {
+            kind: 'workload' as const,
+            title: 'Workload report',
+            description:
+              'Overbook and idle analysis will use this range to compute workload findings from the published PMO data.',
+            reportTypes: workloadTypes,
+            suggestedDateRange: input.suggestedWorkloadDateRange,
+          },
+        ]
+      : []),
+    ...(hasForwardAllocation
+      ? [
+          {
+            kind: 'forward_allocation' as const,
+            title: 'Forward allocation report',
+            description:
+              'Future RA recommendations will use this range to evaluate demand windows and candidate allocations for the same planning horizon.',
+            reportTypes: ['forward_allocation' as const],
+            suggestedDateRange:
+              input.suggestedForwardAllocationDateRange ?? input.suggestedWorkloadDateRange,
+          },
+        ]
+      : []),
+  ];
 
   return {
     toolCallId: input.toolCallId,
@@ -1073,8 +1112,20 @@ export function buildReportRangeCard(input: ReportRangeCardInput): ApprovalCard 
         rows: [
           { k: 'Ingestion session', v: input.ingestionSessionId },
           { k: 'Report types', v: reportLabel },
-          { k: 'Suggested from', v: input.suggestedDateRange.from },
-          { k: 'Suggested to', v: input.suggestedDateRange.to },
+          { k: 'Workload from', v: input.suggestedWorkloadDateRange.from },
+          { k: 'Workload to', v: input.suggestedWorkloadDateRange.to },
+          ...(input.suggestedForwardAllocationDateRange
+            ? [
+                {
+                  k: 'Forward allocation from',
+                  v: input.suggestedForwardAllocationDateRange.from,
+                },
+                {
+                  k: 'Forward allocation to',
+                  v: input.suggestedForwardAllocationDateRange.to,
+                },
+              ]
+            : []),
           { k: 'Database minimum', v: input.databaseDateBounds.min },
           { k: 'Database maximum', v: input.databaseDateBounds.max },
           {
@@ -1082,6 +1133,13 @@ export function buildReportRangeCard(input: ReportRangeCardInput): ApprovalCard 
             v: input.rangeSource === 'database' ? 'Canonical PMO database' : 'Uploaded workbook',
           },
         ],
+      },
+      {
+        kind: 'kvTable',
+        rows: reportSections.map((section) => ({
+          k: section.title,
+          v: section.description,
+        })),
       },
       {
         kind: 'text',
@@ -1096,10 +1154,14 @@ export function buildReportRangeCard(input: ReportRangeCardInput): ApprovalCard 
       label: 'Generate report',
       argsPatch: {
         decision: 'approve',
-        dateRange: input.suggestedDateRange,
+        workloadDateRange: input.suggestedWorkloadDateRange,
+        ...(input.suggestedForwardAllocationDateRange
+          ? { forwardAllocationDateRange: input.suggestedForwardAllocationDateRange }
+          : {}),
         dateRangeStrategy: input.rangeSource === 'database' ? 'manual_database' : 'sheet_derived',
         databaseDateBounds: input.databaseDateBounds,
         rangeSource: input.rangeSource,
+        reportSections,
       },
     },
     alternates: [],

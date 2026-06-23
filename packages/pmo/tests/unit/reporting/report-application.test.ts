@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { GeneratePmoReportOutput } from '../../../src/backend/analytics/report.ts';
 import type {
   CreateReportRunInput,
   ReportRunEnvelope,
@@ -11,6 +10,10 @@ import {
   generateReport,
   sortReportPayload,
 } from '../../../src/backend/reporting/generate-report.ts';
+import type {
+  ForwardAllocationReportOutput,
+  WorkloadReportOutput,
+} from '../../../src/backend/reporting/report-output.ts';
 import { loadPmoReportRuleCatalog } from '../../../src/backend/reporting/rules/load.ts';
 import type { PmoReportRuleSet } from '../../../src/backend/reporting/rules/schema.ts';
 
@@ -21,8 +24,9 @@ const resolvedRules = {
   sha256: '0'.repeat(64),
 };
 
-function report(memberCount = 2): GeneratePmoReportOutput {
+function report(memberCount = 2): WorkloadReportOutput {
   return {
+    reportFamily: 'workload',
     dateRange: { from: '2026-06-29', to: '2026-07-05' },
     sourceVersion: {
       factsVersion: 'facts-v1',
@@ -108,9 +112,82 @@ function report(memberCount = 2): GeneratePmoReportOutput {
   };
 }
 
+function forwardAllocationReport(): ForwardAllocationReportOutput {
+  return {
+    reportFamily: 'forward_allocation',
+    dateRange: { from: '2026-06-29', to: '2026-08-07' },
+    planningHorizon: { from: '2026-08-10', to: '2026-10-04' },
+    sourceVersion: {
+      factsVersion: 'facts-v2',
+      canonicalDataVersion: 'canonical-v2',
+      factsComputedAt: '2026-08-07T12:00:00.000Z',
+    },
+    recommendationModeSummary: {
+      demandBacked: 1,
+      inferred: 1,
+    },
+    summary: {
+      memberAvailabilityCount: 2,
+      activeDemandWindowCount: 2,
+      demandBackedRecommendationCount: 1,
+      inferredRecommendationCount: 1,
+      releaseWarningCount: 0,
+    },
+    members: [
+      {
+        memberId: 'EMP-101',
+        fullName: 'Forward Member',
+        department: 'Engineering',
+        roleTitle: 'Backend Developer',
+      },
+    ],
+    rows: [
+      {
+        recommendationId: 'EMP-101:DEM-001:extend',
+        type: 'extend',
+        confidence: 'high',
+        recommendationMode: 'demand_backed',
+        memberId: 'EMP-101',
+        currentProjectId: 'PRJ-001',
+        assignmentEndDate: '2026-08-29',
+        availableFrom: '2026-08-10',
+        targetProjectId: 'PRJ-001',
+        suggestedAllocationPct: 0.4,
+        suggestedAllocationHoursPerWeek: 16,
+        effectiveFrom: '2026-08-10',
+        effectiveTo: '2026-09-12',
+        score: 0.81,
+        scoreBreakdown: {
+          availabilityOverlap: 0.8,
+          roleSkillMatch: 0.9,
+          demandUrgency: 0.8,
+          historicalFit: 0.7,
+          workloadBalance: 0.8,
+        },
+        expectedBusyRateAfterAllocation: 1,
+        hardConstraintFlags: [],
+        dataQualityFlags: [],
+        rationale: 'Deterministic forward allocation match.',
+        risks: [],
+        evidence: {
+          demandId: 'DEM-001',
+          demandStart: '2026-08-10',
+          demandEnd: '2026-09-12',
+          currentRaBusyRate: 0.6,
+          demandHoursPerWeek: 16,
+          matchedSkills: ['nodejs'],
+          missingSkills: [],
+          similarPastTasks: ['TASK-001'],
+        },
+      },
+    ],
+  };
+}
+
 function dependencies(overrides: Partial<ReportApplicationDeps> = {}): ReportApplicationDeps {
   const envelope: ReportRunEnvelope = {
     request: {
+      reportFamily: 'workload' as const,
       sourceMode: 'canonical_db' as const,
       dateRange: { from: '2026-06-29', to: '2026-07-05' },
       reportTypes: ['overbook', 'idle'],
@@ -150,6 +227,7 @@ function dependencies(overrides: Partial<ReportApplicationDeps> = {}): ReportApp
     saveComputed: vi.fn(async () => undefined),
     fail: vi.fn(async () => undefined),
     computeAnalytics: vi.fn(async () => report()),
+    computeForwardAllocation: vi.fn(async () => forwardAllocationReport()),
     verifyPublishedSession: vi.fn(async () => undefined),
     ...overrides,
   };
@@ -175,7 +253,10 @@ describe('report application service', () => {
         ingestionSessionId: null,
         reportTypes: ['overbook', 'idle'],
         envelope: expect.objectContaining({
-          request: expect.objectContaining({ reportTypes: ['overbook', 'idle'] }),
+          request: expect.objectContaining({
+            reportFamily: 'workload',
+            reportTypes: ['overbook', 'idle'],
+          }),
           ruleSnapshot: expect.objectContaining({
             ruleSetId: rules.ruleSetId,
             version: rules.version,
@@ -219,6 +300,7 @@ describe('report application service', () => {
       deps,
     );
 
+    if (result.reportFamily !== 'workload') throw new Error('expected workload report');
     expect(result.findings.map((finding) => finding.memberId)).toEqual(['OVERBOOK', 'IDLE']);
     expect(deps.setComputing).toHaveBeenCalled();
     expect(deps.computeAnalytics).toHaveBeenCalledWith(
@@ -229,6 +311,115 @@ describe('report application service', () => {
     );
     expect(deps.complete).toHaveBeenCalledWith(
       expect.objectContaining({ report: result, envelope: expect.any(Object) }),
+    );
+  });
+
+  it('creates and computes a forward allocation run as a separate report family', async () => {
+    const deps = dependencies({
+      computeForwardAllocation: vi.fn(async () => forwardAllocationReport()),
+      getRun: vi.fn(async () => ({
+        id: '55555555-5555-4555-8555-555555555555',
+        tenantId: 'tenant-1',
+        ingestionSessionId: null,
+        status: 'queued' as const,
+        envelope: {
+          request: {
+            reportFamily: 'forward_allocation' as const,
+            sourceMode: 'canonical_db' as const,
+            dateRange: { from: '2026-06-29', to: '2026-08-07' },
+            planningDateRange: { from: '2026-08-10', to: '2026-10-04' },
+            reportTypes: ['forward_allocation'] as Array<'forward_allocation'>,
+            outputFormat: 'json' as const,
+          },
+          ruleSnapshot: {
+            ruleSetId: rules.ruleSetId,
+            version: rules.version,
+            sha256: 'hash',
+            rules,
+          },
+        },
+        report: null,
+        htmlS3Key: null,
+        htmlSha256: null,
+        htmlSizeBytes: null,
+        pdfS3Key: null,
+        pdfSha256: null,
+        pdfSizeBytes: null,
+        failureCode: null,
+        failureMessage: null,
+        createdAt: new Date('2026-06-21T00:00:00.000Z'),
+        updatedAt: new Date('2026-06-21T00:00:00.000Z'),
+        completedAt: null,
+      })),
+    });
+
+    const reportRunId = await createReportRun(
+      {
+        ...baseInput,
+        reportFamily: 'forward_allocation',
+        planningDateRange: { from: '2026-08-10', to: '2026-10-04' },
+        reportTypes: ['forward_allocation'],
+        outputFormat: 'json',
+      },
+      deps,
+    );
+    expect(reportRunId).toBe('44444444-4444-4444-4444-444444444444');
+    expect(deps.insertQueued).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reportTypes: ['forward_allocation'],
+        envelope: expect.objectContaining({
+          request: expect.objectContaining({
+            reportFamily: 'forward_allocation',
+            planningDateRange: { from: '2026-08-10', to: '2026-10-04' },
+            reportTypes: ['forward_allocation'],
+          }),
+        }),
+      }),
+    );
+
+    const result = await computeReportPayload(
+      { tenantId: 'tenant-1', reportRunId: '55555555-5555-4555-8555-555555555555' },
+      deps,
+    );
+    expect(result.reportFamily).toBe('forward_allocation');
+    expect(result.summary).toMatchObject({
+      memberAvailabilityCount: 2,
+      activeDemandWindowCount: 2,
+    });
+    expect(deps.computeForwardAllocation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-1',
+        dateRange: { from: '2026-06-29', to: '2026-08-07' },
+        planningDateRange: { from: '2026-08-10', to: '2026-10-04' },
+      }),
+    );
+    expect(deps.computeAnalytics).not.toHaveBeenCalled();
+  });
+
+  it('allows forward allocation PDF runs once renderer support exists', async () => {
+    const deps = dependencies();
+    const reportRunId = await createReportRun(
+      {
+        ...baseInput,
+        reportFamily: 'forward_allocation',
+        planningDateRange: { from: '2026-08-10', to: '2026-10-04' },
+        reportTypes: ['forward_allocation'],
+        outputFormat: 'pdf',
+      },
+      deps,
+    );
+    expect(reportRunId).toBe('44444444-4444-4444-4444-444444444444');
+    expect(deps.insertQueued).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reportTypes: ['forward_allocation'],
+        envelope: expect.objectContaining({
+          request: expect.objectContaining({
+            reportFamily: 'forward_allocation',
+            planningDateRange: { from: '2026-08-10', to: '2026-10-04' },
+            outputFormat: 'pdf',
+          }),
+        }),
+      }),
     );
   });
 

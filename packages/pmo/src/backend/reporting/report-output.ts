@@ -1,5 +1,6 @@
 import type { Finding } from '../analytics/types.ts';
 import type { FindingExplanation, RecommendationGroupExplanation } from './explanation-types.ts';
+import type { ForwardAllocationRecommendationRow } from './forward-allocation/contracts.ts';
 import type { RebalanceRecommendationGroup } from './recommendations/contracts.ts';
 
 export interface PmoReportDateRange {
@@ -50,19 +51,6 @@ export interface ExplainPmoReportRuleContext {
   };
 }
 
-export interface ReportIssueWeekEvidence {
-  weekId: string;
-  weekStart: string | null;
-  weekEnd: string | null;
-  issueType: Finding['issueType'];
-  ragColor: Finding['ragColor'];
-  availableHours: number;
-  plannedHours: number;
-  loggedHours: number;
-  busyRate: number | null;
-  effortConsumption: number | null;
-}
-
 export interface ReportMetricEvidence {
   N01: number | null;
   N02: number | null;
@@ -80,6 +68,12 @@ export interface PmoReportMemberSummary {
   roleTitle: string | null;
 }
 
+export interface ReportSourceVersion {
+  factsVersion: string;
+  canonicalDataVersion: string;
+  factsComputedAt: string;
+}
+
 export type PmoReportFinding = Pick<
   Finding,
   | 'memberId'
@@ -94,18 +88,14 @@ export type PmoReportFinding = Pick<
   | 'suggestedActions'
 > & {
   excludedWeeks: Array<{ weekId: string; reason: string }>;
-  issueWeeks?: ReportIssueWeekEvidence[];
   metricEvidence: ReportMetricEvidence;
   explanation?: FindingExplanation;
 };
 
-export interface GeneratePmoReportOutput {
+export interface WorkloadReportOutput {
+  reportFamily: 'workload';
   dateRange: PmoReportDateRange;
-  sourceVersion: {
-    factsVersion: string;
-    canonicalDataVersion: string;
-    factsComputedAt: string;
-  };
+  sourceVersion: ReportSourceVersion;
   summary: {
     memberCount: number;
     overbookCount: number;
@@ -117,11 +107,35 @@ export interface GeneratePmoReportOutput {
   recommendations: RebalanceRecommendationGroup[];
 }
 
+export interface ForwardAllocationReportMemberSummary extends PmoReportMemberSummary {}
+
+export interface ForwardAllocationReportOutput {
+  reportFamily: 'forward_allocation';
+  dateRange: PmoReportDateRange;
+  planningHorizon: PmoReportDateRange;
+  sourceVersion: ReportSourceVersion;
+  recommendationModeSummary: {
+    demandBacked: number;
+    inferred: number;
+  };
+  summary: {
+    memberAvailabilityCount: number;
+    activeDemandWindowCount: number;
+    demandBackedRecommendationCount: number;
+    inferredRecommendationCount: number;
+    releaseWarningCount: number;
+  };
+  members: ForwardAllocationReportMemberSummary[];
+  rows: ForwardAllocationRecommendationRow[];
+}
+
+export type GeneratePmoReportOutput = WorkloadReportOutput | ForwardAllocationReportOutput;
+
 export interface ExplainPmoReportInput {
   dateRange: PmoReportDateRange;
-  summary: GeneratePmoReportOutput['summary'];
-  members: GeneratePmoReportOutput['members'];
-  findings: GeneratePmoReportOutput['findings'];
+  summary: WorkloadReportOutput['summary'];
+  members: WorkloadReportOutput['members'];
+  findings: WorkloadReportOutput['findings'];
   recommendations: RebalanceRecommendationGroup[];
   ruleContext: ExplainPmoReportRuleContext;
 }

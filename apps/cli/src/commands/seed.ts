@@ -19,6 +19,7 @@ import {
   resolvePmoMockDbPath,
   seedPmo02FromMockDbForTenant,
   seedPmoDefaultThresholdConfigsForTenant,
+  seedRecommendationProjectionsForTenant,
 } from '@seta/pmo';
 import {
   buildRegistry,
@@ -604,6 +605,40 @@ export async function seedCommand(opts: SeedOpts): Promise<void> {
   } else {
     log.info('phase 9: seeding PMO threshold defaults');
     const thresholdResult = await seedPmoDefaultThresholdConfigsForTenant({ tenantId });
+    log.info('phase 9b: seeding PMO recommendation projections from CSV');
+    const projectionResult = await seedRecommendationProjectionsForTenant({ tenantId });
+    process.stdout.write(
+      `${JSON.stringify({
+        phase: 'pmo',
+        thresholdDefaults: {
+          inserted: thresholdResult.inserted,
+          configIds: thresholdResult.configIds,
+        },
+        recommendationProjections: {
+          inserted: projectionResult.inserted,
+          skipped: projectionResult.skipped,
+          freshness: projectionResult.freshness,
+          sourcePaths: projectionResult.sourcePaths,
+        },
+        mockData: { skipped: true, reason: 'PMO mock-data seed disabled' },
+      })}\n`,
+    );
+    /*
+    log.info('phase 9: seeding PMO_02 from mock-data.db');
+    const result = await seedPmo02FromMockDbForTenant({
+      tenantId,
+      mockDbPath: process.env.PMO_MOCK_DB_PATH || undefined,
+    });
+    process.stdout.write(
+      `${JSON.stringify({
+        phase: 'pmo',
+        source: 'mock-data.db',
+        mockDbPath: result.mockDbPath,
+        inserted: result.inserted,
+        ingestionSessionId: result.ingestionSessionId,
+      })}\n`,
+    );
+    */
     const mockDbPath = resolvePmoMockDbPath(process.env.PMO_MOCK_DB_PATH || undefined);
     if (!pmoMockDbExists(mockDbPath)) {
       log.warn(

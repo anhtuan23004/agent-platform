@@ -108,8 +108,8 @@ export function buildMemberWeekProjectFacts(
 
     for (const week of sortWeeks(weeks)) {
       const weekFraction = weekCoverageFraction(week, dateRange);
-      const isPreHire =
-        Boolean(member.join_date) && member.join_date!.getTime() > week.week_end.getTime();
+      const joinDate = member.join_date;
+      const isPreHire = joinDate !== null && joinDate !== undefined && joinDate > week.week_end;
       const scopeStatus: ScopeStatus = isPreHire ? 'PRE_HIRE' : 'IN_SCOPE';
       const availableHours = isPreHire
         ? 0

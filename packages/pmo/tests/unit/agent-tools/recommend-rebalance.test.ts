@@ -1,6 +1,6 @@
 import { RequestContext } from '@mastra/core/request-context';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { GeneratePmoReportOutput } from '../../../src/backend/analytics/report.ts';
+import type { WorkloadReportOutput } from '../../../src/backend/reporting/report-output.ts';
 
 const mocks = vi.hoisted(() => ({
   generatePmoReport: vi.fn(),
@@ -19,94 +19,22 @@ const { pmoRecommendRebalanceTool } = await import(
   '../../../src/backend/agent-tools/recommend-rebalance.ts'
 );
 
-function report(): GeneratePmoReportOutput {
+function report(): WorkloadReportOutput {
   return {
-    dateRange: { from: '2026-06-29', to: '2026-07-05' },
+    reportFamily: 'workload',
+    dateRange: { from: '2026-06-29', to: '2026-07-12' },
     sourceVersion: {
       factsVersion: 'facts-v1',
       canonicalDataVersion: 'canonical-v1',
       factsComputedAt: '2026-07-05T12:00:00.000Z',
     },
-    summary: { memberCount: 3, overbookCount: 2, idleCount: 0, excludedWeekCount: 0 },
+    summary: { memberCount: 3, overbookCount: 2, idleCount: 0, excludedWeekCount: 1 },
     members: [
       { memberId: 'EMP-001', fullName: 'Source One', department: 'Delivery', roleTitle: 'BE' },
       { memberId: 'EMP-002', fullName: 'Target Two', department: 'Delivery', roleTitle: 'BE' },
       { memberId: 'EMP-003', fullName: 'Source Three', department: 'Data', roleTitle: 'DE' },
     ],
-    findings: [
-      {
-        memberId: 'EMP-001',
-        issueType: 'overbook',
-        ragColor: 'red',
-        busyRate: 1.2,
-        effortConsumption: 1,
-        detail: 'overbook',
-        excludedWeeks: [],
-        issueWeeks: [
-          {
-            weekId: 'W1',
-            weekStart: '2026-06-29',
-            weekEnd: '2026-07-05',
-            issueType: 'overbook',
-            ragColor: 'red',
-            availableHours: 40,
-            plannedHours: 48,
-            loggedHours: 40,
-            busyRate: 1.2,
-            effortConsumption: 1,
-          },
-        ],
-        annotations: [],
-        reviewRequired: true,
-        suggestedActionCode: 'REBALANCE_ALLOCATION',
-        suggestedActions: [],
-        metricEvidence: {
-          N01: 1.2,
-          N02: 1,
-          N03: 1,
-          N04: 0,
-          N05: 0,
-          N06: 1,
-          N12: null,
-        },
-      },
-      {
-        memberId: 'EMP-003',
-        issueType: 'overbook',
-        ragColor: 'yellow',
-        busyRate: 1.12,
-        effortConsumption: 1,
-        detail: 'overbook',
-        excludedWeeks: [],
-        issueWeeks: [
-          {
-            weekId: 'W2',
-            weekStart: '2026-07-06',
-            weekEnd: '2026-07-12',
-            issueType: 'overbook',
-            ragColor: 'yellow',
-            availableHours: 40,
-            plannedHours: 45,
-            loggedHours: 40,
-            busyRate: 1.12,
-            effortConsumption: 1,
-          },
-        ],
-        annotations: [],
-        reviewRequired: true,
-        suggestedActionCode: 'REBALANCE_ALLOCATION',
-        suggestedActions: [],
-        metricEvidence: {
-          N01: 1.12,
-          N02: 1,
-          N03: 1,
-          N04: 0,
-          N05: 0,
-          N06: 1,
-          N12: null,
-        },
-      },
-    ],
+    findings: [finding('EMP-001'), finding('EMP-003', [{ weekId: 'W1', reason: 'approved_ot' }])],
     recommendations: [
       group('EMP-001:PRJ-1:BE:2026-06-29:2026-07-05', 'EMP-001', 'EMP-002'),
       group('EMP-003:PRJ-1:BE:2026-07-06:2026-07-12', 'EMP-003', 'EMP-002'),
@@ -114,19 +42,48 @@ function report(): GeneratePmoReportOutput {
   };
 }
 
+function finding(
+  memberId: string,
+  excludedWeeks: WorkloadReportOutput['findings'][number]['excludedWeeks'] = [],
+): WorkloadReportOutput['findings'][number] {
+  return {
+    memberId,
+    issueType: 'overbook',
+    ragColor: 'red',
+    busyRate: 1.2,
+    effortConsumption: 1,
+    detail: 'overbook',
+    excludedWeeks,
+    annotations: [],
+    reviewRequired: true,
+    suggestedActionCode: 'REBALANCE_ALLOCATION',
+    suggestedActions: [],
+    metricEvidence: {
+      N01: 1.2,
+      N02: 1,
+      N03: 1,
+      N04: 0,
+      N05: 0,
+      N06: 1,
+      N12: null,
+    },
+  };
+}
+
 function group(
   opportunityId: string,
   sourceMemberId: string,
   targetMemberId: string,
-): GeneratePmoReportOutput['recommendations'][number] {
+): WorkloadReportOutput['recommendations'][number] {
+  const [, , , from = '', to = ''] = opportunityId.split(':');
   return {
     opportunityId,
     sourceMemberId,
     projectId: 'PRJ-1',
     roleNeeded: 'BE',
     severity: 'red',
-    evidenceWindow: { from: '2026-06-29', to: '2026-07-05' },
-    planningPeriod: { from: '2026-06-29', to: '2026-07-05' },
+    evidenceWindow: { from, to },
+    planningPeriod: { from, to },
     currentRaBusyRate: 1.2,
     targetRaBusyRate: 0.95,
     requiredReductionPct: 0.2,
@@ -149,8 +106,8 @@ function group(
         opportunityId,
         projectId: 'PRJ-1',
         roleNeeded: 'BE',
-        effectiveFrom: '2026-06-29',
-        effectiveTo: '2026-07-05',
+        effectiveFrom: from,
+        effectiveTo: to,
         transferPct: 0.2,
         transferHoursPerWeek: 8,
         score: 0.91,
@@ -243,7 +200,7 @@ describe('pmo_recommendRebalance tool', () => {
     expect(mocks.generatePmoReport).toHaveBeenCalledTimes(1);
   });
 
-  it('filters by week id using calendar week evidence', async () => {
+  it('filters by week id using the report date range and opportunity dates', async () => {
     mocks.generatePmoReport.mockResolvedValueOnce(report());
 
     const result = await execute({

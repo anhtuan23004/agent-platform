@@ -98,7 +98,10 @@ export interface PmoExecutionStepReportProps {
   reportApprovalsCount: number;
   isSubmittingReportDecision: boolean;
   confirmReportRange: (
-    dateRange: { from: string; to: string },
+    ranges: {
+      workloadDateRange?: { from: string; to: string };
+      forwardAllocationDateRange?: { from: string; to: string };
+    },
     strategy?: 'sheet_derived' | 'manual_database',
   ) => void;
   rejectReportRange: () => void;
@@ -149,9 +152,14 @@ interface PmoExecutionStepCardProps {
 }
 
 function readReportRangeConfigFromApproval(approval: WorkflowApprovalRow | null): {
-  suggested: { from: string; to: string };
   bounds: { min: string; max: string } | null;
   source: 'database' | 'sheet_or_database';
+  sections: Array<{
+    kind: 'workload' | 'forward_allocation';
+    title: string;
+    description: string;
+    suggestedDateRange: { from: string; to: string };
+  }>;
 } | null {
   const payload = approval?.proposedPayload;
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
@@ -159,11 +167,6 @@ function readReportRangeConfigFromApproval(approval: WorkflowApprovalRow | null)
   if (!primary || typeof primary !== 'object' || Array.isArray(primary)) return null;
   const argsPatch = (primary as { argsPatch?: unknown }).argsPatch;
   if (!argsPatch || typeof argsPatch !== 'object' || Array.isArray(argsPatch)) return null;
-  const dateRange = (argsPatch as { dateRange?: unknown }).dateRange;
-  if (!dateRange || typeof dateRange !== 'object' || Array.isArray(dateRange)) return null;
-  const from = (dateRange as { from?: unknown }).from;
-  const to = (dateRange as { to?: unknown }).to;
-  if (typeof from !== 'string' || typeof to !== 'string') return null;
   const rawBounds = (argsPatch as { databaseDateBounds?: unknown }).databaseDateBounds;
   const bounds =
     rawBounds && typeof rawBounds === 'object' && !Array.isArray(rawBounds)
@@ -173,10 +176,58 @@ function readReportRangeConfigFromApproval(approval: WorkflowApprovalRow | null)
         }
       : null;
   const rawSource = (argsPatch as { rangeSource?: unknown }).rangeSource;
+  const rawSections = (argsPatch as { reportSections?: unknown }).reportSections;
+  const sections = Array.isArray(rawSections)
+    ? rawSections
+        .map((section) => {
+          if (!section || typeof section !== 'object' || Array.isArray(section)) return null;
+          const record = section as {
+            kind?: unknown;
+            title?: unknown;
+            description?: unknown;
+            suggestedDateRange?: unknown;
+          };
+          const suggestedDateRange = record.suggestedDateRange;
+          if (
+            !suggestedDateRange ||
+            typeof suggestedDateRange !== 'object' ||
+            Array.isArray(suggestedDateRange)
+          ) {
+            return null;
+          }
+          const from = (suggestedDateRange as { from?: unknown }).from;
+          const to = (suggestedDateRange as { to?: unknown }).to;
+          if (
+            (record.kind !== 'workload' && record.kind !== 'forward_allocation') ||
+            typeof record.title !== 'string' ||
+            typeof record.description !== 'string' ||
+            typeof from !== 'string' ||
+            typeof to !== 'string'
+          ) {
+            return null;
+          }
+          return {
+            kind: record.kind,
+            title: record.title,
+            description: record.description,
+            suggestedDateRange: { from, to },
+          };
+        })
+        .filter(
+          (
+            section,
+          ): section is {
+            kind: 'workload' | 'forward_allocation';
+            title: string;
+            description: string;
+            suggestedDateRange: { from: string; to: string };
+          } => Boolean(section),
+        )
+    : [];
   return {
-    suggested: { from, to },
     bounds: bounds?.min && bounds.max ? bounds : null,
     source: rawSource === 'sheet_or_database' ? 'sheet_or_database' : 'database',
+    sections,
   };
 }
 
@@ -185,47 +236,91 @@ function PmoReportRangeForm(props: {
   rangeConfig: ReturnType<typeof readReportRangeConfigFromApproval>;
   isSubmittingReportDecision: boolean;
   confirmReportRange: (
-    dateRange: { from: string; to: string },
+    ranges: {
+      workloadDateRange?: { from: string; to: string };
+      forwardAllocationDateRange?: { from: string; to: string };
+    },
     strategy?: 'sheet_derived' | 'manual_database',
   ) => void;
   rejectReportRange: () => void;
 }) {
   const { stepNo, rangeConfig, isSubmittingReportDecision, confirmReportRange, rejectReportRange } =
     props;
-  const [from, setFrom] = useState(rangeConfig?.suggested.from ?? '');
-  const [to, setTo] = useState(rangeConfig?.suggested.to ?? '');
+  const workloadSection = rangeConfig?.sections.find((section) => section.kind === 'workload');
+  const forwardAllocationSection = rangeConfig?.sections.find(
+    (section) => section.kind === 'forward_allocation',
+  );
+  const [workloadFrom, setWorkloadFrom] = useState(workloadSection?.suggestedDateRange.from ?? '');
+  const [workloadTo, setWorkloadTo] = useState(workloadSection?.suggestedDateRange.to ?? '');
+  const [forwardFrom, setForwardFrom] = useState(
+    forwardAllocationSection?.suggestedDateRange.from ?? '',
+  );
+  const [forwardTo, setForwardTo] = useState(forwardAllocationSection?.suggestedDateRange.to ?? '');
   const min = rangeConfig?.bounds?.min;
   const max = rangeConfig?.bounds?.max;
-  const canSubmit = Boolean(
-    from && to && from <= to && (!min || from >= min) && (!max || to <= max),
-  );
+  const workloadMax = max;
+  const forwardMax = undefined;
+  const workloadValid =
+    !workloadSection ||
+    Boolean(
+      workloadFrom &&
+        workloadTo &&
+        workloadFrom <= workloadTo &&
+        (!min || workloadFrom >= min) &&
+        (!workloadMax || workloadTo <= workloadMax),
+    );
+  const forwardValid =
+    !forwardAllocationSection ||
+    Boolean(forwardFrom && forwardTo && forwardFrom <= forwardTo && (!min || forwardFrom >= min));
+  const canSubmit = workloadValid && forwardValid;
 
   return (
     <div className="space-y-3 rounded-md border border-hairline bg-surface-1 p-3">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="space-y-1">
-          <Label htmlFor={`report-from-${stepNo}`}>From</Label>
-          <Input
-            id={`report-from-${stepNo}`}
-            type="date"
-            min={min}
-            max={max}
-            value={from}
-            onChange={(event) => setFrom(event.target.value)}
-          />
+      {rangeConfig?.sections.length ? (
+        <div className="space-y-2">
+          {rangeConfig.sections.map((section) => (
+            <div
+              key={section.kind}
+              className="rounded-md border border-hairline bg-canvas px-3 py-2"
+            >
+              <p className="font-medium text-ink">{section.title}</p>
+              <p className="text-body-sm text-ink-subtle">{section.description}</p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label htmlFor={`${section.kind}-report-from-${stepNo}`}>From</Label>
+                  <Input
+                    id={`${section.kind}-report-from-${stepNo}`}
+                    type="date"
+                    min={min}
+                    max={section.kind === 'workload' ? workloadMax : forwardMax}
+                    value={section.kind === 'workload' ? workloadFrom : forwardFrom}
+                    onChange={(event) =>
+                      section.kind === 'workload'
+                        ? setWorkloadFrom(event.target.value)
+                        : setForwardFrom(event.target.value)
+                    }
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor={`${section.kind}-report-to-${stepNo}`}>To</Label>
+                  <Input
+                    id={`${section.kind}-report-to-${stepNo}`}
+                    type="date"
+                    min={min}
+                    max={section.kind === 'workload' ? workloadMax : forwardMax}
+                    value={section.kind === 'workload' ? workloadTo : forwardTo}
+                    onChange={(event) =>
+                      section.kind === 'workload'
+                        ? setWorkloadTo(event.target.value)
+                        : setForwardTo(event.target.value)
+                    }
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
-        <div className="space-y-1">
-          <Label htmlFor={`report-to-${stepNo}`}>To</Label>
-          <Input
-            id={`report-to-${stepNo}`}
-            type="date"
-            min={min}
-            max={max}
-            value={to}
-            onChange={(event) => setTo(event.target.value)}
-          />
-        </div>
-      </div>
+      ) : null}
       <div className="flex justify-end gap-2 border-t border-hairline pt-3">
         <Button
           type="button"
@@ -240,7 +335,19 @@ function PmoReportRangeForm(props: {
           type="button"
           size="sm"
           variant="primary"
-          onClick={() => confirmReportRange({ from, to }, 'manual_database')}
+          onClick={() =>
+            confirmReportRange(
+              {
+                ...(workloadSection
+                  ? { workloadDateRange: { from: workloadFrom, to: workloadTo } }
+                  : {}),
+                ...(forwardAllocationSection
+                  ? { forwardAllocationDateRange: { from: forwardFrom, to: forwardTo } }
+                  : {}),
+              },
+              'manual_database',
+            )
+          }
           disabled={!canSubmit || isSubmittingReportDecision}
         >
           {isSubmittingReportDecision ? 'Generating...' : 'Generate report'}
@@ -250,10 +357,32 @@ function PmoReportRangeForm(props: {
             type="button"
             size="sm"
             variant="primary"
-            onClick={() => confirmReportRange(rangeConfig.suggested, 'sheet_derived')}
+            onClick={() =>
+              confirmReportRange(
+                {
+                  ...(workloadSection
+                    ? {
+                        workloadDateRange: {
+                          from: workloadSection.suggestedDateRange.from,
+                          to: workloadSection.suggestedDateRange.to,
+                        },
+                      }
+                    : {}),
+                  ...(forwardAllocationSection
+                    ? {
+                        forwardAllocationDateRange: {
+                          from: forwardAllocationSection.suggestedDateRange.from,
+                          to: forwardAllocationSection.suggestedDateRange.to,
+                        },
+                      }
+                    : {}),
+                },
+                'sheet_derived',
+              )
+            }
             disabled={isSubmittingReportDecision}
           >
-            Use sheet range
+            Use suggested ranges
           </Button>
         ) : null}
       </div>
@@ -292,7 +421,10 @@ export function PmoReportReviewPanel(props: {
   reportApprovalsCount: number;
   isSubmittingReportDecision: boolean;
   confirmReportRange: (
-    dateRange: { from: string; to: string },
+    ranges: {
+      workloadDateRange?: { from: string; to: string };
+      forwardAllocationDateRange?: { from: string; to: string };
+    },
     strategy?: 'sheet_derived' | 'manual_database',
   ) => void;
   rejectReportRange: () => void;
@@ -310,10 +442,17 @@ export function PmoReportReviewPanel(props: {
     [selectedReportApproval],
   );
   const outputEntries = Object.entries(step.output_summary ?? {});
-  const reportRunId =
-    typeof step.output_summary?.report_run_id === 'string'
-      ? step.output_summary.report_run_id
-      : null;
+  const reportRunIds = [
+    ...(typeof step.output_summary?.workload_report_run_id === 'string'
+      ? [step.output_summary.workload_report_run_id]
+      : []),
+    ...(typeof step.output_summary?.forward_allocation_report_run_id === 'string'
+      ? [step.output_summary.forward_allocation_report_run_id]
+      : []),
+    ...(typeof step.output_summary?.report_run_id === 'string'
+      ? [step.output_summary.report_run_id]
+      : []),
+  ].filter((value, index, values) => values.indexOf(value) === index);
 
   return (
     <div className="mt-2 space-y-2 rounded-md border border-hairline bg-canvas p-2.5">
@@ -331,11 +470,15 @@ export function PmoReportReviewPanel(props: {
         ) : null}
       </div>
 
-      {reportRunId ? (
-        <PmoReportRunStatus reportRunId={reportRunId} />
+      {reportRunIds.length > 0 ? (
+        <div className="space-y-2">
+          {reportRunIds.map((reportRunId) => (
+            <PmoReportRunStatus key={reportRunId} reportRunId={reportRunId} />
+          ))}
+        </div>
       ) : selectedReportApproval?.status === 'pending' ? (
         <PmoReportRangeForm
-          key={`${selectedReportApproval.approvalId}-${rangeConfig?.suggested.from ?? ''}-${rangeConfig?.suggested.to ?? ''}`}
+          key={`${selectedReportApproval.approvalId}-${rangeConfig?.sections.map((section) => `${section.kind}:${section.suggestedDateRange.from}:${section.suggestedDateRange.to}`).join('|') ?? ''}`}
           stepNo={step.step_no}
           rangeConfig={rangeConfig}
           isSubmittingReportDecision={isSubmittingReportDecision}

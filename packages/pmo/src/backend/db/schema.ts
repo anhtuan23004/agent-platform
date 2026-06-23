@@ -284,6 +284,51 @@ export const overbookIdleConfig = pmoSchema.table(
   ],
 );
 
+export const projectDemandPlan = pmoSchema.table(
+  'project_demand_plan',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenant_id: uuid('tenant_id').notNull(),
+    natural_key_hash: text('natural_key_hash').notNull(),
+    source_row_hash: text('source_row_hash').notNull(),
+    last_ingestion_session_id: uuid('last_ingestion_session_id').notNull(),
+    is_active: boolean('is_active').notNull().default(true),
+    // Business fields
+    demand_id: text('demand_id').notNull(),
+    project_id: text('project_id').notNull(),
+    role_needed: text('role_needed').notNull(),
+    required_skills: jsonb('required_skills').$type<string[]>().notNull().default([]),
+    demand_start: timestamp('demand_start', { withTimezone: true }).notNull(),
+    demand_end: timestamp('demand_end', { withTimezone: true }).notNull(),
+    demand_pct: real('demand_pct'),
+    demand_hours_per_week: real('demand_hours_per_week'),
+    urgency: text('urgency').notNull().default('medium'),
+    priority_score: real('priority_score'),
+    confirmed: boolean('confirmed').notNull().default(false),
+    demand_source: text('demand_source').notNull().default('seeded_mock'),
+    note: text('note'),
+    // Metadata
+    source_row: integer('source_row'),
+    created_at: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('project_demand_plan_natural_key_unique').on(t.tenant_id, t.natural_key_hash),
+    index('project_demand_plan_tenant_active').on(t.tenant_id, t.is_active),
+    index('project_demand_plan_project_period').on(
+      t.tenant_id,
+      t.project_id,
+      t.demand_start,
+      t.demand_end,
+    ),
+    check('project_demand_plan_period_check', sql`${t.demand_end} >= ${t.demand_start}`),
+    check(
+      'project_demand_plan_capacity_check',
+      sql`${t.demand_pct} IS NOT NULL OR ${t.demand_hours_per_week} IS NOT NULL`,
+    ),
+  ],
+);
+
 export const calendarWeeks = pmoSchema.table(
   'calendar_weeks',
   {

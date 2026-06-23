@@ -103,4 +103,43 @@ describe('collectPublishValidationIssues', () => {
 
     expect(issues).toEqual([]);
   });
+
+  it('accepts project demand plan rows with the required fields', () => {
+    const issues = collectPublishValidationIssues([
+      {
+        table_id: 'project_demand_plan',
+        natural_key_hash: 'demand-ok-1',
+        change_type: 'new_record',
+        new_values: {
+          demand_id: 'DEM-001',
+          project_id: 'PRJ-001',
+          role_needed: 'Designer',
+          demand_start: '2026-08-01T00:00:00.000Z',
+          demand_end: '2026-08-31T00:00:00.000Z',
+        },
+      },
+    ]);
+
+    expect(issues).toEqual([]);
+  });
+
+  it('reports missing required fields for project demand plan rows', () => {
+    const issues = collectPublishValidationIssues([
+      {
+        table_id: 'project_demand_plan',
+        natural_key_hash: 'demand-bad-1',
+        change_type: 'updated_record',
+        new_values: {
+          demand_id: 'DEM-001',
+          role_needed: 'Designer',
+          demand_end: '2026-08-31T00:00:00.000Z',
+        },
+      },
+    ]);
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0]?.tableId).toBe('project_demand_plan');
+    expect(issues[0]?.reason).toContain('project_id');
+    expect(issues[0]?.reason).toContain('demand_start');
+  });
 });

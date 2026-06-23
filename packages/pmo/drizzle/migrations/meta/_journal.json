@@ -71,6 +71,13 @@
       "when": 1782056685061,
       "tag": "0009_plain_lethal_legion",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1782143571576,
+      "tag": "0010_careful_iron_fist",
+      "breakpoints": true
     }
   ]
 }

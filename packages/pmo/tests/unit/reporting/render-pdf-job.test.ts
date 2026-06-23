@@ -10,6 +10,7 @@ import type { ReportRunRecord } from '../../../src/backend/reporting/report-repo
 
 const envelope: ReportRunEnvelope = {
   request: {
+    reportFamily: 'workload',
     sourceMode: 'canonical_db',
     dateRange: { from: '2026-06-29', to: '2026-08-07' },
     reportTypes: ['overbook', 'idle'],
@@ -24,6 +25,7 @@ const envelope: ReportRunEnvelope = {
 };
 
 const report: GeneratePmoReportOutput = {
+  reportFamily: 'workload',
   dateRange: envelope.request.dateRange,
   sourceVersion: {
     factsVersion: 'facts-v1',
