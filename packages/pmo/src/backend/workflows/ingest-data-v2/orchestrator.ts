@@ -879,6 +879,7 @@ export async function runDynamicIngestOrchestrator(
         rowsUpdated?: Record<string, number>;
         rowsSkipped?: Record<string, number>;
         reportRunId?: string | null;
+        reportRunIds?: string[];
         report?: unknown;
       }
     | undefined;
@@ -987,6 +988,7 @@ export async function runDynamicIngestOrchestrator(
           rowsUpdated: result.terminalOutput?.rowsUpdated ?? {},
           rowsSkipped: result.terminalOutput?.rowsSkipped ?? {},
           reportRunId: result.terminalOutput?.reportRunId ?? null,
+          reportRunIds: result.terminalOutput?.reportRunIds ?? [],
           report: asWorkflowOutputReport(result.terminalOutput?.report),
         },
       };
@@ -1027,6 +1029,8 @@ export async function runDynamicIngestOrchestrator(
           rowsSkipped: result.terminalOutput?.rowsSkipped ?? lastTerminalOutput?.rowsSkipped ?? {},
           reportRunId:
             result.terminalOutput?.reportRunId ?? lastTerminalOutput?.reportRunId ?? null,
+          reportRunIds:
+            result.terminalOutput?.reportRunIds ?? lastTerminalOutput?.reportRunIds ?? [],
           report: asWorkflowOutputReport(
             result.terminalOutput?.report ?? lastTerminalOutput?.report,
           ),

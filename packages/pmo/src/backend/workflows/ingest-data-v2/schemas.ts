@@ -214,6 +214,8 @@ export const DynamicPlannerResumeSchema = z
     mappingOverrides: z.array(MappingOverrideSchema).optional(),
     memberMasterAdditions: z.array(MemberMasterAdditionSchema).optional(),
     dateRange: ReportDateRangeSchema.optional(),
+    workloadDateRange: ReportDateRangeSchema.optional(),
+    forwardAllocationDateRange: ReportDateRangeSchema.optional(),
     dateRangeStrategy: z.enum(['sheet_derived', 'manual_database']).optional(),
     note: z.string().optional(),
   })
@@ -230,6 +232,7 @@ export const IngestDataV2OutputSchema = z.object({
   rowsUpdated: z.record(z.string(), z.number()).default({}),
   rowsSkipped: z.record(z.string(), z.number()).default({}),
   reportRunId: z.string().uuid().nullable().optional(),
+  reportRunIds: z.array(z.string().uuid()).optional(),
   report: ReportOutputSchema.optional(),
 });
 

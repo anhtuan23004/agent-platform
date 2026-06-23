@@ -44,7 +44,7 @@ export const IntentAnalysisSchema = z.object({
   allowed_action_ids: z.array(z.enum(PMO_PLAN_ACTION_IDS)),
   extractedDateRange: z.object({ from: z.string(), to: z.string() }).nullable().optional(),
   extractedReportTypes: z
-    .array(z.enum(['idle_members', 'overbook_members']))
+    .array(z.enum(['idle_members', 'overbook_members', 'forward_allocation']))
     .min(1)
     .optional(),
   resolution_options: z

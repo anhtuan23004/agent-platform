@@ -27,7 +27,7 @@ export const PmoIntentClassificationSchema = z.object({
   rationale: z.string().min(1),
   extractedDateRange: DateRangeSchema.nullable().optional(),
   extractedReportTypes: z
-    .array(z.enum(['idle_members', 'overbook_members']))
+    .array(z.enum(['idle_members', 'overbook_members', 'forward_allocation']))
     .min(1)
     .optional(),
 });

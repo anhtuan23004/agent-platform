@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { GeneratePmoReportOutput } from '../../../src/backend/analytics/report.ts';
 import type { PmoReportRenderModel } from '../../../src/backend/reporting/render/contracts.ts';
 import {
   escapeHtml,
   renderReportHtml,
 } from '../../../src/backend/reporting/render/render-report-html.ts';
+import type { WorkloadReportOutput } from '../../../src/backend/reporting/report-output.ts';
 
 const metrics = {
   N01: 1.2,
@@ -16,8 +16,9 @@ const metrics = {
   N12: null,
 };
 
-function report(): GeneratePmoReportOutput {
+function report(): WorkloadReportOutput {
   return {
+    reportFamily: 'workload',
     dateRange: { from: '2026-06-29', to: '2026-08-07' },
     sourceVersion: {
       factsVersion: 'facts-1234567890',
@@ -54,20 +55,6 @@ function report(): GeneratePmoReportOutput {
         effortConsumption: 1,
         detail: 'Under allocated',
         excludedWeeks: [],
-        issueWeeks: [
-          {
-            weekId: 'W1',
-            weekStart: '2026-06-29',
-            weekEnd: '2026-07-03',
-            issueType: 'idle',
-            ragColor: 'yellow',
-            availableHours: 40,
-            plannedHours: 32,
-            loggedHours: 32,
-            busyRate: 0.8,
-            effortConsumption: 1,
-          },
-        ],
         annotations: [],
         reviewRequired: true,
         suggestedActionCode: 'REVIEW_WITH_LINE_MANAGER',
@@ -96,20 +83,6 @@ function report(): GeneratePmoReportOutput {
         effortConsumption: 1,
         detail: '<img src=x onerror=alert(1)>',
         excludedWeeks: [{ weekId: 'W1', reason: 'holiday_week' }],
-        issueWeeks: [
-          {
-            weekId: 'W2',
-            weekStart: '2026-07-06',
-            weekEnd: '2026-07-10',
-            issueType: 'overbook',
-            ragColor: 'red',
-            availableHours: 40,
-            plannedHours: 48,
-            loggedHours: 48,
-            busyRate: 1.2,
-            effortConsumption: 1,
-          },
-        ],
         annotations: [{ weekId: 'W2', reason: 'training' }],
         reviewRequired: true,
         suggestedActionCode: 'REBALANCE_ALLOCATION',
@@ -145,20 +118,6 @@ function report(): GeneratePmoReportOutput {
         effortConsumption: 1.3,
         detail: 'Effort consumption 130% — logged above plan',
         excludedWeeks: [],
-        issueWeeks: [
-          {
-            weekId: 'W3',
-            weekStart: '2026-07-13',
-            weekEnd: '2026-07-17',
-            issueType: 'mismatch_over',
-            ragColor: 'red',
-            availableHours: 32,
-            plannedHours: 32,
-            loggedHours: 42,
-            busyRate: 1,
-            effortConsumption: 1.3125,
-          },
-        ],
         annotations: [],
         reviewRequired: true,
         suggestedActionCode: 'REVIEW_RA_TIMESHEET_MISMATCH',
@@ -258,7 +217,7 @@ function report(): GeneratePmoReportOutput {
   };
 }
 
-function model(value: GeneratePmoReportOutput = report()): PmoReportRenderModel {
+function model(value: WorkloadReportOutput = report()): PmoReportRenderModel {
   return {
     reportRunId: '44444444-4444-4444-8444-444444444444',
     tenantName: 'SETA <Vietnam> & Co',
@@ -307,14 +266,12 @@ describe('renderReportHtml', () => {
     expect(html).not.toContain('Portfolio selected');
   });
 
-  it('renders affected weeks and mismatch findings', () => {
+  it('renders mismatch findings without affected-weeks tables', () => {
     const { html } = renderReportHtml(model());
     expect(html).toContain('Mismatch');
-    expect(html).toContain('Affected weeks');
     expect(html).toContain('Explanation of deterministic finding');
-    expect(html).toContain('W2');
-    expect(html).toContain('2026-07-06 to 2026-07-10');
     expect(html).toContain('Effort consumption 130%');
+    expect(html).not.toContain('Affected weeks');
   });
 
   it('renders explicit empty states for red/yellow finding groups', () => {

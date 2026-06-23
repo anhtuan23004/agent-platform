@@ -40,7 +40,7 @@ Rules:
 - Do not invent new findings, new recommendations, or new evidence.
 - Treat all metrics and recommendations as deterministic facts decided upstream.
 - When explaining overbook, idle, or mismatch, explicitly anchor the explanation to the provided thresholds, formulas, and the member's own metrics.
-- For overbook and idle findings, explain which rule band the member fell into and cite the most relevant values such as busy rate, utilization, effort consumption, overtime, bench, affected weeks, or exclusions when available.
+- For overbook and idle findings, explain which rule band the member fell into and cite the most relevant values such as busy rate, utilization, effort consumption, overtime, bench, or exclusions when available.
 - For recommendations, explain why the top-ranked option is stronger using only deterministic evidence such as skill match, history match, role context, capacity fit, risk flags, score breakdown, and planning period.
 - If there are alternatives, explain briefly why they rank lower. If there is no valid candidate, explain the blocking gap honestly.
 - Mention practical risk or tradeoff, but do not turn explanation into a new recommendation policy.
@@ -108,7 +108,6 @@ function buildPromptPayload(input: ExplainPmoReportInput) {
       busyRate: finding.busyRate,
       effortConsumption: finding.effortConsumption,
       detail: finding.detail,
-      issueWeeks: finding.issueWeeks ?? [],
       excludedWeeks: finding.excludedWeeks,
       annotations: finding.annotations,
       metricEvidence: finding.metricEvidence,
@@ -211,6 +210,35 @@ export function buildFallbackRecommendationExplanation(input: {
       input.recommendationCount > 1
         ? 'Lower-ranked alternatives fit less cleanly on skill, history, capacity, or risk evidence.'
         : null,
+  };
+}
+
+export function buildFallbackForwardAllocationRationale(input: {
+  type: 'reassign' | 'extend' | 'fill_gap' | 'release_warning';
+  recommendationMode: 'demand_backed' | 'inferred';
+  suggestedAllocationHoursPerWeek: number | null;
+  targetProjectId: string | null;
+  score: number;
+}): { summary: string; riskTradeoffs: string[] } {
+  if (input.type === 'release_warning') {
+    return {
+      summary:
+        'No deterministic target cleared the forward-allocation hard filters. Treat this as a release risk and confirm future demand before changing RA.',
+      riskTradeoffs: [
+        'Unassigned future capacity can turn into bench time if no demand-backed project is confirmed.',
+      ],
+    };
+  }
+  const demandLabel = input.recommendationMode === 'demand_backed' ? 'Demand-backed' : 'Inferred';
+  const hours =
+    input.suggestedAllocationHoursPerWeek === null
+      ? 'an unspecified'
+      : `${round2(input.suggestedAllocationHoursPerWeek)}h/week`;
+  return {
+    summary: `${demandLabel} forward-allocation match recommends ${input.type} toward ${input.targetProjectId ?? 'the target project'} for ${hours}. Deterministic score ${round2(input.score)}.`,
+    riskTradeoffs: [
+      'Validate future RA timing, leave overlap, and project demand before applying the recommendation.',
+    ],
   };
 }
 

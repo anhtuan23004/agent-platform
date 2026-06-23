@@ -12,9 +12,24 @@ const approval: WorkflowApprovalRow = {
   proposedPayload: {
     primary: {
       argsPatch: {
-        dateRange: { from: '2026-06-01', to: '2026-06-30' },
+        workloadDateRange: { from: '2026-06-01', to: '2026-06-30' },
+        forwardAllocationDateRange: { from: '2026-08-01', to: '2026-09-26' },
         databaseDateBounds: { min: '2026-01-01', max: '2026-12-31' },
         rangeSource: 'sheet_or_database',
+        reportSections: [
+          {
+            kind: 'workload',
+            title: 'Workload report',
+            description: 'Overbook and idle analysis will use this range.',
+            suggestedDateRange: { from: '2026-06-01', to: '2026-06-30' },
+          },
+          {
+            kind: 'forward_allocation',
+            title: 'Forward allocation report',
+            description: 'Future RA recommendations will use this range.',
+            suggestedDateRange: { from: '2026-08-01', to: '2026-09-26' },
+          },
+        ],
       },
     },
   },
@@ -55,9 +70,21 @@ describe('PmoReportReviewPanel', () => {
       />,
     );
 
-    expect(screen.getByLabelText('From')).toHaveValue('2026-06-01');
-    expect(screen.getByLabelText('To')).toHaveValue('2026-06-30');
-    expect(screen.getByRole('button', { name: 'Use sheet range' })).toBeInTheDocument();
+    expect(screen.getByLabelText('From', { selector: '#workload-report-from-6' })).toHaveValue(
+      '2026-06-01',
+    );
+    expect(screen.getByLabelText('To', { selector: '#workload-report-to-6' })).toHaveValue(
+      '2026-06-30',
+    );
+    expect(
+      screen.getByLabelText('From', { selector: '#forward_allocation-report-from-6' }),
+    ).toHaveValue('2026-08-01');
+    expect(
+      screen.getByLabelText('To', { selector: '#forward_allocation-report-to-6' }),
+    ).toHaveValue('2026-09-26');
+    expect(screen.getByText('Workload report')).toBeInTheDocument();
+    expect(screen.getByText('Forward allocation report')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Use suggested ranges' })).toBeInTheDocument();
   });
 
   it('polls a queued workflow report and shows download only after completion', async () => {

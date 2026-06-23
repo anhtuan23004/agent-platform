@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 import type { RebalanceRecommendationGroup } from '../recommendations/contracts.ts';
-import type { GeneratePmoReportOutput } from '../report-output.ts';
+import type { ForwardAllocationReportOutput, WorkloadReportOutput } from '../report-output.ts';
 import type { PmoReportRenderModel, RenderedReportHtml } from './contracts.ts';
 
-type ReportFinding = GeneratePmoReportOutput['findings'][number];
+type ReportFinding = WorkloadReportOutput['findings'][number];
 
 export function escapeHtml(value: unknown): string {
   return String(value ?? '')
@@ -28,7 +28,11 @@ function humanize(value: string): string {
 
 export function renderReportHtml(model: PmoReportRenderModel): RenderedReportHtml {
   validateRenderModel(model);
-  const memberMap = new Map(model.report.members.map((member) => [member.memberId, member]));
+  const report = model.report;
+  if (report.reportFamily === 'forward_allocation') {
+    return renderForwardAllocationReportHtml(model, report);
+  }
+  const memberMap = new Map(report.members.map((member) => [member.memberId, member]));
   const html = `<!doctype html>
 <html lang="en">
 <head>
@@ -42,7 +46,7 @@ export function renderReportHtml(model: PmoReportRenderModel): RenderedReportHtm
   <div><p class="eyebrow">PMO WORKLOAD ANALYTICS</p><h1>Workload &amp; Timesheet Report</h1></div>
   <div class="header-meta">
     <strong>${escapeHtml(model.tenantName)}</strong>
-    <span>${escapeHtml(model.report.dateRange.from)} — ${escapeHtml(model.report.dateRange.to)}</span>
+    <span>${escapeHtml(report.dateRange.from)} — ${escapeHtml(report.dateRange.to)}</span>
     <span>Generated ${escapeHtml(model.generatedAt)}</span>
   </div>
 </header>
@@ -50,15 +54,60 @@ export function renderReportHtml(model: PmoReportRenderModel): RenderedReportHtm
   <section class="provenance" aria-label="Report provenance">
     <div><span>Source</span><strong>${escapeHtml(humanize(model.sourceMode))}</strong></div>
     <div><span>Rule</span><strong>${escapeHtml(model.rule.ruleSetId)} · ${escapeHtml(model.rule.version)}</strong></div>
-    <div><span>Facts</span><strong>${escapeHtml(model.report.sourceVersion.factsVersion.slice(0, 12))}</strong></div>
+    <div><span>Facts</span><strong>${escapeHtml(report.sourceVersion.factsVersion.slice(0, 12))}</strong></div>
     <div><span>Run</span><strong>${escapeHtml(model.reportRunId)}</strong></div>
   </section>
-  ${renderSummary(model.report)}
-  ${renderSeveritySection('red', model.report, memberMap)}
-  ${renderSeveritySection('yellow', model.report, memberMap)}
+  ${renderSummary(report)}
+  ${renderSeveritySection('red', report, memberMap)}
+  ${renderSeveritySection('yellow', report, memberMap)}
   ${renderMethodology()}
 </main>
 <footer>PMO report · Rule ${escapeHtml(model.rule.version)} · Private</footer>
+</body>
+</html>`;
+  const bytes = Buffer.from(html, 'utf8');
+  return {
+    html,
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+    sizeBytes: bytes.byteLength,
+  };
+}
+
+function renderForwardAllocationReportHtml(
+  model: PmoReportRenderModel,
+  report: ForwardAllocationReportOutput,
+): RenderedReportHtml {
+  const memberMap = new Map(report.members.map((member) => [member.memberId, member]));
+  const html = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PMO Forward Allocation Report</title>
+<style>${CSS}</style>
+</head>
+<body>
+<header class="report-header">
+  <div><p class="eyebrow">PMO FORWARD ALLOCATION</p><h1>Forward Allocation Recommendation Report</h1></div>
+  <div class="header-meta">
+    <strong>${escapeHtml(model.tenantName)}</strong>
+    <span>Evidence ${escapeHtml(report.dateRange.from)} — ${escapeHtml(report.dateRange.to)}</span>
+    <span>Planning ${escapeHtml(report.planningHorizon.from)} — ${escapeHtml(report.planningHorizon.to)}</span>
+    <span>Generated ${escapeHtml(model.generatedAt)}</span>
+  </div>
+</header>
+<main>
+  <section class="provenance" aria-label="Report provenance">
+    <div><span>Source</span><strong>${escapeHtml(humanize(model.sourceMode))}</strong></div>
+    <div><span>Rule</span><strong>${escapeHtml(model.rule.ruleSetId)} · ${escapeHtml(model.rule.version)}</strong></div>
+    <div><span>Facts</span><strong>${escapeHtml(report.sourceVersion.factsVersion.slice(0, 12))}</strong></div>
+    <div><span>Run</span><strong>${escapeHtml(model.reportRunId)}</strong></div>
+  </section>
+  ${renderForwardAllocationSummary(report)}
+  ${renderForwardAllocationRows(report, memberMap)}
+  ${renderForwardAllocationMethodology(report)}
+</main>
+<footer>PMO forward allocation report · Rule ${escapeHtml(model.rule.version)} · Private</footer>
 </body>
 </html>`;
   const bytes = Buffer.from(html, 'utf8');
@@ -75,7 +124,80 @@ function validateRenderModel(model: PmoReportRenderModel): void {
   if (Number.isNaN(generatedAt.getTime())) throw new Error('invalid_report_render_generated_at');
 }
 
-function renderSummary(report: GeneratePmoReportOutput): string {
+function renderForwardAllocationSummary(report: ForwardAllocationReportOutput): string {
+  const cards = [
+    ['Availability windows', report.summary.memberAvailabilityCount],
+    ['Active demand windows', report.summary.activeDemandWindowCount],
+    ['Demand-backed rows', report.summary.demandBackedRecommendationCount],
+    ['Inferred rows', report.summary.inferredRecommendationCount],
+    ['Release warnings', report.summary.releaseWarningCount],
+  ];
+  const mode = `<div class="recommendation-note">Demand-backed rows: ${escapeHtml(String(report.recommendationModeSummary.demandBacked))}. Inferred rows: ${escapeHtml(String(report.recommendationModeSummary.inferred))}. Use inferred rows as planning support only.</div>`;
+  return `<section aria-labelledby="summary-title"><h2 id="summary-title">Planning summary</h2><div class="summary-grid">${cards
+    .map(
+      ([label, value]) =>
+        `<div class="summary-card"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`,
+    )
+    .join('')}</div>${mode}</section>`;
+}
+
+function renderForwardAllocationRows(
+  report: ForwardAllocationReportOutput,
+  memberMap: Map<string, ForwardAllocationReportOutput['members'][number]>,
+): string {
+  if (report.rows.length === 0) {
+    return `<section><h2>Recommendations</h2><p class="empty-state">No forward allocation recommendation rows were generated for the selected evidence window.</p></section>`;
+  }
+  return `<section aria-labelledby="forward-rows-title"><div class="section-title"><span class="severity-label">PLAN</span><h2 id="forward-rows-title">Recommendation rows</h2><span>${report.rows.length} row${report.rows.length === 1 ? '' : 's'}</span></div>${report.rows
+    .map((row) => {
+      const member = memberMap.get(row.memberId);
+      const target = row.targetProjectId ?? 'No target project';
+      const mode = row.recommendationMode === 'demand_backed' ? 'Demand-backed' : 'Inferred';
+      const allocation =
+        row.suggestedAllocationHoursPerWeek === null
+          ? 'N/A'
+          : `${number(row.suggestedAllocationHoursPerWeek)}h/week (${pct(row.suggestedAllocationPct)})`;
+      const skills = `<p><strong>Matched:</strong> ${escapeHtml(row.evidence.matchedSkills.join(', ') || 'None')} · <strong>Missing:</strong> ${escapeHtml(row.evidence.missingSkills.join(', ') || 'None')}</p>`;
+      const history = `<p><strong>Similar tasks:</strong> ${escapeHtml(row.evidence.similarPastTasks.join(', ') || 'Unavailable')}</p>`;
+      const flags = [...row.hardConstraintFlags, ...row.dataQualityFlags, ...row.risks];
+      const explanation = row.explanation
+        ? `<div class="llm-explanation"><strong>Explanation of deterministic recommendation</strong><p>${escapeHtml(row.explanation.summary)}</p><ul>${row.explanation.riskTradeoffs.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul></div>`
+        : '';
+      return `<article class="candidate-card">
+  <div><strong>${escapeHtml(member?.fullName || row.memberId)}</strong><span>${escapeHtml(mode)} · ${escapeHtml(humanize(row.type))} · Score ${number(row.score)}</span></div>
+  <p><strong>Target:</strong> ${escapeHtml(target)} · <strong>Period:</strong> ${escapeHtml(row.effectiveFrom ?? 'N/A')}${row.effectiveTo ? ` to ${escapeHtml(row.effectiveTo)}` : ''}</p>
+  <p><strong>Suggested allocation:</strong> ${escapeHtml(allocation)} · <strong>Expected busy rate:</strong> ${pct(row.expectedBusyRateAfterAllocation)}</p>
+  <p><strong>Current project:</strong> ${escapeHtml(row.currentProjectId ?? 'None')} · <strong>Available from:</strong> ${escapeHtml(row.availableFrom ?? 'N/A')}</p>
+  <p><strong>Demand window:</strong> ${escapeHtml(row.evidence.demandStart ?? 'N/A')}${row.evidence.demandEnd ? ` to ${escapeHtml(row.evidence.demandEnd)}` : ''} · <strong>Demand load:</strong> ${row.evidence.demandHoursPerWeek === null ? 'N/A' : `${number(row.evidence.demandHoursPerWeek)}h/week`}</p>
+  ${skills}
+  ${history}
+  <p><strong>Why:</strong> ${escapeHtml(row.rationale)}</p>
+  <table class="metrics-table"><thead><tr><th>Factor</th><th>Value</th></tr></thead><tbody>
+    <tr><td>Availability overlap</td><td>${number(row.scoreBreakdown.availabilityOverlap)}</td></tr>
+    <tr><td>Role/skill match</td><td>${number(row.scoreBreakdown.roleSkillMatch)}</td></tr>
+    <tr><td>Demand urgency</td><td>${number(row.scoreBreakdown.demandUrgency)}</td></tr>
+    <tr><td>Historical fit</td><td>${number(row.scoreBreakdown.historicalFit)}</td></tr>
+    <tr><td>Workload balance</td><td>${number(row.scoreBreakdown.workloadBalance)}</td></tr>
+  </tbody></table>
+  ${flags.length > 0 ? `<div class="context-notes"><strong>Flags</strong><ul>${flags.map((flag) => `<li>${escapeHtml(humanize(flag))}</li>`).join('')}</ul></div>` : ''}
+  ${explanation}
+</article>`;
+    })
+    .join('')}</section>`;
+}
+
+function renderForwardAllocationMethodology(report: ForwardAllocationReportOutput): string {
+  return `<section class="methodology"><h2>Methodology &amp; definitions</h2>
+  <p>This report is a deterministic planning artifact for the future horizon ${escapeHtml(report.planningHorizon.from)} to ${escapeHtml(report.planningHorizon.to)}. Demand-backed rows may be used as proposal candidates. Inferred rows are planning support only.</p>
+  <table><thead><tr><th>Recommendation</th><th>Meaning</th></tr></thead><tbody>
+    <tr><td>Extend</td><td>Keep the member on the current project because the same project still has future demand.</td></tr>
+    <tr><td>Reassign</td><td>Move the member from the current project to another project with future demand.</td></tr>
+    <tr><td>Fill gap</td><td>Use future spare capacity to cover an unresolved demand window.</td></tr>
+    <tr><td>Release warning</td><td>No strong fit was found; confirm future demand before the member becomes idle.</td></tr>
+  </tbody></table></section>`;
+}
+
+function renderSummary(report: WorkloadReportOutput): string {
   const cards = [
     ['Members', report.summary.memberCount],
     ['Red', report.findings.filter((finding) => finding.ragColor === 'red').length],
@@ -96,8 +218,8 @@ function renderSummary(report: GeneratePmoReportOutput): string {
 
 function renderSeveritySection(
   severity: 'red' | 'yellow',
-  report: GeneratePmoReportOutput,
-  memberMap: Map<string, GeneratePmoReportOutput['members'][number]>,
+  report: WorkloadReportOutput,
+  memberMap: Map<string, WorkloadReportOutput['members'][number]>,
 ): string {
   const findings = report.findings.filter((finding) => finding.ragColor === severity);
   const overbook = findings.filter((finding) => finding.issueType === 'overbook');
@@ -114,8 +236,8 @@ function renderSeveritySection(
 function renderFindingGroup(
   title: 'Overbook' | 'Idle' | 'Mismatch',
   findings: ReportFinding[],
-  report: GeneratePmoReportOutput,
-  memberMap: Map<string, GeneratePmoReportOutput['members'][number]>,
+  report: WorkloadReportOutput,
+  memberMap: Map<string, WorkloadReportOutput['members'][number]>,
 ): string {
   if (findings.length === 0) {
     return `<section class="finding-group"><h3>${title}</h3><p class="empty-state">No findings</p></section>`;
@@ -127,8 +249,8 @@ function renderFindingGroup(
 
 function renderFinding(
   finding: ReportFinding,
-  report: GeneratePmoReportOutput,
-  memberMap: Map<string, GeneratePmoReportOutput['members'][number]>,
+  report: WorkloadReportOutput,
+  memberMap: Map<string, WorkloadReportOutput['members'][number]>,
 ): string {
   const member = memberMap.get(finding.memberId);
   const displayName = member?.fullName || finding.memberId;
@@ -143,7 +265,6 @@ function renderFinding(
   </div>
   <p class="finding-detail">${escapeHtml(finding.detail)}</p>
   ${renderFindingExplanation(finding)}
-  ${renderIssueWeeks(finding)}
   ${renderMetrics(finding)}
   ${renderContextNotes(finding)}
   ${renderSuggestedActions(finding)}
@@ -159,20 +280,6 @@ function renderFindingExplanation(finding: ReportFinding): string {
         .join('')}</ul>`
     : '';
   return `<div class="llm-explanation"><strong>Explanation of deterministic finding</strong><p>${escapeHtml(finding.explanation.summary)}</p>${tradeoffs}</div>`;
-}
-
-function renderIssueWeeks(finding: ReportFinding): string {
-  const weeks = finding.issueWeeks ?? [];
-  if (weeks.length === 0) return '';
-  return `<div class="issue-weeks"><strong>Affected weeks</strong><table><thead><tr><th>Week</th><th>Dates</th><th>Planned</th><th>Logged</th><th>Available</th><th>Busy</th><th>EC</th></tr></thead><tbody>${weeks
-    .map((week) => {
-      const dates =
-        week.weekStart && week.weekEnd
-          ? `${escapeHtml(week.weekStart)} to ${escapeHtml(week.weekEnd)}`
-          : 'Unavailable';
-      return `<tr><td>${escapeHtml(week.weekId)}</td><td>${dates}</td><td>${number(week.plannedHours)}h</td><td>${number(week.loggedHours)}h</td><td>${number(week.availableHours)}h</td><td>${pct(week.busyRate)}</td><td>${pct(week.effortConsumption)}</td></tr>`;
-    })
-    .join('')}</tbody></table></div>`;
 }
 
 function renderMetrics(finding: ReportFinding): string {
@@ -217,8 +324,8 @@ function renderSuggestedActions(finding: ReportFinding): string {
 
 function renderRecommendations(
   groups: RebalanceRecommendationGroup[],
-  memberMap: Map<string, GeneratePmoReportOutput['members'][number]>,
-  dateRange: GeneratePmoReportOutput['dateRange'],
+  memberMap: Map<string, WorkloadReportOutput['members'][number]>,
+  dateRange: WorkloadReportOutput['dateRange'],
 ): string {
   const planningStart = groups[0]?.planningPeriod.from ?? nextIsoDate(dateRange.to);
   const planningNote = `Evidence window: ${dateRange.from} to ${dateRange.to}. Recommendations are forward-looking actions from ${planningStart}; confirm future RA demand or select a planning horizon before applying.`;

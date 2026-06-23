@@ -20,6 +20,7 @@ const dbCfg = () => ({
 
 const envelope: ReportRunEnvelope = {
   request: {
+    reportFamily: 'workload',
     sourceMode: 'canonical_db',
     dateRange: { from: '2026-06-29', to: '2026-07-05' },
     reportTypes: ['overbook', 'idle'],
@@ -35,6 +36,7 @@ const envelope: ReportRunEnvelope = {
 
 function report(): GeneratePmoReportOutput {
   return {
+    reportFamily: 'workload',
     dateRange: envelope.request.dateRange,
     sourceVersion: {
       factsVersion: 'facts-v1',

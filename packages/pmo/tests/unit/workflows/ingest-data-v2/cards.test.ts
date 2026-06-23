@@ -408,7 +408,8 @@ describe('PMO ingest review cards', () => {
   it('builds report range confirmation card with suggested date range payload', () => {
     const card = buildReportRangeCard({
       ingestionSessionId: 'f56e9152-7856-44e9-b2d7-4f21d86cdffd',
-      suggestedDateRange: { from: '2026-06-01', to: '2026-06-30' },
+      suggestedWorkloadDateRange: { from: '2026-06-01', to: '2026-06-30' },
+      suggestedForwardAllocationDateRange: null,
       databaseDateBounds: { min: '2026-01-01', max: '2026-12-31' },
       rangeSource: 'sheet_or_database',
       reportTypes: ['idle_members', 'overbook_members'],
@@ -417,14 +418,54 @@ describe('PMO ingest review cards', () => {
     });
 
     expect(card.intent).toBe('Confirm PMO report date range');
-    expect(card.primary.argsPatch).toEqual({
+    expect(card.primary.argsPatch).toMatchObject({
       decision: 'approve',
-      dateRange: { from: '2026-06-01', to: '2026-06-30' },
+      workloadDateRange: { from: '2026-06-01', to: '2026-06-30' },
       dateRangeStrategy: 'sheet_derived',
       databaseDateBounds: { min: '2026-01-01', max: '2026-12-31' },
       rangeSource: 'sheet_or_database',
     });
     expect(JSON.stringify(card.details)).toContain('2026-06-01');
     expect(JSON.stringify(card.details)).toContain('2026-06-30');
+  });
+
+  it('labels forward allocation reports explicitly in the range card', () => {
+    const card = buildReportRangeCard({
+      ingestionSessionId: 'f56e9152-7856-44e9-b2d7-4f21d86cdffd',
+      suggestedWorkloadDateRange: { from: '2026-08-01', to: '2026-08-31' },
+      suggestedForwardAllocationDateRange: { from: '2026-09-01', to: '2026-10-26' },
+      databaseDateBounds: { min: '2026-01-01', max: '2026-12-31' },
+      rangeSource: 'sheet_or_database',
+      reportTypes: ['forward_allocation'],
+      identity: { tenantId: 'tenant-1', userId: 'user-1' },
+      toolCallId: 'workflow:test:pmo_confirmReportRange',
+    });
+
+    expect(JSON.stringify(card.details)).toContain('Forward allocation');
+  });
+
+  it('separates workload and forward allocation sections inside the same range card', () => {
+    const card = buildReportRangeCard({
+      ingestionSessionId: 'f56e9152-7856-44e9-b2d7-4f21d86cdffd',
+      suggestedWorkloadDateRange: { from: '2026-08-01', to: '2026-08-31' },
+      suggestedForwardAllocationDateRange: { from: '2026-09-01', to: '2026-10-26' },
+      databaseDateBounds: { min: '2026-01-01', max: '2026-12-31' },
+      rangeSource: 'sheet_or_database',
+      reportTypes: ['idle_members', 'forward_allocation'],
+      identity: { tenantId: 'tenant-1', userId: 'user-1' },
+      toolCallId: 'workflow:test:pmo_confirmReportRange',
+    });
+
+    expect(card.primary.argsPatch).toMatchObject({
+      reportSections: [
+        expect.objectContaining({ kind: 'workload', title: 'Workload report' }),
+        expect.objectContaining({
+          kind: 'forward_allocation',
+          title: 'Forward allocation report',
+        }),
+      ],
+    });
+    expect(JSON.stringify(card.details)).toContain('Workload report');
+    expect(JSON.stringify(card.details)).toContain('Forward allocation report');
   });
 });

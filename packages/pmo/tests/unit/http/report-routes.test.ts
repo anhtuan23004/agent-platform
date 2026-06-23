@@ -30,6 +30,7 @@ function reportRun(status: ReportRunRecord['status'] = 'queued'): ReportRunRecor
     status,
     envelope: {
       request: {
+        reportFamily: 'workload',
         sourceMode: 'canonical_db',
         dateRange: { from: '2026-06-29', to: '2026-08-07' },
         reportTypes: ['overbook', 'idle'],
@@ -94,6 +95,7 @@ describe('PMO report routes', () => {
         tenantId: session().tenant_id,
         actorId: session().user_id,
         sourceMode: 'canonical_db',
+        reportFamily: undefined,
         outputFormat: 'pdf',
       }),
     );
@@ -135,6 +137,66 @@ describe('PMO report routes', () => {
       bounds: { min: '2026-06-29', max: '2026-08-07' },
     });
     expect(deps.createRun).not.toHaveBeenCalled();
+  });
+
+  it('accepts forward allocation report family for JSON runs', async () => {
+    const getRun = vi.fn(async () => ({
+      ...reportRun(),
+      envelope: {
+        ...reportRun().envelope,
+        request: {
+          ...reportRun().envelope.request,
+          reportFamily: 'forward_allocation' as const,
+          reportTypes: ['forward_allocation'] as Array<'forward_allocation'>,
+          outputFormat: 'json' as const,
+        },
+      },
+    }));
+    const { app, deps } = setup({ getRun });
+    const response = await app.request('/api/pmo/v1/reports', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        reportFamily: 'forward_allocation',
+        dateRange: { from: '2026-06-29', to: '2026-08-07' },
+        reportTypes: ['forward_allocation'],
+        outputFormat: 'json',
+      }),
+    });
+    expect(response.status).toBe(202);
+    expect(deps.createRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reportFamily: 'forward_allocation',
+        reportTypes: ['forward_allocation'],
+        outputFormat: 'json',
+      }),
+    );
+    expect(await response.json()).toMatchObject({
+      reportFamily: 'forward_allocation',
+      outputFormat: 'json',
+    });
+  });
+
+  it('returns invalid_request when forward allocation asks for PDF', async () => {
+    const createRun = vi.fn(async () => {
+      throw new Error('forward_allocation_pdf_not_supported');
+    });
+    const { app } = setup({ createRun });
+    const response = await app.request('/api/pmo/v1/reports', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        reportFamily: 'forward_allocation',
+        dateRange: { from: '2026-06-29', to: '2026-08-07' },
+        reportTypes: ['forward_allocation'],
+        outputFormat: 'pdf',
+      }),
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: 'invalid_request',
+      message: 'forward_allocation_pdf_not_supported',
+    });
   });
 
   it('returns 404 for run outside session tenant', async () => {

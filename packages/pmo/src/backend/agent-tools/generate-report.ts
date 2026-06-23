@@ -1,6 +1,7 @@
 import { defineAgentTool } from '@seta/agent-sdk';
 import { z } from 'zod';
 import { generateReport } from '../reporting/generate-report.ts';
+import type { WorkloadReportOutput } from '../reporting/report-output.ts';
 import { tenantIdFromContext, userIdFromContext } from './context.ts';
 
 const reportTypeSchema = z.enum(['idle_members', 'overbook_members']);
@@ -46,22 +47,6 @@ const findingSchema = z.object({
   effortConsumption: z.number().nullable(),
   detail: z.string(),
   excludedWeeks: z.array(z.object({ weekId: z.string(), reason: z.string() })),
-  issueWeeks: z
-    .array(
-      z.object({
-        weekId: z.string(),
-        weekStart: z.string().nullable(),
-        weekEnd: z.string().nullable(),
-        issueType: z.enum(['overbook', 'idle', 'mismatch_under', 'mismatch_over', 'ok']),
-        ragColor: z.enum(['green', 'yellow', 'red', 'none']),
-        availableHours: z.number(),
-        plannedHours: z.number(),
-        loggedHours: z.number(),
-        busyRate: z.number().nullable(),
-        effortConsumption: z.number().nullable(),
-      }),
-    )
-    .optional(),
   annotations: z.array(
     z.object({ weekId: z.string(), reason: z.enum(['approved_ot', 'training']) }),
   ),
@@ -215,12 +200,16 @@ export const pmoGenerateReportTool = defineAgentTool({
       reportTypes: input.reportTypes,
       recommendationCandidateCount: input.recommendationCandidateCount,
     });
+    if (result.report.reportFamily !== 'workload') {
+      throw new Error('agent_tool_forward_allocation_not_supported');
+    }
+    const report: WorkloadReportOutput = result.report;
     return {
       reportRunId: result.reportRunId,
       status: 'completed' as const,
       statusUrl: `/api/pmo/v1/reports/${result.reportRunId}`,
       artifacts: { htmlAvailable: false, pdfAvailable: false },
-      ...result.report,
+      ...report,
     };
   },
 });

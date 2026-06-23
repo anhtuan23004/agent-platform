@@ -110,39 +110,15 @@ describe('generatePmoReport persisted-facts contract', () => {
         to: new Date('2026-07-05T00:00:00.000Z'),
       },
     });
+    expect(result.reportFamily).toBe('workload');
+    if (result.reportFamily !== 'workload') throw new Error('expected workload report');
     expect(result.summary).toMatchObject({ memberCount: 2, overbookCount: 1, idleCount: 0 });
     expect(result.findings.map((finding) => finding.issueType)).toEqual([
       'overbook',
       'mismatch_under',
     ]);
-    expect(result.findings[0]?.issueWeeks).toEqual([
-      {
-        weekId: 'W1',
-        weekStart: '2026-06-29',
-        weekEnd: '2026-07-05',
-        issueType: 'overbook',
-        ragColor: 'red',
-        availableHours: 40,
-        plannedHours: 48,
-        loggedHours: 44,
-        busyRate: 1.2,
-        effortConsumption: 0.9167,
-      },
-    ]);
-    expect(result.findings[1]?.issueWeeks).toEqual([
-      {
-        weekId: 'W1',
-        weekStart: '2026-06-29',
-        weekEnd: '2026-07-05',
-        issueType: 'mismatch_under',
-        ragColor: 'red',
-        availableHours: 40,
-        plannedHours: 36,
-        loggedHours: 18,
-        busyRate: 0.9,
-        effortConsumption: 0.5,
-      },
-    ]);
+    expect(result.findings[0]).not.toHaveProperty('issueWeeks');
+    expect(result.findings[1]).not.toHaveProperty('issueWeeks');
     expect(result.findings[0]?.metricEvidence).toEqual({
       N01: 1.2,
       N02: 1.1,

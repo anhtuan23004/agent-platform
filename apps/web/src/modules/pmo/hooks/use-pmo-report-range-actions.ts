@@ -8,6 +8,11 @@ interface ReportDateRange {
   to: string;
 }
 
+interface ReportDateRangePayload {
+  workloadDateRange?: ReportDateRange;
+  forwardAllocationDateRange?: ReportDateRange;
+}
+
 interface UsePmoReportRangeActionsOptions {
   selectedReportApproval: WorkflowApprovalRow | null;
   loadSessions: (keepSelection?: boolean) => Promise<void>;
@@ -17,7 +22,7 @@ interface UsePmoReportRangeActionsOptions {
 interface UsePmoReportRangeActionsResult {
   isSubmittingReportDecision: boolean;
   confirmReportRange: (
-    dateRange: ReportDateRange,
+    ranges: ReportDateRangePayload,
     dateRangeStrategy?: 'sheet_derived' | 'manual_database',
   ) => void;
   rejectReportRange: () => void;
@@ -34,7 +39,7 @@ export function usePmoReportRangeActions(
   }, [loadSessions, refreshWorkflowRuntime]);
 
   const confirmReportRange = useCallback(
-    (dateRange: ReportDateRange, dateRangeStrategy = 'manual_database') => {
+    (ranges: ReportDateRangePayload, dateRangeStrategy = 'manual_database') => {
       if (!selectedReportApproval) return;
 
       submitDecision.mutate(
@@ -42,7 +47,7 @@ export function usePmoReportRangeActions(
           approvalId: selectedReportApproval.approvalId,
           agentic: selectedReportApproval.agentic,
           decision: 'approve',
-          payloadPatch: { dateRange, dateRangeStrategy },
+          payloadPatch: { ...ranges, dateRangeStrategy },
         },
         {
           onSuccess: async () => {

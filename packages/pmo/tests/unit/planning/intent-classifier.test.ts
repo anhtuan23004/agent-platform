@@ -91,4 +91,17 @@ describe('PMO multi-axis intent validation', () => {
 
     expect(result.extractedDateRange?.from).toBe('2026-01-01');
   });
+
+  it('accepts forward allocation as an extracted report type', () => {
+    const result = PmoIntentClassificationSchema.parse({
+      dataSourceMode: 'uploaded_file',
+      actionMode: 'publish_then_report',
+      writePolicy: 'requires_approval',
+      confidence: 'high',
+      rationale: 'Demand-backed forward allocation report requested.',
+      extractedReportTypes: ['forward_allocation'],
+    });
+
+    expect(result.extractedReportTypes).toEqual(['forward_allocation']);
+  });
 });

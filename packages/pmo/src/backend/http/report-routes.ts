@@ -19,8 +19,9 @@ const CreateReportSchema = z
       from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     }),
+    reportFamily: z.enum(['workload', 'forward_allocation']).optional(),
     reportTypes: z
-      .array(z.enum(['idle', 'overbook', 'idle_members', 'overbook_members']))
+      .array(z.enum(['idle', 'overbook', 'idle_members', 'overbook_members', 'forward_allocation']))
       .min(1)
       .default(['idle', 'overbook']),
     recommendationCandidateCount: z.number().int().min(1).max(5).optional(),
@@ -73,6 +74,7 @@ export function registerPmoReportRoutes(app: Hono<SessionEnv>, deps: PmoReportRo
         tenantId: session.tenant_id,
         actorId: session.user_id,
         sourceMode: 'canonical_db',
+        reportFamily: parsed.data.reportFamily,
         dateRange: parsed.data.dateRange,
         reportTypes: parsed.data.reportTypes,
         recommendationCandidateCount: parsed.data.recommendationCandidateCount,
@@ -158,21 +160,23 @@ export function registerPmoReportRoutes(app: Hono<SessionEnv>, deps: PmoReportRo
 
 export function toReportStatusResponse(run: ReportRunRecord): ReportStatusResponse {
   const report = run.report;
-  const findingCounts = report
-    ? {
-        red: report.findings.filter((finding) => finding.ragColor === 'red').length,
-        yellow: report.findings.filter((finding) => finding.ragColor === 'yellow').length,
-        idle: report.summary.idleCount,
-        overbook: report.summary.overbookCount,
-        mismatch: report.findings.filter((finding) => finding.issueType.startsWith('mismatch_'))
-          .length,
-      }
-    : null;
+  const findingCounts =
+    report && report.reportFamily === 'workload'
+      ? {
+          red: report.findings.filter((finding) => finding.ragColor === 'red').length,
+          yellow: report.findings.filter((finding) => finding.ragColor === 'yellow').length,
+          idle: report.summary.idleCount,
+          overbook: report.summary.overbookCount,
+          mismatch: report.findings.filter((finding) => finding.issueType.startsWith('mismatch_'))
+            .length,
+        }
+      : null;
   const html = readArtifact(run, 'html');
   const pdf = readArtifact(run, 'pdf');
   return {
     reportRunId: run.id,
     status: run.status,
+    reportFamily: run.envelope.request.reportFamily,
     dateRange: run.envelope.request.dateRange,
     outputFormat: run.envelope.request.outputFormat,
     summary: report?.summary ?? null,
@@ -225,6 +229,7 @@ function reportError(c: Context<SessionEnv>, error: unknown) {
   }
   if (
     message.startsWith('invalid_report_') ||
+    message.startsWith('forward_allocation_') ||
     message.startsWith('report_date_range_') ||
     message.startsWith('report_canonical_date_bounds_') ||
     message.startsWith('recommendation_candidate_count_')

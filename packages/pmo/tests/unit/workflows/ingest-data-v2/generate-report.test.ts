@@ -124,12 +124,12 @@ describe('createGenerateReportHandler', () => {
     expect(result.kind).toBe('suspend');
     if (result.kind !== 'suspend') throw new Error('expected suspend');
     expect(result.card.primary.argsPatch).toMatchObject({
-      dateRange: { from: '2026-06-01', to: '2026-06-30' },
+      workloadDateRange: { from: '2026-06-01', to: '2026-06-30' },
       dateRangeStrategy: 'sheet_derived',
       rangeSource: 'sheet_or_database',
     });
     expect(result.runtimeContextPatch?.report_request).toMatchObject({
-      dateRange: {
+      workloadDateRange: {
         from: '2026-06-01',
         to: '2026-06-30',
         source: 'sheet_suggested_pending',
@@ -143,7 +143,7 @@ describe('createGenerateReportHandler', () => {
       makeInput({
         resumeData: {
           decision: 'approve',
-          dateRange: { from: '2026-06-01', to: '2026-06-30' },
+          workloadDateRange: { from: '2026-06-01', to: '2026-06-30' },
         },
       }),
     );
@@ -165,8 +165,11 @@ describe('createGenerateReportHandler', () => {
       'pdf',
     );
     expect(result.outputSummary?.status).toBe('queued');
-    expect(result.outputSummary?.report_run_id).toBe('44444444-4444-4444-4444-444444444444');
+    expect(result.outputSummary?.workload_report_run_id).toBe(
+      '44444444-4444-4444-4444-444444444444',
+    );
     expect(result.terminalOutput?.reportRunId).toBe('44444444-4444-4444-4444-444444444444');
+    expect(result.terminalOutput?.reportRunIds).toEqual(['44444444-4444-4444-4444-444444444444']);
   });
 
   it('uses classifier-extracted dates before derived ranges', async () => {
@@ -187,6 +190,32 @@ describe('createGenerateReportHandler', () => {
     expect(mockCreateReportRun).toHaveBeenCalledWith(
       expect.objectContaining({
         dateRange: { from: '2026-06-05', to: '2026-06-20' },
+        outputFormat: 'pdf',
+      }),
+    );
+  });
+
+  it('passes forward allocation through the published upload report flow', async () => {
+    const result = await createGenerateReportHandler(deps).execute(
+      makeInput({
+        planningGoal: 'Publish demand plan and generate forward allocation recommendations',
+        planningPlan: {
+          intent_analysis: {
+            dataSourceMode: 'uploaded_file',
+            actionMode: 'publish_then_report',
+            extractedDateRange: { from: '2026-08-01', to: '2026-08-31' },
+            extractedReportTypes: ['forward_allocation'],
+          },
+        },
+      }),
+    );
+
+    expect(result.kind).toBe('completed');
+    expect(mockCreateReportRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceMode: 'after_upload_publish',
+        dateRange: { from: '2026-08-01', to: '2026-08-31' },
+        reportTypes: ['forward_allocation'],
         outputFormat: 'pdf',
       }),
     );
@@ -247,7 +276,7 @@ describe('createGenerateReportHandler', () => {
     expect(result.kind).toBe('suspend');
     if (result.kind !== 'suspend') throw new Error('expected suspend');
     expect(result.card.primary.argsPatch).toMatchObject({
-      dateRange: { from: '2026-02-01', to: '2026-11-30' },
+      workloadDateRange: { from: '2026-02-01', to: '2026-11-30' },
       dateRangeStrategy: 'manual_database',
     });
     expect(JSON.stringify(result.card.details)).toContain('2026-02-01');

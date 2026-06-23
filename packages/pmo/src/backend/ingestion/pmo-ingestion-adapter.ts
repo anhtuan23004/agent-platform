@@ -8,6 +8,7 @@ import {
   leaveRecords,
   memberMaster,
   overbookIdleConfig,
+  projectDemandPlan,
   projectMaster,
   resourceAllocations,
   timesheets,
@@ -108,6 +109,21 @@ export const PMO_INGESTION_ADAPTER: IngestionDomainAdapter = {
         })
         .from(projectMaster)
         .where(and(eq(projectMaster.tenant_id, input.tenantId), eq(projectMaster.is_active, true)));
+    }
+
+    if (input.tableId === 'project_demand_plan') {
+      return db
+        .select({
+          natural_key_hash: projectDemandPlan.natural_key_hash,
+          source_row_hash: projectDemandPlan.source_row_hash,
+        })
+        .from(projectDemandPlan)
+        .where(
+          and(
+            eq(projectDemandPlan.tenant_id, input.tenantId),
+            eq(projectDemandPlan.is_active, true),
+          ),
+        );
     }
 
     if (input.tableId === 'overbook_idle_config') {
