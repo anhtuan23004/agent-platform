@@ -15,7 +15,11 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-
+import {
+  buildMemberSkillsAndHistory,
+  type MemberSkillsProfile,
+  type MemberTaskHistoryEntry,
+} from '../src/backend/demo/mock-member-skills-history.ts';
 import { detectSchema } from '../src/backend/ingestion/detect-schema.ts';
 import { type NormalizedRow, normalizeRows } from '../src/backend/ingestion/normalize-rows.ts';
 import { parseWorkbook } from '../src/backend/ingestion/parse-workbook.ts';
@@ -28,11 +32,6 @@ import {
   exportMockSkillsCsv,
   type MockAllocationWithProject,
 } from './lib/export-mock-skills-csv.ts';
-import {
-  buildMemberSkillsAndHistory,
-  type MemberSkillsProfile,
-  type MemberTaskHistoryEntry,
-} from './lib/mock-member-skills-history.ts';
 
 type CanonicalTableId =
   | 'resource_allocation'

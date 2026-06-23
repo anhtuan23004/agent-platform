@@ -6,7 +6,7 @@ import {
   type MemberSkillsProfile,
   type MemberTaskHistoryEntry,
   proposeRebalanceSwaps,
-} from './mock-member-skills-history.ts';
+} from '../../src/backend/demo/mock-member-skills-history.ts';
 
 export const DEFAULT_MEMBER_SKILLS_CSV = resolve(
   import.meta.dirname,

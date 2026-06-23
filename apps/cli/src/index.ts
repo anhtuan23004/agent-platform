@@ -257,6 +257,10 @@ program
     '--only <modules>',
     'Comma-separated subset of phases to run: users,planner,availability,pmo (default: all)',
   )
+  .option(
+    '--planner-source <source>',
+    'Planner/users/availability seed source: pmo02 (default when mock DB exists) or csv',
+  )
   .action(
     async (opts: {
       tenant: string;
@@ -266,6 +270,7 @@ program
       adminName?: string;
       password?: string;
       only?: string;
+      plannerSource?: string;
     }) => {
       try {
         // pnpm exec changes CWD to the package dir; INIT_CWD is the original invocation dir.
@@ -278,6 +283,7 @@ program
           adminName: opts.adminName,
           password: opts.password,
           only: opts.only,
+          plannerSource: opts.plannerSource,
         });
       } finally {
         await closePools();

@@ -11,6 +11,18 @@ export {
   seedPmoDefaultThresholdConfigsForTenant,
 } from './backend/demo/default-threshold-config.ts';
 export type {
+  DerivedPlannerBucketRow,
+  DerivedPlannerGroupRow,
+  DerivedPlannerPlanMemberRow,
+  DerivedPlannerPlanRow,
+  DerivedPlannerSeed,
+  DerivedPlannerTaskRow,
+  DerivedPlannerTimesheetRow,
+  DerivedPlannerUserRow,
+  DerivePlannerSeedFromMockDbInput,
+} from './backend/demo/derive-planner-seed.ts';
+export { derivePlannerSeedFromMockDb } from './backend/demo/derive-planner-seed.ts';
+export type {
   SeedPmo02FromMockDbInput,
   SeedPmo02FromMockDbResult,
 } from './backend/demo/seed-from-mock-db.ts';
@@ -20,6 +32,7 @@ export {
   DEFAULT_REPO_MOCK_DB_PATH,
   ensurePmo02MockSqliteDb,
   pmoMockDbExists,
+  queryMockDbJson,
   resolvePmoMockDbPath,
   seedPmo02FromMockDbForTenant,
 } from './backend/demo/seed-from-mock-db.ts';

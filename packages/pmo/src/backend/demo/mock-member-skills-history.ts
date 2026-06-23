@@ -378,6 +378,50 @@ function normalizeRole(role: string | null | undefined): string {
   return r;
 }
 
+export type PlannerTaskStatus = 'todo' | 'in progress' | 'done';
+
+export function dutyIndexForRoleTitle(role: string, taskTitle: string): number {
+  const profile = ROLE_PROFILES[normalizeRole(role)];
+  if (!profile) return 999;
+  const index = profile.duties.findIndex((duty) => duty.title === taskTitle);
+  return index >= 0 ? index : 999;
+}
+
+/** Spread todo / in progress / done across delivery duties for a member-project board. */
+export function distributePlannerTaskStatuses(
+  taskCount: number,
+  hasActiveAllocation: boolean,
+): PlannerTaskStatus[] {
+  if (taskCount <= 0) return [];
+  if (!hasActiveAllocation) return Array.from({ length: taskCount }, () => 'done');
+  if (taskCount === 1) return ['in progress'];
+  if (taskCount === 2) return ['done', 'in progress'];
+
+  const statuses: PlannerTaskStatus[] = Array.from({ length: taskCount }, () => 'todo');
+  const doneCount = Math.max(1, Math.min(taskCount - 2, Math.floor(taskCount * 0.45)));
+  for (let index = 0; index < doneCount; index++) statuses[index] = 'done';
+  statuses[doneCount] = 'in progress';
+  return statuses;
+}
+
+export function resolvePlannerTaskStatusesForEntries<
+  T extends { allocation_role: string; task_title: string },
+>(entries: T[], hasActiveAllocation: boolean): PlannerTaskStatus[] {
+  const orderedIndexes = [...entries.keys()]
+    .map((index) => ({
+      index,
+      dutyIndex: dutyIndexForRoleTitle(entries[index]!.allocation_role, entries[index]!.task_title),
+    }))
+    .sort((left, right) => left.dutyIndex - right.dutyIndex || left.index - right.index)
+    .map((item) => item.index);
+  const distribution = distributePlannerTaskStatuses(entries.length, hasActiveAllocation);
+  const statuses: PlannerTaskStatus[] = Array.from({ length: entries.length }, () => 'todo');
+  for (const [orderedIndex, originalIndex] of orderedIndexes.entries()) {
+    statuses[originalIndex] = distribution[orderedIndex] ?? 'todo';
+  }
+  return statuses;
+}
+
 function domainSkills(projectType: string | null | undefined): string[] {
   if (!projectType) return [];
   for (const [key, skills] of Object.entries(PROJECT_DOMAIN_SKILLS)) {

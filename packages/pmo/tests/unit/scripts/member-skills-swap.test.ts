@@ -7,7 +7,7 @@ import {
   type MemberTaskHistoryEntry,
   proposeRebalanceSwaps,
   rankRebalanceCandidates,
-} from '../../../scripts/lib/mock-member-skills-history.ts';
+} from '../../../src/backend/demo/mock-member-skills-history.ts';
 
 const beProfile = (id: string, name: string): MemberSkillsProfile => ({
   member_id: id,

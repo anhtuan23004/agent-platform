@@ -55,11 +55,11 @@ A fresh database has **zero tenants and zero users**, and there is no self-signu
 pnpm db:seed
 ```
 
-Creates the `hackathon` tenant + admin, then loads `hackathon/data/*.csv` and **PMO_02** canonical rows from `hackathon/data/pmo_02_mock-data.db` (committed seed asset, copied into server images). Regenerate that file locally with `pnpm --filter @seta/pmo exec tsx scripts/insert-mock.ts` after changing the workbook. Set `PMO_SEED_ENABLED=false` or `--only users,planner,availability` to skip PMO.
+Creates the `hackathon` tenant + admin, then loads **PMO_02**-aligned planner/users from `hackathon/data/pmo_02_mock-data.db` (default when the mock DB is present) plus PMO canonical rows from the same asset. Planner **groups = PMO departments**, **plans = active projects**, **buckets = RA roles**, **tasks = RA workload segments** — same `EMP-xxx` universe as utilization/rebalance. Regenerate the mock DB after workbook changes with `pnpm --filter @seta/pmo exec tsx scripts/insert-mock.ts`. Set `PMO_SEED_ENABLED=false` or `--only users,planner,availability` to skip PMO.
 
-Sign in as the admin `admin@hackathon.com` (or any CSV user) with password `ChangeMe@2026`.
+Sign in as admin `admin@hackathon.com` / `ChangeMe@2026`, or as any PMO member `emp-001@hackathon.pmo` / `ChangeMe@2026` (member id lowercased).
 
-Useful flags: `--tenant <slug>`, `--admin-email <email>`, `--dir <path>`, `--only users,planner,availability,pmo`, `--password <pw>`.
+Useful flags: `--tenant <slug>`, `--admin-email <email>`, `--dir <path>`, `--only users,planner,availability,pmo`, `--password <pw>`, `--planner-source csv` (legacy `hackathon/data/*.csv` planner seed).
 
 ### Option B — empty sandbox tenant (fastest)
 
