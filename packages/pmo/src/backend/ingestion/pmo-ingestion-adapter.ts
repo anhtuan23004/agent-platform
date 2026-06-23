@@ -26,6 +26,28 @@ function toReferenceSet(rows: Array<{ id: unknown }>): Set<string> {
   );
 }
 
+type SessionScopedCanonicalTable =
+  | typeof resourceAllocations
+  | typeof timesheets
+  | typeof leaveRecords
+  | typeof memberMaster
+  | typeof projectMaster
+  | typeof overbookIdleConfig
+  | typeof calendarWeeks
+  | typeof kpiNorms;
+
+function activeRecordsWhere(
+  tenantId: string,
+  ingestionSessionId: string | undefined,
+  table: SessionScopedCanonicalTable,
+) {
+  return and(
+    eq(table.tenant_id, tenantId),
+    eq(table.is_active, true),
+    ...(ingestionSessionId ? [eq(table.last_ingestion_session_id, ingestionSessionId)] : []),
+  );
+}
+
 export const PMO_INGESTION_ADAPTER: IngestionDomainAdapter = {
   domainId: 'pmo',
 
@@ -53,6 +75,7 @@ export const PMO_INGESTION_ADAPTER: IngestionDomainAdapter = {
 
   async findActiveRecords(input): Promise<ActiveRecord[]> {
     const db = pmoDb();
+    const { tenantId, ingestionSessionId } = input;
     const selectShape = {
       natural_key_hash: resourceAllocations.natural_key_hash,
       source_row_hash: resourceAllocations.source_row_hash,
@@ -62,12 +85,7 @@ export const PMO_INGESTION_ADAPTER: IngestionDomainAdapter = {
       return db
         .select(selectShape)
         .from(resourceAllocations)
-        .where(
-          and(
-            eq(resourceAllocations.tenant_id, input.tenantId),
-            eq(resourceAllocations.is_active, true),
-          ),
-        );
+        .where(activeRecordsWhere(tenantId, ingestionSessionId, resourceAllocations));
     }
 
     if (input.tableId === 'timesheet') {
@@ -77,7 +95,7 @@ export const PMO_INGESTION_ADAPTER: IngestionDomainAdapter = {
           source_row_hash: timesheets.source_row_hash,
         })
         .from(timesheets)
-        .where(and(eq(timesheets.tenant_id, input.tenantId), eq(timesheets.is_active, true)));
+        .where(activeRecordsWhere(tenantId, ingestionSessionId, timesheets));
     }
 
     if (input.tableId === 'leave') {
@@ -87,7 +105,7 @@ export const PMO_INGESTION_ADAPTER: IngestionDomainAdapter = {
           source_row_hash: leaveRecords.source_row_hash,
         })
         .from(leaveRecords)
-        .where(and(eq(leaveRecords.tenant_id, input.tenantId), eq(leaveRecords.is_active, true)));
+        .where(activeRecordsWhere(tenantId, ingestionSessionId, leaveRecords));
     }
 
     if (input.tableId === 'member_master') {
@@ -97,7 +115,7 @@ export const PMO_INGESTION_ADAPTER: IngestionDomainAdapter = {
           source_row_hash: memberMaster.source_row_hash,
         })
         .from(memberMaster)
-        .where(and(eq(memberMaster.tenant_id, input.tenantId), eq(memberMaster.is_active, true)));
+        .where(activeRecordsWhere(tenantId, ingestionSessionId, memberMaster));
     }
 
     if (input.tableId === 'project_master') {
@@ -107,7 +125,7 @@ export const PMO_INGESTION_ADAPTER: IngestionDomainAdapter = {
           source_row_hash: projectMaster.source_row_hash,
         })
         .from(projectMaster)
-        .where(and(eq(projectMaster.tenant_id, input.tenantId), eq(projectMaster.is_active, true)));
+        .where(activeRecordsWhere(tenantId, ingestionSessionId, projectMaster));
     }
 
     if (input.tableId === 'overbook_idle_config') {
@@ -117,12 +135,7 @@ export const PMO_INGESTION_ADAPTER: IngestionDomainAdapter = {
           source_row_hash: overbookIdleConfig.source_row_hash,
         })
         .from(overbookIdleConfig)
-        .where(
-          and(
-            eq(overbookIdleConfig.tenant_id, input.tenantId),
-            eq(overbookIdleConfig.is_active, true),
-          ),
-        );
+        .where(activeRecordsWhere(tenantId, ingestionSessionId, overbookIdleConfig));
     }
 
     if (input.tableId === 'calendar_weeks') {
@@ -132,7 +145,7 @@ export const PMO_INGESTION_ADAPTER: IngestionDomainAdapter = {
           source_row_hash: calendarWeeks.source_row_hash,
         })
         .from(calendarWeeks)
-        .where(and(eq(calendarWeeks.tenant_id, input.tenantId), eq(calendarWeeks.is_active, true)));
+        .where(activeRecordsWhere(tenantId, ingestionSessionId, calendarWeeks));
     }
 
     if (input.tableId === 'kpi_norms') {
@@ -142,7 +155,7 @@ export const PMO_INGESTION_ADAPTER: IngestionDomainAdapter = {
           source_row_hash: kpiNorms.source_row_hash,
         })
         .from(kpiNorms)
-        .where(and(eq(kpiNorms.tenant_id, input.tenantId), eq(kpiNorms.is_active, true)));
+        .where(activeRecordsWhere(tenantId, ingestionSessionId, kpiNorms));
     }
 
     return [];

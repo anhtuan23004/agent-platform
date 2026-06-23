@@ -42,7 +42,9 @@ export async function computeAndPersistFacts(
   sessionId?: string,
   options: ComputeFactsOptions = {},
 ): Promise<ComputeFactsResult> {
-  const inputs = await loadCanonicalInputs(tenantId);
+  const inputs = await loadCanonicalInputs(tenantId, {
+    ingestionSessionId: sessionId,
+  });
   const effectiveAt = inputs.weeks.reduce<Date | null>(
     (latest, week) => (!latest || week.week_end > latest ? week.week_end : latest),
     null,

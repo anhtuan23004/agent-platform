@@ -18,7 +18,11 @@ export interface IngestionDomainAdapter {
     fieldName: string;
   }): Promise<Set<string>>;
 
-  findActiveRecords(input: { tenantId: string; tableId: string }): Promise<ActiveRecord[]>;
+  findActiveRecords(input: {
+    tenantId: string;
+    tableId: string;
+    ingestionSessionId?: string;
+  }): Promise<ActiveRecord[]>;
 
   publish(input: { tenantId: string; ingestionSessionId: string }): Promise<IngestionPublishResult>;
 }
