@@ -10,6 +10,7 @@ export interface SourceUploadOption {
   reportingPeriodStart: string | null;
   reportingPeriodEnd: string | null;
   disabled: boolean;
+  group: 'published' | 'mine';
 }
 
 export type UtilizationEmptyState = 'none' | 'no_uploads' | 'unpublished_uploads' | 'filter_empty';
@@ -35,17 +36,47 @@ export function hasCustomDateRange(settings: DemoAnalyticsSettings | undefined):
   return Boolean(settings?.from || settings?.to);
 }
 
-export function buildSourceUploadOptions(sessions: PmoPlanningSession[]): SourceUploadOption[] {
-  return sessions.map((session) => ({
-    id: session.ingestion_session_id,
-    label: session.workbook_name ?? 'Database report',
-    statusLabel: session.is_published ? 'Published' : session.status_label,
-    uploadedAtLabel: formatDisplayDate(session.uploaded_at),
-    reportingPeriodLabel: formatReportingPeriod(session),
-    reportingPeriodStart: isoDate(session.reporting_period_start),
-    reportingPeriodEnd: isoDate(session.reporting_period_end),
-    disabled: !session.is_selectable,
-  }));
+export function hasCustomThresholds(settings: DemoAnalyticsSettings | undefined): boolean {
+  const t = settings?.thresholds;
+  if (!t) return false;
+  return (
+    t.overbookThreshold !== undefined ||
+    t.overbookRedThreshold !== undefined ||
+    t.idleThreshold !== undefined ||
+    t.idleYellowThreshold !== undefined ||
+    t.mismatchPctThreshold !== undefined
+  );
+}
+
+export function hasCustomCalculationSettings(settings: DemoAnalyticsSettings | undefined): boolean {
+  return (
+    hasCustomDateRange(settings) ||
+    Boolean(settings?.configEffectiveDate) ||
+    hasCustomThresholds(settings)
+  );
+}
+
+export function buildSourceUploadOptions(
+  sessions: PmoPlanningSession[],
+  currentUserId: string,
+): SourceUploadOption[] {
+  return sessions.flatMap((session) => {
+    const isMine = session.operator === currentUserId;
+    if (!isMine && !session.is_published) return [];
+    return [
+      {
+        id: session.ingestion_session_id,
+        label: session.workbook_name ?? 'Database report',
+        statusLabel: session.is_published ? 'Published' : session.status_label,
+        uploadedAtLabel: formatDisplayDate(session.uploaded_at),
+        reportingPeriodLabel: formatReportingPeriod(session),
+        reportingPeriodStart: isoDate(session.reporting_period_start),
+        reportingPeriodEnd: isoDate(session.reporting_period_end),
+        disabled: !session.is_selectable,
+        group: isMine ? 'mine' : 'published',
+      },
+    ];
+  });
 }
 
 export function utilizationEmptyState(params: {

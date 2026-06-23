@@ -1,0 +1,563 @@
+[
+  {
+    "caseId": "01_baseline",
+    "workbook": "PMO_EVAL_01_baseline.xlsx",
+    "description": "Control workbook copied from PMO_02_RA_Timesheet_Monitoring.xlsx.",
+    "dateRange": {
+      "from": "2026-06-29",
+      "to": "2026-08-07"
+    },
+    "expectedFindings": [
+      {
+        "memberId": "EMP-004",
+        "issueType": "overbook",
+        "severity": "High"
+      },
+      {
+        "memberId": "EMP-001",
+        "issueType": "overbook",
+        "severity": "Medium"
+      },
+      {
+        "memberId": "EMP-005",
+        "issueType": "idle",
+        "severity": "Medium"
+      },
+      {
+        "memberId": "EMP-008",
+        "issueType": "idle",
+        "severity": "Medium"
+      },
+      {
+        "memberId": "EMP-002",
+        "issueType": "mismatch_under",
+        "severity": "Medium"
+      },
+      {
+        "memberId": "EMP-006",
+        "issueType": "mismatch_over",
+        "severity": "High"
+      },
+      {
+        "memberId": "EMP-003",
+        "issueType": "edge_exclude",
+        "severity": "Info",
+        "weekId": "W2"
+      },
+      {
+        "memberId": "W3",
+        "issueType": "edge_holiday",
+        "severity": "Info",
+        "weekId": "W3"
+      },
+      {
+        "memberId": "EMP-009",
+        "issueType": "edge_onboard_missing",
+        "severity": "Info",
+        "weekId": "W1"
+      },
+      {
+        "memberId": "EMP-010",
+        "issueType": "data_duplicate",
+        "severity": "High"
+      },
+      {
+        "memberId": "EMP-007",
+        "issueType": "guardrail_parttime",
+        "severity": "Info"
+      }
+    ],
+    "expectedRecommendationGroups": [],
+    "expectedDataQuality": {
+      "degraded": false,
+      "requiredFlags": []
+    },
+    "evalPrompts": [
+      "Ingest 01_baseline, normalize PMO tables, and summarize required data-quality review gates.",
+      "Generate an overbook/idle/mismatch report for 2026-06-29 to 2026-08-07.",
+      "Recommend rebalance options for the highest-risk overbooked member in 01_baseline."
+    ],
+    "notes": [
+      "Use as regression control for schema detection, normalization, publish, report, and recommend."
+    ]
+  },
+  {
+    "caseId": "02_duplicate_dedupe",
+    "workbook": "PMO_EVAL_02_duplicate_dedupe.xlsx",
+    "description": "Adds exact duplicate allocation and timesheet rows. Correct ingest should not double-count them.",
+    "dateRange": {
+      "from": "2026-06-29",
+      "to": "2026-08-07"
+    },
+    "expectedFindings": [
+      {
+        "memberId": "EMP-004",
+        "issueType": "overbook",
+        "severity": "High"
+      },
+      {
+        "memberId": "EMP-001",
+        "issueType": "overbook",
+        "severity": "Medium"
+      },
+      {
+        "memberId": "EMP-005",
+        "issueType": "idle",
+        "severity": "Medium"
+      },
+      {
+        "memberId": "EMP-008",
+        "issueType": "idle",
+        "severity": "Medium"
+      },
+      {
+        "memberId": "EMP-002",
+        "issueType": "mismatch_under",
+        "severity": "Medium"
+      },
+      {
+        "memberId": "EMP-006",
+        "issueType": "mismatch_over",
+        "severity": "High"
+      },
+      {
+        "memberId": "EMP-003",
+        "issueType": "edge_exclude",
+        "severity": "Info",
+        "weekId": "W2"
+      },
+      {
+        "memberId": "W3",
+        "issueType": "edge_holiday",
+        "severity": "Info",
+        "weekId": "W3"
+      },
+      {
+        "memberId": "EMP-009",
+        "issueType": "edge_onboard_missing",
+        "severity": "Info",
+        "weekId": "W1"
+      },
+      {
+        "memberId": "EMP-010",
+        "issueType": "data_duplicate",
+        "severity": "High"
+      },
+      {
+        "memberId": "EMP-007",
+        "issueType": "guardrail_parttime",
+        "severity": "Info"
+      }
+    ],
+    "expectedRecommendationGroups": [],
+    "expectedDataQuality": {
+      "degraded": true,
+      "requiredFlags": [
+        "duplicate_resource_allocation",
+        "duplicate_timesheet_log"
+      ]
+    },
+    "evalPrompts": [
+      "Ingest 02_duplicate_dedupe, normalize PMO tables, and summarize required data-quality review gates.",
+      "Generate an overbook/idle/mismatch report for 2026-06-29 to 2026-08-07.",
+      "Recommend rebalance options for the highest-risk overbooked member in 02_duplicate_dedupe."
+    ],
+    "notes": [
+      "Busy and effort metrics should match baseline after dedupe, except source-row metadata may differ."
+    ]
+  },
+  {
+    "caseId": "03_rebalance_full_solution",
+    "workbook": "PMO_EVAL_03_rebalance_full_solution.xlsx",
+    "description": "Creates a clear overbooked BE source and an idle compatible BE target with enough spare capacity.",
+    "dateRange": {
+      "from": "2026-06-29",
+      "to": "2026-08-07"
+    },
+    "expectedFindings": [
+      {
+        "memberId": "EMP-004",
+        "issueType": "overbook",
+        "severity": "High"
+      },
+      {
+        "memberId": "EMP-103",
+        "issueType": "idle_candidate",
+        "severity": "Info"
+      }
+    ],
+    "expectedRecommendationGroups": [
+      {
+        "sourceMemberId": "EMP-004",
+        "weekId": "W1",
+        "expectedStatus": "full_solution",
+        "expectedTopTargets": [
+          "EMP-103"
+        ]
+      },
+      {
+        "sourceMemberId": "EMP-004",
+        "weekId": "W2",
+        "expectedStatus": "full_solution",
+        "expectedTopTargets": [
+          "EMP-103"
+        ]
+      },
+      {
+        "sourceMemberId": "EMP-004",
+        "weekId": "W3",
+        "expectedStatus": "full_solution",
+        "expectedTopTargets": [
+          "EMP-103"
+        ]
+      },
+      {
+        "sourceMemberId": "EMP-004",
+        "weekId": "W4",
+        "expectedStatus": "full_solution",
+        "expectedTopTargets": [
+          "EMP-103"
+        ]
+      },
+      {
+        "sourceMemberId": "EMP-004",
+        "weekId": "W5",
+        "expectedStatus": "full_solution",
+        "expectedTopTargets": [
+          "EMP-103"
+        ]
+      },
+      {
+        "sourceMemberId": "EMP-004",
+        "weekId": "W6",
+        "expectedStatus": "full_solution",
+        "expectedTopTargets": [
+          "EMP-103"
+        ]
+      }
+    ],
+    "expectedDataQuality": {
+      "degraded": false,
+      "requiredFlags": []
+    },
+    "evalPrompts": [
+      "Ingest 03_rebalance_full_solution, normalize PMO tables, and summarize required data-quality review gates.",
+      "Generate an overbook/idle/mismatch report for 2026-06-29 to 2026-08-07.",
+      "Recommend rebalance options for the highest-risk overbooked member in 03_rebalance_full_solution."
+    ],
+    "notes": [
+      "EMP-103 has matching BE skills/history and 16h spare weekly capacity after mutation."
+    ]
+  },
+  {
+    "caseId": "04_rebalance_partial_relief",
+    "workbook": "PMO_EVAL_04_rebalance_partial_relief.xlsx",
+    "description": "Source is severely overbooked; compatible candidates can absorb only part of the required reduction.",
+    "dateRange": {
+      "from": "2026-06-29",
+      "to": "2026-08-07"
+    },
+    "expectedFindings": [
+      {
+        "memberId": "EMP-004",
+        "issueType": "overbook",
+        "severity": "High"
+      }
+    ],
+    "expectedRecommendationGroups": [
+      {
+        "sourceMemberId": "EMP-004",
+        "weekId": "W1",
+        "expectedStatus": "partial_relief",
+        "expectedTopTargets": [
+          "EMP-103",
+          "EMP-113"
+        ]
+      },
+      {
+        "sourceMemberId": "EMP-004",
+        "weekId": "W2",
+        "expectedStatus": "partial_relief",
+        "expectedTopTargets": [
+          "EMP-103",
+          "EMP-113"
+        ]
+      },
+      {
+        "sourceMemberId": "EMP-004",
+        "weekId": "W3",
+        "expectedStatus": "partial_relief",
+        "expectedTopTargets": [
+          "EMP-103"
+        ]
+      },
+      {
+        "sourceMemberId": "EMP-004",
+        "weekId": "W4",
+        "expectedStatus": "partial_relief",
+        "expectedTopTargets": [
+          "EMP-103",
+          "EMP-113"
+        ]
+      },
+      {
+        "sourceMemberId": "EMP-004",
+        "weekId": "W5",
+        "expectedStatus": "partial_relief",
+        "expectedTopTargets": [
+          "EMP-103",
+          "EMP-113"
+        ]
+      },
+      {
+        "sourceMemberId": "EMP-004",
+        "weekId": "W6",
+        "expectedStatus": "partial_relief",
+        "expectedTopTargets": [
+          "EMP-103",
+          "EMP-113"
+        ]
+      }
+    ],
+    "expectedDataQuality": {
+      "degraded": false,
+      "requiredFlags": []
+    },
+    "evalPrompts": [
+      "Ingest 04_rebalance_partial_relief, normalize PMO tables, and summarize required data-quality review gates.",
+      "Generate an overbook/idle/mismatch report for 2026-06-29 to 2026-08-07.",
+      "Recommend rebalance options for the highest-risk overbooked member in 04_rebalance_partial_relief."
+    ],
+    "notes": [
+      "Required reduction exceeds each compatible candidate capacity ceiling."
+    ]
+  },
+  {
+    "caseId": "05_rebalance_no_valid_candidate",
+    "workbook": "PMO_EVAL_05_rebalance_no_valid_candidate.xlsx",
+    "description": "Source is overbooked, but compatible BE candidates have no spare capacity; other candidates fail skill fit.",
+    "dateRange": {
+      "from": "2026-06-29",
+      "to": "2026-08-07"
+    },
+    "expectedFindings": [
+      {
+        "memberId": "EMP-004",
+        "issueType": "overbook",
+        "severity": "High"
+      }
+    ],
+    "expectedRecommendationGroups": [
+      {
+        "sourceMemberId": "EMP-004",
+        "weekId": "W1",
+        "expectedStatus": "no_valid_rebalance_found",
+        "expectedTopTargets": []
+      },
+      {
+        "sourceMemberId": "EMP-004",
+        "weekId": "W2",
+        "expectedStatus": "no_valid_rebalance_found",
+        "expectedTopTargets": []
+      },
+      {
+        "sourceMemberId": "EMP-004",
+        "weekId": "W3",
+        "expectedStatus": "no_valid_rebalance_found",
+        "expectedTopTargets": []
+      },
+      {
+        "sourceMemberId": "EMP-004",
+        "weekId": "W4",
+        "expectedStatus": "no_valid_rebalance_found",
+        "expectedTopTargets": []
+      },
+      {
+        "sourceMemberId": "EMP-004",
+        "weekId": "W5",
+        "expectedStatus": "no_valid_rebalance_found",
+        "expectedTopTargets": []
+      },
+      {
+        "sourceMemberId": "EMP-004",
+        "weekId": "W6",
+        "expectedStatus": "no_valid_rebalance_found",
+        "expectedTopTargets": []
+      }
+    ],
+    "expectedDataQuality": {
+      "degraded": false,
+      "requiredFlags": [
+        "insufficient_capacity_or_transferable_hours"
+      ]
+    },
+    "evalPrompts": [
+      "Ingest 05_rebalance_no_valid_candidate, normalize PMO tables, and summarize required data-quality review gates.",
+      "Generate an overbook/idle/mismatch report for 2026-06-29 to 2026-08-07.",
+      "Recommend rebalance options for the highest-risk overbooked member in 05_rebalance_no_valid_candidate."
+    ],
+    "notes": [
+      "Useful for validating explicit no-result reasons instead of hallucinated candidates."
+    ]
+  },
+  {
+    "caseId": "06_exclusion_leave_holiday_ot",
+    "workbook": "PMO_EVAL_06_exclusion_leave_holiday_ot.xlsx",
+    "description": "Highlights approved leave, public holiday, training, and approved OT compensation exclusions.",
+    "dateRange": {
+      "from": "2026-06-29",
+      "to": "2026-08-07"
+    },
+    "expectedFindings": [
+      {
+        "memberId": "EMP-003",
+        "issueType": "edge_exclude",
+        "severity": "Info",
+        "weekId": "W2"
+      },
+      {
+        "memberId": "EMP-003",
+        "issueType": "edge_exclude",
+        "severity": "Info",
+        "weekId": "W5"
+      },
+      {
+        "memberId": "W3",
+        "issueType": "edge_holiday",
+        "severity": "Info",
+        "weekId": "W3"
+      }
+    ],
+    "expectedRecommendationGroups": [],
+    "expectedDataQuality": {
+      "degraded": false,
+      "requiredFlags": []
+    },
+    "evalPrompts": [
+      "Ingest 06_exclusion_leave_holiday_ot, normalize PMO tables, and summarize required data-quality review gates.",
+      "Generate an overbook/idle/mismatch report for 2026-06-29 to 2026-08-07.",
+      "Recommend rebalance options for the highest-risk overbooked member in 06_exclusion_leave_holiday_ot."
+    ],
+    "notes": [
+      "No false-positive idle/overbook/mismatch should be raised from approved exclusion weeks."
+    ]
+  },
+  {
+    "caseId": "07_onboarding_missing_weeks",
+    "workbook": "PMO_EVAL_07_onboarding_missing_weeks.xlsx",
+    "description": "Member joins mid-range with missing earlier timesheets and allocations.",
+    "dateRange": {
+      "from": "2026-06-29",
+      "to": "2026-08-07"
+    },
+    "expectedFindings": [
+      {
+        "memberId": "EMP-009",
+        "issueType": "edge_onboard_missing",
+        "severity": "Info",
+        "weekId": "W1"
+      },
+      {
+        "memberId": "EMP-009",
+        "issueType": "edge_onboard_missing",
+        "severity": "Info",
+        "weekId": "W2"
+      }
+    ],
+    "expectedRecommendationGroups": [],
+    "expectedDataQuality": {
+      "degraded": false,
+      "requiredFlags": []
+    },
+    "evalPrompts": [
+      "Ingest 07_onboarding_missing_weeks, normalize PMO tables, and summarize required data-quality review gates.",
+      "Generate an overbook/idle/mismatch report for 2026-06-29 to 2026-08-07.",
+      "Recommend rebalance options for the highest-risk overbooked member in 07_onboarding_missing_weeks."
+    ],
+    "notes": [
+      "Pre-hire weeks should be PRE_HIRE/no metrics, not idle."
+    ]
+  },
+  {
+    "caseId": "08_schema_tolerance",
+    "workbook": "PMO_EVAL_08_schema_tolerance.xlsx",
+    "description": "Shuffles selected columns and changes header case/whitespace while preserving sheet names and header rows.",
+    "dateRange": {
+      "from": "2026-06-29",
+      "to": "2026-08-07"
+    },
+    "expectedFindings": [
+      {
+        "memberId": "EMP-004",
+        "issueType": "overbook",
+        "severity": "High"
+      },
+      {
+        "memberId": "EMP-001",
+        "issueType": "overbook",
+        "severity": "Medium"
+      },
+      {
+        "memberId": "EMP-005",
+        "issueType": "idle",
+        "severity": "Medium"
+      },
+      {
+        "memberId": "EMP-008",
+        "issueType": "idle",
+        "severity": "Medium"
+      },
+      {
+        "memberId": "EMP-002",
+        "issueType": "mismatch_under",
+        "severity": "Medium"
+      },
+      {
+        "memberId": "EMP-006",
+        "issueType": "mismatch_over",
+        "severity": "High"
+      },
+      {
+        "memberId": "EMP-003",
+        "issueType": "edge_exclude",
+        "severity": "Info",
+        "weekId": "W2"
+      },
+      {
+        "memberId": "W3",
+        "issueType": "edge_holiday",
+        "severity": "Info",
+        "weekId": "W3"
+      },
+      {
+        "memberId": "EMP-009",
+        "issueType": "edge_onboard_missing",
+        "severity": "Info",
+        "weekId": "W1"
+      },
+      {
+        "memberId": "EMP-010",
+        "issueType": "data_duplicate",
+        "severity": "High"
+      },
+      {
+        "memberId": "EMP-007",
+        "issueType": "guardrail_parttime",
+        "severity": "Info"
+      }
+    ],
+    "expectedRecommendationGroups": [],
+    "expectedDataQuality": {
+      "degraded": false,
+      "requiredFlags": []
+    },
+    "evalPrompts": [
+      "Ingest 08_schema_tolerance, normalize PMO tables, and summarize required data-quality review gates.",
+      "Generate an overbook/idle/mismatch report for 2026-06-29 to 2026-08-07.",
+      "Recommend rebalance options for the highest-risk overbooked member in 08_schema_tolerance."
+    ],
+    "notes": [
+      "Schema detection should still map all eight canonical PMO tables."
+    ]
+  }
+]

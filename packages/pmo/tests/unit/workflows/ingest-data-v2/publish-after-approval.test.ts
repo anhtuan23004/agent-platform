@@ -169,4 +169,14 @@ describe('createPublishAfterApprovalHandler', () => {
       result.runtimeContextPatch?.staging_result?.review_proposals?.database_change_summary,
     ).toHaveLength(1);
   });
+
+  it('does not seed recommendation projections from demo CSV after approving publish', async () => {
+    const deps = makeDeps();
+    const result = await createPublishAfterApprovalHandler(deps).execute(
+      makeInput({ resumeData: { decision: 'approve' } }),
+    );
+
+    expect(result.kind).toBe('completed');
+    expect(deps.domainAdapter.publish).toHaveBeenCalledOnce();
+  });
 });

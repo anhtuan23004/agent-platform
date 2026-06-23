@@ -22,14 +22,8 @@ describe('collectPublishValidationIssues', () => {
     expect(issues[0]?.reason).toContain('member_id');
   });
 
-  it('ignores exact duplicates and duplicate_in_upload rows', () => {
+  it('ignores duplicate_in_upload rows during validation', () => {
     const issues = collectPublishValidationIssues([
-      {
-        table_id: 'resource_allocation',
-        natural_key_hash: 'skip-1',
-        change_type: 'exact_duplicate',
-        new_values: null,
-      },
       {
         table_id: 'resource_allocation',
         natural_key_hash: 'skip-2',
@@ -39,6 +33,25 @@ describe('collectPublishValidationIssues', () => {
     ]);
 
     expect(issues).toEqual([]);
+  });
+
+  it('validates exact_duplicate rows before publish', () => {
+    const issues = collectPublishValidationIssues([
+      {
+        table_id: 'resource_allocation',
+        natural_key_hash: 'dup-1',
+        change_type: 'exact_duplicate',
+        new_values: {
+          project_id: 'PRJ-001',
+          allocation_pct: 0.5,
+          start_date: '2026-06-01T00:00:00.000Z',
+          end_date: '2026-06-30T00:00:00.000Z',
+        },
+      },
+    ]);
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0]?.reason).toContain('member_id');
   });
 
   it('reports unsupported table ids and malformed values', () => {

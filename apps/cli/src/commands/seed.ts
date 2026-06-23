@@ -16,6 +16,11 @@ import {
 import {
   seedPmoDefaultThresholdConfigsForTenant,
   seedRecommendationProjectionsForTenant,
+  DEFAULT_PMO02_WORKBOOK_PATH,
+  pmoMockDbExists,
+  resolvePmoMockDbPath,
+  seedPmo02FromMockDbForTenant,
+  seedPmoDefaultThresholdConfigsForTenant,
 } from '@seta/pmo';
 import {
   buildRegistry,
@@ -635,6 +640,54 @@ export async function seedCommand(opts: SeedOpts): Promise<void> {
       })}\n`,
     );
     */
+    const mockDbPath = resolvePmoMockDbPath(process.env.PMO_MOCK_DB_PATH || undefined);
+    if (!pmoMockDbExists(mockDbPath)) {
+      log.warn(
+        { mockDbPath },
+        'phase 9b skipped: PMO mock SQLite not found (expected bundled hackathon/data/pmo_02_mock-data.db)',
+      );
+      process.stdout.write(
+        `${JSON.stringify({
+          phase: 'pmo',
+          thresholdDefaults: {
+            inserted: thresholdResult.inserted,
+            configIds: thresholdResult.configIds,
+          },
+          mockData: {
+            skipped: true,
+            reason: 'pmo_02_mock-data.db not found',
+            mockDbPath,
+            hint: 'Commit hackathon/data/pmo_02_mock-data.db or set PMO_MOCK_DB_PATH',
+          },
+        })}\n`,
+      );
+    } else {
+      log.info('phase 9b: seeding PMO_02 canonical rows and recommendation projections');
+      const result = await seedPmo02FromMockDbForTenant({
+        tenantId,
+        mockDbPath,
+      });
+      process.stdout.write(
+        `${JSON.stringify({
+          phase: 'pmo',
+          thresholdDefaults: {
+            inserted: thresholdResult.inserted,
+            configIds: thresholdResult.configIds,
+          },
+          mockData: {
+            source: 'hackathon/data/pmo_02_mock-data.db',
+            sourceWorkbook: DEFAULT_PMO02_WORKBOOK_PATH,
+            projectionAssets: [
+              'hackathon/data/pmo_02_member_skills.csv',
+              'hackathon/data/pmo_02_member_task_history.csv',
+            ],
+            mockDbPath: result.mockDbPath,
+            inserted: result.inserted,
+            ingestionSessionId: result.ingestionSessionId,
+          },
+        })}\n`,
+      );
+    }
   }
 
   log.info({ tenant_id: tenantId, modules: [...modules] }, 'seed: complete');

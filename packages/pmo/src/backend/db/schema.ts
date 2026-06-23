@@ -82,7 +82,7 @@ export const ingestionSessions = pmoSchema.table(
   ],
 );
 
-// ── Canonical target tables (active merged data — upsert target) ────────────
+// ── Canonical target tables (per-session published snapshots) ───────────────
 
 export const resourceAllocations = pmoSchema.table(
   'resource_allocations',
@@ -107,7 +107,11 @@ export const resourceAllocations = pmoSchema.table(
     updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [
-    uniqueIndex('ra_natural_key_unique').on(t.tenant_id, t.natural_key_hash),
+    uniqueIndex('ra_session_natural_key_unique').on(
+      t.tenant_id,
+      t.last_ingestion_session_id,
+      t.natural_key_hash,
+    ),
     index('ra_tenant_active').on(t.tenant_id, t.is_active),
     index('ra_member_project').on(t.tenant_id, t.member_id, t.project_id),
   ],
@@ -135,7 +139,11 @@ export const timesheets = pmoSchema.table(
     updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [
-    uniqueIndex('ts_natural_key_unique').on(t.tenant_id, t.natural_key_hash),
+    uniqueIndex('ts_session_natural_key_unique').on(
+      t.tenant_id,
+      t.last_ingestion_session_id,
+      t.natural_key_hash,
+    ),
     index('ts_tenant_active').on(t.tenant_id, t.is_active),
     index('ts_member_date').on(t.tenant_id, t.member_id, t.work_date),
   ],
@@ -164,7 +172,11 @@ export const leaveRecords = pmoSchema.table(
     updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [
-    uniqueIndex('leave_natural_key_unique').on(t.tenant_id, t.natural_key_hash),
+    uniqueIndex('leave_session_natural_key_unique').on(
+      t.tenant_id,
+      t.last_ingestion_session_id,
+      t.natural_key_hash,
+    ),
     index('leave_tenant_active').on(t.tenant_id, t.is_active),
     index('leave_member').on(t.tenant_id, t.member_id),
   ],
@@ -194,7 +206,11 @@ export const projectMaster = pmoSchema.table(
     updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [
-    uniqueIndex('proj_natural_key_unique').on(t.tenant_id, t.natural_key_hash),
+    uniqueIndex('proj_session_natural_key_unique').on(
+      t.tenant_id,
+      t.last_ingestion_session_id,
+      t.natural_key_hash,
+    ),
     index('proj_tenant_active').on(t.tenant_id, t.is_active),
   ],
 );
@@ -225,7 +241,11 @@ export const memberMaster = pmoSchema.table(
     updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [
-    uniqueIndex('member_natural_key_unique').on(t.tenant_id, t.natural_key_hash),
+    uniqueIndex('member_session_natural_key_unique').on(
+      t.tenant_id,
+      t.last_ingestion_session_id,
+      t.natural_key_hash,
+    ),
     index('member_tenant_active').on(t.tenant_id, t.is_active),
   ],
 );
@@ -255,7 +275,11 @@ export const overbookIdleConfig = pmoSchema.table(
     updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [
-    uniqueIndex('config_natural_key_unique').on(t.tenant_id, t.natural_key_hash),
+    uniqueIndex('config_session_natural_key_unique').on(
+      t.tenant_id,
+      t.last_ingestion_session_id,
+      t.natural_key_hash,
+    ),
     index('config_tenant_active').on(t.tenant_id, t.is_active),
   ],
 );
@@ -327,7 +351,11 @@ export const calendarWeeks = pmoSchema.table(
     updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [
-    uniqueIndex('cal_natural_key_unique').on(t.tenant_id, t.natural_key_hash),
+    uniqueIndex('cal_session_natural_key_unique').on(
+      t.tenant_id,
+      t.last_ingestion_session_id,
+      t.natural_key_hash,
+    ),
     index('cal_tenant_active').on(t.tenant_id, t.is_active),
   ],
 );
@@ -355,7 +383,11 @@ export const kpiNorms = pmoSchema.table(
     updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [
-    uniqueIndex('kpi_natural_key_unique').on(t.tenant_id, t.natural_key_hash),
+    uniqueIndex('kpi_session_natural_key_unique').on(
+      t.tenant_id,
+      t.last_ingestion_session_id,
+      t.natural_key_hash,
+    ),
     index('kpi_tenant_active').on(t.tenant_id, t.is_active),
   ],
 );

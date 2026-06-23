@@ -23,7 +23,7 @@ interface UseAgentRuntimeOpts {
    */
   chatAgentRef?: { current: 'staffing' | 'pmo' };
   /**
-   * PMO chat ingest session id from a workbook upload, read at send time.
+   * PMO chat published ingestion session id selected as analytics source, read at send time.
    */
   pmoIngestRef?: {
     current: { ingestionSessionId?: string; reportingDateFrom?: string; reportingDateTo?: string };

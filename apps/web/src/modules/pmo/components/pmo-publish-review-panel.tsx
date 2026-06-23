@@ -282,39 +282,111 @@ export function PmoPublishReviewPanel(props: PmoPublishReviewPanelProps) {
   const isDecided = selectedPublishApproval.status !== 'pending';
   const isReadOnly = readOnly || isDecided;
   const actionsDisabled = isSubmittingPublishDecision || isDecided;
+  const willPublish = selectedPublishView.willPublish;
+  const isPreviewOnly = !willPublish;
   const scopeRows = parsePublishScopeRows(
     selectedPublishView.tableRows,
     selectedPublishView.issueRows,
   );
   const totals = buildTotals(selectedPublishView, scopeRows);
-  const statusLabel = selectedPublishView.canApprove ? 'Ready to publish' : 'Blocked';
-  const reviewStatusLabel = isReadOnly ? 'Publish review: Completed' : 'Publish review: Pending';
+
+  const statusLabel = isPreviewOnly
+    ? selectedPublishView.canApprove
+      ? 'Staging preview'
+      : 'Blocked'
+    : selectedPublishView.canApprove
+      ? 'Ready to publish'
+      : 'Blocked';
+
+  const reviewStatusLabel = isReadOnly
+    ? isPreviewOnly
+      ? 'Preview review: Completed'
+      : 'Publish review: Completed'
+    : isPreviewOnly
+      ? 'Preview review: Pending'
+      : 'Publish review: Pending';
+
+  const sectionTitle = isPreviewOnly ? 'Review database change preview' : 'Review staging changes';
+
+  const completedStatusMessage = (() => {
+    if (!isReadOnly) return null;
+    if (selectedPublishApproval.status === 'approved') {
+      return isPreviewOnly
+        ? 'Review completed — preview only, no canonical PMO data was written.'
+        : 'Publish approved — canonical PMO data will be written when the workflow continues.';
+    }
+    if (selectedPublishApproval.status === 'rejected') {
+      return isPreviewOnly ? 'Preview review was rejected.' : 'Publish review was rejected.';
+    }
+    return isPreviewOnly
+      ? 'Review completed — preview only, no canonical PMO data will be written.'
+      : 'Publish review completed.';
+  })();
 
   return (
     <>
-      <div className="flex items-center gap-3 rounded-lg border border-warning-border bg-warning-tint/70 px-4 py-3 text-warning-ink">
-        <AlertCircle className="size-5 shrink-0" aria-hidden />
-        <div className="min-w-0 flex-1">
-          <p className="font-semibold text-ink">Publish review is required</p>
-          <p className="mt-0.5 text-caption text-ink-subtle">
-            The workflow can publish only after PMO approves this step.
-          </p>
+      {isReadOnly ? (
+        <div
+          className={`flex items-center gap-3 rounded-lg border px-4 py-3 ${
+            selectedPublishApproval.status === 'approved'
+              ? 'border-success-border bg-success-tint/70 text-success-ink'
+              : selectedPublishApproval.status === 'rejected'
+                ? 'border-danger-border bg-danger-tint/70 text-danger-ink'
+                : 'border-primary-border bg-primary-tint/70 text-primary-ink'
+          }`}
+        >
+          <CheckCircle2 className="size-5 shrink-0" aria-hidden />
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold text-ink">
+              {isPreviewOnly ? 'Database change preview' : 'Publish review'}
+            </p>
+            {completedStatusMessage ? (
+              <p className="mt-0.5 text-caption text-ink-subtle">{completedStatusMessage}</p>
+            ) : null}
+          </div>
+          <span
+            className={`rounded-full px-3 py-1 text-caption font-semibold ${
+              selectedPublishApproval.status === 'approved'
+                ? 'bg-success-tint text-success-ink'
+                : selectedPublishApproval.status === 'rejected'
+                  ? 'bg-danger-tint text-danger-ink'
+                  : 'bg-primary-tint text-primary-ink'
+            }`}
+          >
+            {reviewStatusLabel}
+          </span>
         </div>
-        <span className="rounded-full bg-warning-tint px-3 py-1 text-caption font-semibold text-warning-ink">
-          {reviewStatusLabel}
-        </span>
-      </div>
+      ) : (
+        <div className="flex items-center gap-3 rounded-lg border border-warning-border bg-warning-tint/70 px-4 py-3 text-warning-ink">
+          <AlertCircle className="size-5 shrink-0" aria-hidden />
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold text-ink">
+              {isPreviewOnly ? 'Database change preview review' : 'Publish review is required'}
+            </p>
+            <p className="mt-0.5 text-caption text-ink-subtle">
+              {isPreviewOnly
+                ? 'Review the proposed canonical database changes. No PMO data will be written until a separate publish step is approved.'
+                : 'The workflow can publish only after PMO approves this step.'}
+            </p>
+          </div>
+          <span className="rounded-full bg-warning-tint px-3 py-1 text-caption font-semibold text-warning-ink">
+            {reviewStatusLabel}
+          </span>
+        </div>
+      )}
 
       <section className="rounded-lg border border-hairline bg-surface-1 p-4 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h4 className="text-body font-semibold text-ink">Review staging changes</h4>
+            <h4 className="text-body font-semibold text-ink">{sectionTitle}</h4>
             <p className="mt-1 text-ink-subtle">{selectedPublishView.summary}</p>
           </div>
           <span
             className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-caption font-semibold ${
               selectedPublishView.canApprove
-                ? 'bg-success-tint text-success-ink'
+                ? isPreviewOnly
+                  ? 'bg-primary-tint text-primary-ink'
+                  : 'bg-success-tint text-success-ink'
                 : 'bg-danger-tint text-danger-ink'
             }`}
           >
@@ -325,7 +397,11 @@ export function PmoPublishReviewPanel(props: PmoPublishReviewPanelProps) {
 
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <MetricCard
-            label="Rows to publish (new + overwrite)"
+            label={
+              isPreviewOnly
+                ? 'Proposed row changes (new + overwrite)'
+                : 'Rows to publish (new + overwrite)'
+            }
             value={totals.publish}
             hint={`New: ${formatCount(totals.newRows)} • Overwrite: ${formatCount(totals.overwrite)}`}
             icon={Database}

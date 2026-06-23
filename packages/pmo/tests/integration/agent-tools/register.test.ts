@@ -16,7 +16,10 @@ describe('pmo register', () => {
         'pmo_computeMemberWeekFacts',
         'pmo_detectMismatch',
         'pmo_detectOverbookIdle',
+        'pmo_explainFormula',
         'pmo_generateReport',
+        'pmo_listMemberUtilization',
+        'pmo_recommendRebalance',
       ].sort(),
     );
     expect(AgentRegistry.listWorkflows('work').map((workflow) => workflow.id)).toContain(

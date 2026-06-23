@@ -1,18 +1,20 @@
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
   type DemoAnalyticsResult,
   type DemoAnalyticsSettings,
+  demoAnalyticsQueryKey,
   fetchDemoAnalytics,
 } from '../api/demo-analytics.ts';
 
 export const pmoDemoQueryKeys = {
-  analytics: (settings?: DemoAnalyticsSettings) => ['pmo', 'demo-analytics', settings] as const,
+  analytics: demoAnalyticsQueryKey,
 };
 
 export function useDemoAnalytics(settings?: DemoAnalyticsSettings) {
   return useQuery<DemoAnalyticsResult>({
-    queryKey: pmoDemoQueryKeys.analytics(settings),
+    queryKey: demoAnalyticsQueryKey(settings),
     queryFn: () => fetchDemoAnalytics(settings),
+    placeholderData: keepPreviousData,
     refetchOnWindowFocus: true,
     staleTime: 0,
   });

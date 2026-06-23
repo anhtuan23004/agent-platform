@@ -10,6 +10,7 @@ import {
   stagingChanges,
   timesheets,
 } from '../db/schema.ts';
+import { resolveDefaultPublishedSessionId } from '../ingestion/resolve-default-published-session.ts';
 import type { ConfigRow } from './thresholds.ts';
 import type {
   AllocationRow,
@@ -40,6 +41,16 @@ export interface LoadCanonicalInputsOptions {
   ingestionSessionId?: string;
 }
 
+const EMPTY_CANONICAL_INPUTS: CanonicalInputs = {
+  members: [],
+  projects: [],
+  allocations: [],
+  timesheets: [],
+  leaves: [],
+  weeks: [],
+  configRows: [],
+};
+
 function overlapsRange(
   start: Date | null,
   end: Date | null,
@@ -58,14 +69,19 @@ function inRange(date: Date, range: CanonicalInputDateRange): boolean {
 }
 
 /**
- * Load the active canonical rows a tenant needs for utilization analytics.
- * Reads only `is_active` rows — the upsert publish step keeps exactly one
- * active row per natural key, so duplicates (F-16) are already collapsed here.
+ * Load canonical rows for utilization analytics, scoped to one published ingestion session.
+ * Without an explicit session, uses the latest published upload (seed-only rows are excluded).
  */
 export async function loadCanonicalInputs(
   tenantId: string,
   options: LoadCanonicalInputsOptions = {},
 ): Promise<CanonicalInputs> {
+  const scopedSessionId =
+    options.ingestionSessionId ?? (await resolveDefaultPublishedSessionId(tenantId));
+  if (!scopedSessionId) {
+    return EMPTY_CANONICAL_INPUTS;
+  }
+
   const db = pmoDb();
   const activeFilter = (table: {
     tenant_id: never;
@@ -75,9 +91,7 @@ export async function loadCanonicalInputs(
     and(
       eq(table.tenant_id, tenantId as never),
       eq(table.is_active, true as never),
-      ...(options.ingestionSessionId
-        ? [eq(table.last_ingestion_session_id, options.ingestionSessionId as never)]
-        : []),
+      eq(table.last_ingestion_session_id, scopedSessionId as never),
     );
 
   const [memberRows, projectRows, allocRows, tsRows, leaveRows, weekRows, configRowsRaw] =
@@ -120,6 +134,7 @@ export async function loadCanonicalInputs(
       db
         .select({
           member_id: timesheets.member_id,
+          project_id: timesheets.project_id,
           work_date: timesheets.work_date,
           logged_hours: timesheets.logged_hours,
           log_category: timesheets.log_category,
@@ -279,6 +294,7 @@ function toTimesheetRow(values: Record<string, unknown>): TimesheetRow | null {
   if (!memberId || !workDate || loggedHours === null) return null;
   return {
     member_id: asString(memberId),
+    project_id: values.project_id != null ? asString(values.project_id) : null,
     work_date: workDate,
     logged_hours: loggedHours,
     log_category: values.log_category != null ? asString(values.log_category) : null,
@@ -452,7 +468,7 @@ export async function loadMergedInputs(
     timesheets: mergeByCompositeKey(
       canonical.timesheets,
       staging.timesheets,
-      (r) => `${r.member_id}::${r.work_date.toISOString()}`,
+      (r) => `${r.member_id}::${r.project_id ?? ''}::${r.work_date.toISOString()}`,
     ),
     leaves: mergeByCompositeKey(
       canonical.leaves,

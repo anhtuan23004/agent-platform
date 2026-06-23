@@ -62,6 +62,12 @@ export const RecentTaskSchema = z.object({
   lastSeenAt: z.string().datetime(),
 });
 
+export const RecentMemberSchema = z.object({
+  memberId: z.string().min(1),
+  label: z.string().min(1),
+  lastSeenAt: z.string().datetime(),
+});
+
 export const ConversationEntitiesSchema = z.object({
   recentTasks: z.array(RecentTaskSchema).max(10),
   lastDiscussedTaskId: z.string().uuid().nullable(),
@@ -70,10 +76,15 @@ export const ConversationEntitiesSchema = z.object({
   rejectedCandidates: z
     .array(z.object({ taskId: z.string().uuid(), userId: z.string().uuid() }))
     .max(20),
+  recentMembers: z.array(RecentMemberSchema).max(10),
+  lastDiscussedMemberId: z.string().nullable(),
+  lastDateRange: z.object({ from: z.string(), to: z.string() }).nullable(),
+  lastIngestionSessionId: z.string().uuid().nullable(),
 });
 
 export type ConversationEntities = z.infer<typeof ConversationEntitiesSchema>;
 export type RecentTask = z.infer<typeof RecentTaskSchema>;
+export type RecentMember = z.infer<typeof RecentMemberSchema>;
 
 export const EMPTY_ENTITIES: ConversationEntities = {
   recentTasks: [],
@@ -81,6 +92,10 @@ export const EMPTY_ENTITIES: ConversationEntities = {
   lastProposedCandidateUserId: null,
   pendingDecision: null,
   rejectedCandidates: [],
+  recentMembers: [],
+  lastDiscussedMemberId: null,
+  lastDateRange: null,
+  lastIngestionSessionId: null,
 };
 
 export function parseEntities(raw: string | null | undefined): ConversationEntities {

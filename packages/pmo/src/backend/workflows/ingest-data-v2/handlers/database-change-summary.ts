@@ -106,7 +106,11 @@ async function reclassifyStagingChanges(
   const summary: ChangeSummaryTable[] = [];
 
   for (const [tableId, tableRows] of byTable) {
-    const activeRecords = await deps.domainAdapter.findActiveRecords({ tenantId, tableId });
+    const activeRecords = await deps.domainAdapter.findActiveRecords({
+      tenantId,
+      tableId,
+      ingestionSessionId,
+    });
     const activeMap = new Map<string, string>();
     for (const rec of activeRecords) {
       activeMap.set(rec.natural_key_hash, rec.source_row_hash);
@@ -195,7 +199,9 @@ export function createDatabaseChangeSummaryHandler(
         deps,
       );
       const hasUpdates = reclassifiedSummary.some(
-        (table) => table.counts.new_records + table.counts.updated_records > 0,
+        (table) =>
+          table.counts.new_records + table.counts.updated_records + table.counts.exact_duplicates >
+          0,
       );
 
       const plannerStep = await deps.readPlannerStepMeta({

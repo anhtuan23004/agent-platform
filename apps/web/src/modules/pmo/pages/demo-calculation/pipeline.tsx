@@ -10,9 +10,17 @@ import {
   TabsList,
   TabsTrigger,
 } from '@seta/shared-ui';
+import type { VisibilityState } from '@tanstack/react-table';
 import type { ReactNode } from 'react';
+import { useState } from 'react';
 import type { DemoAnalyticsResult } from '../../api/demo-analytics.ts';
-import { analysisColumns, factColumns, memberColumns, projectMemberColumns } from './columns.tsx';
+import {
+  analysisColumns,
+  DEFAULT_PROJECT_METADATA_COLUMN_VISIBILITY,
+  memberColumns,
+  memberWeekProjectColumns,
+  projectMemberColumns,
+} from './columns.tsx';
 import { DemoCalculationFindingsPanel } from './findings-panel.tsx';
 
 function SectionCard({
@@ -82,9 +90,15 @@ export function DemoCalculationPipeline({
   getProjectLabel,
 }: DemoCalculationPipelineProps) {
   const findingCount = data.overbookIdleFindings.length + data.mismatchFindings.length;
+  const [rosterColumnVisibility, setRosterColumnVisibility] = useState<VisibilityState>(
+    DEFAULT_PROJECT_METADATA_COLUMN_VISIBILITY,
+  );
+  const [factsColumnVisibility, setFactsColumnVisibility] = useState<VisibilityState>(
+    DEFAULT_PROJECT_METADATA_COLUMN_VISIBILITY,
+  );
 
   return (
-    <section className="space-y-4">
+    <section className="space-y-4" id="pmo-utilization-findings">
       <Tabs defaultValue="findings">
         <TabsList className="grid h-auto w-full grid-cols-2 gap-3 border-0 bg-transparent p-0 lg:grid-cols-4">
           <PipelineStageTab
@@ -101,9 +115,9 @@ export function DemoCalculationPipeline({
           />
           <PipelineStageTab
             value="facts"
-            label="Member × week"
-            count={data.memberWeekFacts.length}
-            hint="persisted facts"
+            label="Member × week × project"
+            count={data.memberWeekProjectFacts.length}
+            hint="planned & logged trace"
           />
           <PipelineStageTab
             value="analysis"
@@ -123,8 +137,8 @@ export function DemoCalculationPipeline({
 
         <TabsContent value="population" className="mt-6">
           <SectionCard
-            title="PM & delivery populations"
-            description="Project managers are separated from delivery members before utilization is calculated."
+            title="Allocation matrix"
+            description="Member × project plan and logged hours across the reporting window. Use this view to see how each person is split across projects before rebalancing."
           >
             <Tabs defaultValue="projectMembers" className="mt-1">
               <TabsList className="mb-4">
@@ -145,6 +159,8 @@ export function DemoCalculationPipeline({
                 <DataTable
                   data={data.projectMemberDependencies}
                   columns={projectMemberColumns(getMemberLabel, getProjectLabel)}
+                  columnVisibility={rosterColumnVisibility}
+                  onColumnVisibilityChange={setRosterColumnVisibility}
                 />
               </TabsContent>
               <TabsContent value="deliveryMembers">
@@ -165,10 +181,15 @@ export function DemoCalculationPipeline({
 
         <TabsContent value="facts" className="mt-6">
           <SectionCard
-            title="Member × week facts"
-            description="Persisted read-model: availability, planned and logged hours, busy rate, and effort consumption per week."
+            title="Weekly plan and log trace"
+            description="Each row is one member on one project in one week — planned hours from resource allocation and logged hours from timesheets. Findings and member rollups are built from this table (active delivery projects only)."
           >
-            <DataTable data={data.memberWeekFacts} columns={factColumns(getMemberLabel)} />
+            <DataTable
+              data={data.memberWeekProjectFacts}
+              columns={memberWeekProjectColumns(getMemberLabel, getProjectLabel)}
+              columnVisibility={factsColumnVisibility}
+              onColumnVisibilityChange={setFactsColumnVisibility}
+            />
           </SectionCard>
         </TabsContent>
 

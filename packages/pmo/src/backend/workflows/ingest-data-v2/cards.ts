@@ -643,10 +643,10 @@ export function buildMappingItemReviewCard(input: MappingItemCardInput): Approva
 function publishRows(changeSummary: ChangeSummaryTable[]): Array<{ k: string; v: string }> {
   return changeSummary.map((t) => {
     const c = t.counts;
-    const publishRowsCount = c.new_records + c.updated_records;
+    const publishRowsCount = c.new_records + c.updated_records + c.exact_duplicates;
     return {
       k: t.tableId,
-      v: `publish=${publishRowsCount} | skip_existing=${c.exact_duplicates} | new=${c.new_records} | overwrite=${c.updated_records}`,
+      v: `publish=${publishRowsCount} | skip_in_upload=${c.duplicates_in_upload} | new=${c.new_records} | changed=${c.updated_records} | unchanged=${c.exact_duplicates}`,
     };
   });
 }
@@ -800,19 +800,22 @@ export function buildPublishReviewCard(input: PublishCardInput): ApprovalCard {
       acc.newRecords += t.counts.new_records;
       acc.updatedRecords += t.counts.updated_records;
       acc.exactDuplicates += t.counts.exact_duplicates;
+      acc.duplicatesInUpload += t.counts.duplicates_in_upload;
       return acc;
     },
     {
       newRecords: 0,
       updatedRecords: 0,
       exactDuplicates: 0,
+      duplicatesInUpload: 0,
     },
   );
+  const rowsToPublish = totals.newRecords + totals.updatedRecords + totals.exactDuplicates;
 
   const summary = input.allowApprove
     ? willPublish
-      ? `Ready to publish ${totals.newRecords + totals.updatedRecords} change(s). ${totals.exactDuplicates} unchanged row(s) will be skipped.`
-      : `Review complete for ${totals.newRecords + totals.updatedRecords} proposed change(s). ${totals.exactDuplicates} unchanged row(s) would be skipped. No canonical PMO data will be written.`
+      ? `Ready to publish ${rowsToPublish} row(s) for this upload snapshot. Other published uploads are not modified.`
+      : `Review complete for ${rowsToPublish} row(s) in this upload snapshot. No canonical PMO data will be written.`
     : [
         input.blockingIssues.length > 0
           ? `Found ${input.blockingIssues.length} blocking data issue(s).`
@@ -827,13 +830,13 @@ export function buildPublishReviewCard(input: PublishCardInput): ApprovalCard {
   const checklist = input.allowApprove
     ? willPublish
       ? [
-          'New rows will be inserted.',
-          'Updated rows will overwrite existing PMO records with the same business key.',
-          'Unchanged rows already present in PMO data will be skipped.',
+          'Replaces the published snapshot for this ingestion session.',
+          'Rows from other published uploads stay unchanged.',
+          'Duplicate rows within this upload are skipped unless resolved in normalization review.',
         ]
       : [
-          'New and updated rows are previewed only.',
-          'Canonical PMO records will not be inserted or overwritten.',
+          'Upload snapshot is previewed only.',
+          'Canonical PMO records will not be written.',
           'Completing review records the approved summary checkpoint and ends the workflow.',
         ]
     : [
@@ -858,12 +861,13 @@ export function buildPublishReviewCard(input: PublishCardInput): ApprovalCard {
           { k: 'Ingestion session', v: input.ingestionSessionId },
           {
             k: willPublish ? 'Rows to publish' : 'Proposed row changes',
-            v: String(totals.newRecords + totals.updatedRecords),
+            v: String(rowsToPublish),
           },
-          { k: 'Rows to skip', v: String(totals.exactDuplicates) },
+          { k: 'Rows to skip', v: String(totals.duplicatesInUpload) },
           { k: 'New rows', v: String(totals.newRecords) },
-          { k: 'Rows to overwrite', v: String(totals.updatedRecords) },
-          { k: 'Skip reason', v: 'Already exists with no changes' },
+          { k: 'Changed rows', v: String(totals.updatedRecords) },
+          { k: 'Unchanged in session', v: String(totals.exactDuplicates) },
+          { k: 'Skip reason', v: 'Duplicate rows within this upload' },
           { k: 'Blocking issues', v: String(input.blockingIssues.length) },
         ],
       },
@@ -920,6 +924,7 @@ export function buildPublishReviewCard(input: PublishCardInput): ApprovalCard {
       agentPath: ['supervisor', 'work', 'pmo'],
       toolId: 'pmo_confirmPublish',
       ...plannerStepMeta(input.plannerStep),
+      willPublish,
       ts: new Date().toISOString(),
     },
   };

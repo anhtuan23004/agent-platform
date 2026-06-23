@@ -4,6 +4,10 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
+  useRouterState: (options?: { select?: (state: { location: { pathname: string } }) => unknown }) =>
+    options?.select?.({ location: { pathname: '/agent/workflows' } }) ?? {
+      location: { pathname: '/agent/workflows' },
+    },
 }));
 
 import { RerunSideSheet } from '@/modules/agent/workflows/components/rerun-side-sheet.tsx';

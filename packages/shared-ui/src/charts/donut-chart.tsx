@@ -16,9 +16,26 @@ export interface DonutChartProps {
   /** Caption under the centre value. */
   centerLabel?: string;
   height?: number;
-  /** `right` renders a count + % legend column beside the ring. */
+  /** `right` renders a count legend column beside the ring. */
   legend?: 'none' | 'right';
+  /** `detailed` shows count + %; `compact` shows `Name: count` (Jira-style). */
+  legendStyle?: 'detailed' | 'compact';
   onSliceClick?: (slice: DonutSlice) => void;
+}
+
+function DonutTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: Array<{ value?: number }>;
+}) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div style={CHART_TOOLTIP_STYLE} className="tabular-nums font-medium">
+      {payload[0]?.value ?? 0}
+    </div>
+  );
 }
 
 /** Generic donut/ring chart. Slice-driven — no domain coupling. */
@@ -28,6 +45,7 @@ export function DonutChart({
   centerLabel,
   height = 220,
   legend = 'none',
+  legendStyle = 'detailed',
   onSliceClick,
 }: DonutChartProps) {
   const visible = slices.filter((s) => s.value > 0);
@@ -58,10 +76,7 @@ export function DonutChart({
               />
             ))}
           </Pie>
-          <Tooltip
-            contentStyle={CHART_TOOLTIP_STYLE}
-            formatter={(value, name) => [String(value ?? 0), String(name)]}
-          />
+          <Tooltip content={<DonutTooltip />} />
         </PieChart>
       </ResponsiveContainer>
       {centerValue !== undefined && (
@@ -76,39 +91,53 @@ export function DonutChart({
   if (legend !== 'right') return ring;
 
   return (
-    <div className="flex flex-wrap items-center gap-6">
+    <div className="flex flex-wrap items-center gap-8">
       {ring}
-      <ul className="flex min-w-40 flex-1 flex-col gap-2">
-        {slices.map((s) => {
-          const pct = total ? Math.round((s.value / total) * 100) : 0;
-          const body = (
-            <>
-              <span
-                aria-hidden="true"
-                className="size-2.5 shrink-0 rounded-[3px]"
-                style={{ background: s.color }}
-              />
-              <span className="text-ink">{s.name}</span>
-              <span className="ml-auto font-medium tabular-nums text-ink">{s.value}</span>
-              <span className="w-9 text-right tabular-nums text-ink-subtle">{pct}%</span>
-            </>
-          );
-          return (
-            <li key={s.key}>
-              {clickable ? (
-                <button
-                  type="button"
-                  onClick={() => onSliceClick?.(s)}
-                  className="flex w-full items-center gap-2 text-body-sm hover:opacity-80"
-                >
-                  {body}
-                </button>
-              ) : (
-                <div className="flex items-center gap-2 text-body-sm">{body}</div>
-              )}
-            </li>
-          );
-        })}
+      <ul className="flex min-w-52 flex-1 flex-col gap-2.5">
+        {slices
+          .filter((slice) => slice.value > 0)
+          .map((s) => {
+            const pct = total ? Math.round((s.value / total) * 100) : 0;
+            const compact = legendStyle === 'compact';
+            const body = compact ? (
+              <>
+                <span
+                  aria-hidden="true"
+                  className="size-2.5 shrink-0 rounded-[3px]"
+                  style={{ background: s.color }}
+                />
+                <span className="text-ink">
+                  {s.name}: <span className="font-medium tabular-nums">{s.value}</span>
+                </span>
+              </>
+            ) : (
+              <>
+                <span
+                  aria-hidden="true"
+                  className="size-2.5 shrink-0 rounded-[3px]"
+                  style={{ background: s.color }}
+                />
+                <span className="min-w-0 flex-1 text-ink">{s.name}</span>
+                <span className="ml-auto font-medium tabular-nums text-ink">{s.value}</span>
+                <span className="w-9 text-right tabular-nums text-ink-subtle">{pct}%</span>
+              </>
+            );
+            return (
+              <li key={s.key}>
+                {clickable ? (
+                  <button
+                    type="button"
+                    onClick={() => onSliceClick?.(s)}
+                    className="flex w-full items-center gap-2 text-body-sm hover:opacity-80"
+                  >
+                    {body}
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-2 text-body-sm">{body}</div>
+                )}
+              </li>
+            );
+          })}
       </ul>
     </div>
   );

@@ -386,6 +386,7 @@ export interface PmoWorkflowExecutionState {
 
 export interface PmoPlanningSession {
   ingestion_session_id: string;
+  chat_thread_id: string | null;
   source_kind: 'workbook' | 'database_report';
   workbook_name: string | null;
   workbook_size_bytes: number;
@@ -582,8 +583,13 @@ export const pmoApi = {
     return jsonOrThrow<StartIngestWorkflowResponse>(res);
   },
 
-  async listPlanningSessions(): Promise<ListPlanningSessionsResponse> {
-    const res = await fetch('/api/pmo/v1/ingestion-sessions', {
+  async listPlanningSessions(input?: {
+    chatThreadId?: string;
+  }): Promise<ListPlanningSessionsResponse> {
+    const params = input?.chatThreadId
+      ? `?chat_thread_id=${encodeURIComponent(input.chatThreadId)}`
+      : '';
+    const res = await fetch(`/api/pmo/v1/ingestion-sessions${params}`, {
       method: 'GET',
       credentials: 'include',
     });

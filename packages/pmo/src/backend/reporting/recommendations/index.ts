@@ -9,6 +9,7 @@ export { buildRecommendationWindow, nextWorkingDay } from './recommendation-wind
 export { buildCandidateSlots } from './risk-gates.ts';
 export { scoreRoleCompatibility } from './role-compatibility.ts';
 export { scoreSkillCoverage } from './skill-coverage.ts';
+export { syncRecommendationProjectionsFromDemoCsv } from './sync-from-demo-csv.ts';
 export type { SyncMemberSkillInput, SyncTaskHistoryInput } from './sync-projections.ts';
 export {
   getRecommendationProjectionFreshness,

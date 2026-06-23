@@ -75,3 +75,18 @@ export function computeTrainingHours(timesheets: TimesheetRow[], week: WeekRow):
   }
   return hours;
 }
+
+/** Logged hours for one member × project × week. */
+export function computeLoggedHoursForProject(
+  timesheets: TimesheetRow[],
+  projectId: string,
+  week: WeekRow,
+): number {
+  let hours = 0;
+  for (const ts of timesheets) {
+    if (ts.project_id !== projectId) continue;
+    if (!dateInWeek(ts.work_date, week)) continue;
+    hours += ts.logged_hours ?? 0;
+  }
+  return hours;
+}

@@ -9,6 +9,7 @@ import {
 function session(overrides: Partial<PmoPlanningSession> = {}): PmoPlanningSession {
   return {
     ingestion_session_id: '00000000-0000-0000-0000-000000000001',
+    chat_thread_id: null,
     source_kind: 'workbook',
     workbook_name: 'PMO June.xlsx',
     workbook_size_bytes: 1234,
@@ -47,19 +48,24 @@ function session(overrides: Partial<PmoPlanningSession> = {}): PmoPlanningSessio
 }
 
 describe('demo calculation page logic', () => {
-  it('builds source upload options with period metadata and disabled unpublished uploads', () => {
-    const options = buildSourceUploadOptions([
-      session(),
-      session({
-        ingestion_session_id: '00000000-0000-0000-0000-000000000003',
-        status: 'awaiting_publish_review',
-        is_published: false,
-        is_selectable: false,
-        status_label: 'Awaiting next step',
-        reporting_period_start: null,
-        reporting_period_end: null,
-      }),
-    ]);
+  it('builds source upload options with published and personal upload groups', () => {
+    const options = buildSourceUploadOptions(
+      [
+        session({
+          operator: '00000000-0000-0000-0000-000000000099',
+        }),
+        session({
+          ingestion_session_id: '00000000-0000-0000-0000-000000000003',
+          status: 'awaiting_publish_review',
+          is_published: false,
+          is_selectable: false,
+          status_label: 'Awaiting next step',
+          reporting_period_start: null,
+          reporting_period_end: null,
+        }),
+      ],
+      '00000000-0000-0000-0000-000000000002',
+    );
 
     expect(options[0]).toMatchObject({
       label: 'PMO June.xlsx',
@@ -68,11 +74,13 @@ describe('demo calculation page logic', () => {
       reportingPeriodStart: '2026-06-29',
       reportingPeriodEnd: '2026-07-03',
       disabled: false,
+      group: 'published',
     });
     expect(options[1]).toMatchObject({
       statusLabel: 'Awaiting next step',
       reportingPeriodLabel: '2026-W26',
       disabled: true,
+      group: 'mine',
     });
   });
 

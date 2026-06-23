@@ -1,5 +1,5 @@
 import { useAui, useAuiState } from '@assistant-ui/react';
-import { attachmentsBlockSend, ChatComposer } from '@seta/shared-ui';
+import { attachmentsBlockSend, ChatComposer, Label } from '@seta/shared-ui';
 import { X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { ModelSelector } from '../components/model-selector';
@@ -30,25 +30,45 @@ export function AgentComposer({ compact = false }: AgentComposerProps) {
   const staffingAttachments = useChatAttachments(selection.threadId);
   const pmoIngestAttachments = usePmoChatIngestAttachments(selection.threadId);
   const isPmo = chatAgent === 'pmo';
-  const attachments = isPmo ? pmoIngestAttachments.attachments : staffingAttachments.attachments;
-  const attach = isPmo ? pmoIngestAttachments.attach : staffingAttachments.attach;
-  const remove = isPmo ? pmoIngestAttachments.remove : staffingAttachments.remove;
-  const reset = isPmo ? pmoIngestAttachments.reset : staffingAttachments.reset;
+  const attachments = isPmo ? [] : staffingAttachments.attachments;
+  const attach = isPmo ? undefined : staffingAttachments.attach;
+  const remove = isPmo ? undefined : staffingAttachments.remove;
+  const reset = isPmo ? () => {} : staffingAttachments.reset;
   const warning = isPmo ? pmoIngestAttachments.warning : staffingAttachments.warning;
-  const pendingIngestSessionId = isPmo ? pmoIngestAttachments.pendingIngestSessionId : null;
+  const uploadSources = isPmo ? pmoIngestAttachments.uploadSources : [];
+  const uploadSourcesLoading = isPmo ? pmoIngestAttachments.uploadSourcesLoading : false;
+  const refreshUploadSources = isPmo ? pmoIngestAttachments.refreshUploadSources : async () => {};
+  const selectedSessionId = isPmo ? pmoIngestAttachments.selectedSessionId : null;
+  const setSelectedSessionId = isPmo ? pmoIngestAttachments.setSelectedSessionId : () => {};
+  const selectedUploadSource = isPmo ? pmoIngestAttachments.selectedUploadSource : null;
+  const scopedIngestSessionId = isPmo ? pmoIngestAttachments.scopedIngestSessionId : null;
+  const publishedUploadSources = isPmo
+    ? uploadSources.filter((source) => source.group === 'published')
+    : [];
+  const myUploadSources = isPmo ? uploadSources.filter((source) => source.group === 'mine') : [];
 
   const submit = () => {
     if (!value.trim() || isRunning) return;
     if (attachmentsBlockSend(attachments)) return;
     clearRunError();
-    if (isPmo && pendingIngestSessionId) {
-      pmoIngestSendRef.current = { ingestionSessionId: pendingIngestSessionId };
-    } else if (!isPmo) {
+    if (isPmo && scopedIngestSessionId) {
+      const from = selectedUploadSource?.reportingPeriodStart?.slice(0, 10);
+      const to = selectedUploadSource?.reportingPeriodEnd?.slice(0, 10);
+      pmoIngestSendRef.current = {
+        ingestionSessionId: scopedIngestSessionId,
+        ...(from && to ? { reportingDateFrom: from, reportingDateTo: to } : {}),
+      };
+    } else if (isPmo) {
+      pmoIngestSendRef.current = {};
+    } else {
       pmoIngestSendRef.current = {};
     }
     aui.composer().setText(value);
     aui.composer().send();
     setValue('');
+    if (isPmo) {
+      void refreshUploadSources();
+    }
     reset();
   };
 
@@ -90,14 +110,67 @@ export function AgentComposer({ compact = false }: AgentComposerProps) {
         pending={isRunning}
         placeholder={
           isPmo
-            ? 'Upload a workbook to ingest, or ask about utilization…'
+            ? 'Ask about published PMO utilization data…'
             : CHAT_AGENT_COPY[chatAgent].placeholder
         }
         permissionHint={
-          warning ??
-          (isPmo
-            ? 'Excel workbooks upload as PMO ingestion sessions for ingest workflow.'
-            : undefined)
+          isPmo ? (
+            <div className="flex w-full min-w-0 flex-col gap-1.5">
+              <span className={warning ? 'text-warning-ink' : undefined}>
+                {warning ?? 'Published PMO data only.'}
+              </span>
+              {uploadSourcesLoading ? (
+                <span>Loading uploads…</span>
+              ) : uploadSources.length > 0 ? (
+                <>
+                  <Label htmlFor="pmo-chat-upload-source" className="text-caption font-medium">
+                    Upload source
+                  </Label>
+                  <select
+                    id="pmo-chat-upload-source"
+                    className="w-full rounded-md border border-hairline bg-surface-1 px-2 py-1.5 text-body-sm text-ink"
+                    value={selectedSessionId ?? ''}
+                    onChange={(event) => setSelectedSessionId(event.target.value || null)}
+                  >
+                    {publishedUploadSources.length > 0 ? (
+                      <optgroup label="Published data">
+                        {publishedUploadSources.map((source) => (
+                          <option
+                            key={source.ingestionSessionId}
+                            value={source.ingestionSessionId}
+                            disabled={source.disabled}
+                          >
+                            {source.label}
+                            {source.fromCurrentThread ? '' : ' · other thread'}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ) : null}
+                    {myUploadSources.length > 0 ? (
+                      <optgroup label="Your uploads">
+                        {myUploadSources.map((source) => (
+                          <option
+                            key={source.ingestionSessionId}
+                            value={source.ingestionSessionId}
+                            disabled={source.disabled}
+                          >
+                            {source.label}
+                            {source.isPublished ? ' · published' : ' · not published yet'}
+                            {source.fromCurrentThread ? ' · this thread' : ''}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ) : null}
+                  </select>
+                </>
+              ) : null}
+              {selectedUploadSource?.isPublished ? (
+                <span>Analytics tools will use this published batch only.</span>
+              ) : null}
+            </div>
+          ) : (
+            warning
+          )
         }
         attachments={attachments}
         onAttachFiles={attach}

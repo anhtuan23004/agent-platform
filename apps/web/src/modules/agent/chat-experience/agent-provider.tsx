@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components -- provider component and its selector hooks are co-located; splitting them would force every consumer through an extra re-export shim */
 import { AssistantRuntimeProvider } from '@assistant-ui/react';
-import { useLocation, useNavigate } from '@tanstack/react-router';
+import { useLocation, useNavigate, useRouterState } from '@tanstack/react-router';
 import type { UIMessage } from 'ai';
 import {
   createContext,
@@ -124,15 +124,14 @@ interface PanelUIValue {
 const PageContextContext = createContext<PageContextValue | null>(null);
 const ChatAgentContext = createContext<ChatAgentValue | null>(null);
 
-export type PmoIngestSendPayload = {
+export type PmoAnalyticsScopePayload = {
   ingestionSessionId?: string;
   reportingDateFrom?: string;
   reportingDateTo?: string;
 };
 
-const PmoIngestSendRefContext = createContext<React.MutableRefObject<PmoIngestSendPayload> | null>(
-  null,
-);
+const PmoIngestSendRefContext =
+  createContext<React.MutableRefObject<PmoAnalyticsScopePayload> | null>(null);
 const PanelUIContext = createContext<PanelUIValue | null>(null);
 
 function readStored(key: string, fallback: string): string {
@@ -213,8 +212,17 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     storedSuppression && storedSuppression.threadId === threadId
       ? storedSuppression.contextId
       : null;
-  const [chatAgent, setChatAgentState] = useState<ChatAgentMode>('staffing');
-  const setChatAgent = useCallback((next: ChatAgentMode) => setChatAgentState(next), []);
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const [selectedChatAgent, setSelectedChatAgent] = useState<ChatAgentMode>('staffing');
+  const setChatAgent = useCallback((next: ChatAgentMode) => setSelectedChatAgent(next), []);
+  // Side panel and PMO pages share AgentProvider; route-owned sections derive
+  // the agent mode directly so PMO upload tooling is available before effects run.
+  const routeChatAgent: ChatAgentMode | null = pathname.startsWith('/pmo')
+    ? 'pmo'
+    : pathname.startsWith('/agent')
+      ? 'staffing'
+      : null;
+  const chatAgent = routeChatAgent ?? selectedChatAgent;
   const [panelOpen, setPanelOpenState] = useState<boolean>(false);
   const [pendingPrompt, setPendingPromptState] = useState<{
     text: string;
@@ -264,7 +272,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     [panelOpen, setPanelOpen, pendingPrompt, setPendingPrompt],
   );
 
-  const pmoIngestSendRef = useRef<PmoIngestSendPayload>({});
+  const pmoIngestSendRef = useRef<PmoAnalyticsScopePayload>({});
 
   return (
     <DensityProvider>
@@ -288,7 +296,7 @@ function AgentRuntimeHost({
   pmoIngestSendRef,
 }: {
   children: React.ReactNode;
-  pmoIngestSendRef: React.MutableRefObject<PmoIngestSendPayload>;
+  pmoIngestSendRef: React.MutableRefObject<PmoAnalyticsScopePayload>;
 }) {
   const { selection, actions } = useAgentSelection();
   const { pageContext, suppressedFor } = usePageContext();
@@ -422,7 +430,7 @@ function AgentRuntimeHostInner({
     suppressedFor: string | null;
   }>;
   chatAgentRef: React.MutableRefObject<ChatAgentMode>;
-  pmoIngestSendRef: React.MutableRefObject<PmoIngestSendPayload>;
+  pmoIngestSendRef: React.MutableRefObject<PmoAnalyticsScopePayload>;
   children: React.ReactNode;
 }) {
   const [runError, setRunError] = useState<string | null>(null);
@@ -475,7 +483,7 @@ export function useChatAgent(): ChatAgentValue {
   return ctx;
 }
 
-export function usePmoIngestSendRef(): React.MutableRefObject<PmoIngestSendPayload> {
+export function usePmoIngestSendRef(): React.MutableRefObject<PmoAnalyticsScopePayload> {
   const ctx = useContext(PmoIngestSendRefContext);
   if (!ctx) throw new Error('usePmoIngestSendRef must be used within <AgentProvider>');
   return ctx;

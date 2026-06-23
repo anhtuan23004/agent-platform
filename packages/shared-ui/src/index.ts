@@ -1,12 +1,15 @@
 // Board
 export * from './board/preview-card';
 // Charts
+export * from './charts/categorical-bar-chart';
 export * from './charts/chart-card';
 export * from './charts/chart-empty';
 export * from './charts/chart-legend';
 export * from './charts/chart-theme';
 export * from './charts/donut-chart';
+export * from './charts/series-line-chart';
 export * from './charts/stacked-bar-chart';
+export * from './charts/workload-bar-list';
 export * from './composites/agent-panel';
 // Composites
 export * from './composites/app-shell';

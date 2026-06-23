@@ -10,6 +10,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../primitives/dropdown-menu';
+import { columnVisibilityLabel } from './data-table-column-label';
 
 interface Props<TData> {
   table: Table<TData>;
@@ -49,7 +50,7 @@ export function DataTableToolbar<TData>({
                       checked={c.getIsVisible()}
                       onCheckedChange={(v) => c.toggleVisibility(!!v)}
                     >
-                      {String(c.columnDef.header ?? c.id)}
+                      {columnVisibilityLabel(c)}
                     </DropdownMenuCheckboxItem>,
                   ]
                 : [],

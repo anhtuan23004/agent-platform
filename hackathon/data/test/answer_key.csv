@@ -1,0 +1,93 @@
+case_id,workbook,record_type,member_id,issue_type,severity,week_id,expected_status,expected_top_targets,data_quality_flags,prompt
+01_baseline,PMO_EVAL_01_baseline.xlsx,finding,EMP-004,overbook,High,,,,,
+01_baseline,PMO_EVAL_01_baseline.xlsx,finding,EMP-001,overbook,Medium,,,,,
+01_baseline,PMO_EVAL_01_baseline.xlsx,finding,EMP-005,idle,Medium,,,,,
+01_baseline,PMO_EVAL_01_baseline.xlsx,finding,EMP-008,idle,Medium,,,,,
+01_baseline,PMO_EVAL_01_baseline.xlsx,finding,EMP-002,mismatch_under,Medium,,,,,
+01_baseline,PMO_EVAL_01_baseline.xlsx,finding,EMP-006,mismatch_over,High,,,,,
+01_baseline,PMO_EVAL_01_baseline.xlsx,finding,EMP-003,edge_exclude,Info,W2,,,,
+01_baseline,PMO_EVAL_01_baseline.xlsx,finding,W3,edge_holiday,Info,W3,,,,
+01_baseline,PMO_EVAL_01_baseline.xlsx,finding,EMP-009,edge_onboard_missing,Info,W1,,,,
+01_baseline,PMO_EVAL_01_baseline.xlsx,finding,EMP-010,data_duplicate,High,,,,,
+01_baseline,PMO_EVAL_01_baseline.xlsx,finding,EMP-007,guardrail_parttime,Info,,,,,
+01_baseline,PMO_EVAL_01_baseline.xlsx,data_quality,,,,,,,,
+01_baseline,PMO_EVAL_01_baseline.xlsx,prompt,,,,,,,,"Ingest 01_baseline, normalize PMO tables, and summarize required data-quality review gates."
+01_baseline,PMO_EVAL_01_baseline.xlsx,prompt,,,,,,,,Generate an overbook/idle/mismatch report for 2026-06-29 to 2026-08-07.
+01_baseline,PMO_EVAL_01_baseline.xlsx,prompt,,,,,,,,Recommend rebalance options for the highest-risk overbooked member in 01_baseline.
+02_duplicate_dedupe,PMO_EVAL_02_duplicate_dedupe.xlsx,finding,EMP-004,overbook,High,,,,,
+02_duplicate_dedupe,PMO_EVAL_02_duplicate_dedupe.xlsx,finding,EMP-001,overbook,Medium,,,,,
+02_duplicate_dedupe,PMO_EVAL_02_duplicate_dedupe.xlsx,finding,EMP-005,idle,Medium,,,,,
+02_duplicate_dedupe,PMO_EVAL_02_duplicate_dedupe.xlsx,finding,EMP-008,idle,Medium,,,,,
+02_duplicate_dedupe,PMO_EVAL_02_duplicate_dedupe.xlsx,finding,EMP-002,mismatch_under,Medium,,,,,
+02_duplicate_dedupe,PMO_EVAL_02_duplicate_dedupe.xlsx,finding,EMP-006,mismatch_over,High,,,,,
+02_duplicate_dedupe,PMO_EVAL_02_duplicate_dedupe.xlsx,finding,EMP-003,edge_exclude,Info,W2,,,,
+02_duplicate_dedupe,PMO_EVAL_02_duplicate_dedupe.xlsx,finding,W3,edge_holiday,Info,W3,,,,
+02_duplicate_dedupe,PMO_EVAL_02_duplicate_dedupe.xlsx,finding,EMP-009,edge_onboard_missing,Info,W1,,,,
+02_duplicate_dedupe,PMO_EVAL_02_duplicate_dedupe.xlsx,finding,EMP-010,data_duplicate,High,,,,,
+02_duplicate_dedupe,PMO_EVAL_02_duplicate_dedupe.xlsx,finding,EMP-007,guardrail_parttime,Info,,,,,
+02_duplicate_dedupe,PMO_EVAL_02_duplicate_dedupe.xlsx,data_quality,,,,,,,duplicate_resource_allocation|duplicate_timesheet_log,
+02_duplicate_dedupe,PMO_EVAL_02_duplicate_dedupe.xlsx,prompt,,,,,,,,"Ingest 02_duplicate_dedupe, normalize PMO tables, and summarize required data-quality review gates."
+02_duplicate_dedupe,PMO_EVAL_02_duplicate_dedupe.xlsx,prompt,,,,,,,,Generate an overbook/idle/mismatch report for 2026-06-29 to 2026-08-07.
+02_duplicate_dedupe,PMO_EVAL_02_duplicate_dedupe.xlsx,prompt,,,,,,,,Recommend rebalance options for the highest-risk overbooked member in 02_duplicate_dedupe.
+03_rebalance_full_solution,PMO_EVAL_03_rebalance_full_solution.xlsx,finding,EMP-004,overbook,High,,,,,
+03_rebalance_full_solution,PMO_EVAL_03_rebalance_full_solution.xlsx,finding,EMP-103,idle_candidate,Info,,,,,
+03_rebalance_full_solution,PMO_EVAL_03_rebalance_full_solution.xlsx,recommendation,EMP-004,,,W1,full_solution,EMP-103,,
+03_rebalance_full_solution,PMO_EVAL_03_rebalance_full_solution.xlsx,recommendation,EMP-004,,,W2,full_solution,EMP-103,,
+03_rebalance_full_solution,PMO_EVAL_03_rebalance_full_solution.xlsx,recommendation,EMP-004,,,W3,full_solution,EMP-103,,
+03_rebalance_full_solution,PMO_EVAL_03_rebalance_full_solution.xlsx,recommendation,EMP-004,,,W4,full_solution,EMP-103,,
+03_rebalance_full_solution,PMO_EVAL_03_rebalance_full_solution.xlsx,recommendation,EMP-004,,,W5,full_solution,EMP-103,,
+03_rebalance_full_solution,PMO_EVAL_03_rebalance_full_solution.xlsx,recommendation,EMP-004,,,W6,full_solution,EMP-103,,
+03_rebalance_full_solution,PMO_EVAL_03_rebalance_full_solution.xlsx,data_quality,,,,,,,,
+03_rebalance_full_solution,PMO_EVAL_03_rebalance_full_solution.xlsx,prompt,,,,,,,,"Ingest 03_rebalance_full_solution, normalize PMO tables, and summarize required data-quality review gates."
+03_rebalance_full_solution,PMO_EVAL_03_rebalance_full_solution.xlsx,prompt,,,,,,,,Generate an overbook/idle/mismatch report for 2026-06-29 to 2026-08-07.
+03_rebalance_full_solution,PMO_EVAL_03_rebalance_full_solution.xlsx,prompt,,,,,,,,Recommend rebalance options for the highest-risk overbooked member in 03_rebalance_full_solution.
+04_rebalance_partial_relief,PMO_EVAL_04_rebalance_partial_relief.xlsx,finding,EMP-004,overbook,High,,,,,
+04_rebalance_partial_relief,PMO_EVAL_04_rebalance_partial_relief.xlsx,recommendation,EMP-004,,,W1,partial_relief,EMP-103|EMP-113,,
+04_rebalance_partial_relief,PMO_EVAL_04_rebalance_partial_relief.xlsx,recommendation,EMP-004,,,W2,partial_relief,EMP-103|EMP-113,,
+04_rebalance_partial_relief,PMO_EVAL_04_rebalance_partial_relief.xlsx,recommendation,EMP-004,,,W3,partial_relief,EMP-103,,
+04_rebalance_partial_relief,PMO_EVAL_04_rebalance_partial_relief.xlsx,recommendation,EMP-004,,,W4,partial_relief,EMP-103|EMP-113,,
+04_rebalance_partial_relief,PMO_EVAL_04_rebalance_partial_relief.xlsx,recommendation,EMP-004,,,W5,partial_relief,EMP-103|EMP-113,,
+04_rebalance_partial_relief,PMO_EVAL_04_rebalance_partial_relief.xlsx,recommendation,EMP-004,,,W6,partial_relief,EMP-103|EMP-113,,
+04_rebalance_partial_relief,PMO_EVAL_04_rebalance_partial_relief.xlsx,data_quality,,,,,,,,
+04_rebalance_partial_relief,PMO_EVAL_04_rebalance_partial_relief.xlsx,prompt,,,,,,,,"Ingest 04_rebalance_partial_relief, normalize PMO tables, and summarize required data-quality review gates."
+04_rebalance_partial_relief,PMO_EVAL_04_rebalance_partial_relief.xlsx,prompt,,,,,,,,Generate an overbook/idle/mismatch report for 2026-06-29 to 2026-08-07.
+04_rebalance_partial_relief,PMO_EVAL_04_rebalance_partial_relief.xlsx,prompt,,,,,,,,Recommend rebalance options for the highest-risk overbooked member in 04_rebalance_partial_relief.
+05_rebalance_no_valid_candidate,PMO_EVAL_05_rebalance_no_valid_candidate.xlsx,finding,EMP-004,overbook,High,,,,,
+05_rebalance_no_valid_candidate,PMO_EVAL_05_rebalance_no_valid_candidate.xlsx,recommendation,EMP-004,,,W1,no_valid_rebalance_found,,,
+05_rebalance_no_valid_candidate,PMO_EVAL_05_rebalance_no_valid_candidate.xlsx,recommendation,EMP-004,,,W2,no_valid_rebalance_found,,,
+05_rebalance_no_valid_candidate,PMO_EVAL_05_rebalance_no_valid_candidate.xlsx,recommendation,EMP-004,,,W3,no_valid_rebalance_found,,,
+05_rebalance_no_valid_candidate,PMO_EVAL_05_rebalance_no_valid_candidate.xlsx,recommendation,EMP-004,,,W4,no_valid_rebalance_found,,,
+05_rebalance_no_valid_candidate,PMO_EVAL_05_rebalance_no_valid_candidate.xlsx,recommendation,EMP-004,,,W5,no_valid_rebalance_found,,,
+05_rebalance_no_valid_candidate,PMO_EVAL_05_rebalance_no_valid_candidate.xlsx,recommendation,EMP-004,,,W6,no_valid_rebalance_found,,,
+05_rebalance_no_valid_candidate,PMO_EVAL_05_rebalance_no_valid_candidate.xlsx,data_quality,,,,,,,insufficient_capacity_or_transferable_hours,
+05_rebalance_no_valid_candidate,PMO_EVAL_05_rebalance_no_valid_candidate.xlsx,prompt,,,,,,,,"Ingest 05_rebalance_no_valid_candidate, normalize PMO tables, and summarize required data-quality review gates."
+05_rebalance_no_valid_candidate,PMO_EVAL_05_rebalance_no_valid_candidate.xlsx,prompt,,,,,,,,Generate an overbook/idle/mismatch report for 2026-06-29 to 2026-08-07.
+05_rebalance_no_valid_candidate,PMO_EVAL_05_rebalance_no_valid_candidate.xlsx,prompt,,,,,,,,Recommend rebalance options for the highest-risk overbooked member in 05_rebalance_no_valid_candidate.
+06_exclusion_leave_holiday_ot,PMO_EVAL_06_exclusion_leave_holiday_ot.xlsx,finding,EMP-003,edge_exclude,Info,W2,,,,
+06_exclusion_leave_holiday_ot,PMO_EVAL_06_exclusion_leave_holiday_ot.xlsx,finding,EMP-003,edge_exclude,Info,W5,,,,
+06_exclusion_leave_holiday_ot,PMO_EVAL_06_exclusion_leave_holiday_ot.xlsx,finding,W3,edge_holiday,Info,W3,,,,
+06_exclusion_leave_holiday_ot,PMO_EVAL_06_exclusion_leave_holiday_ot.xlsx,data_quality,,,,,,,,
+06_exclusion_leave_holiday_ot,PMO_EVAL_06_exclusion_leave_holiday_ot.xlsx,prompt,,,,,,,,"Ingest 06_exclusion_leave_holiday_ot, normalize PMO tables, and summarize required data-quality review gates."
+06_exclusion_leave_holiday_ot,PMO_EVAL_06_exclusion_leave_holiday_ot.xlsx,prompt,,,,,,,,Generate an overbook/idle/mismatch report for 2026-06-29 to 2026-08-07.
+06_exclusion_leave_holiday_ot,PMO_EVAL_06_exclusion_leave_holiday_ot.xlsx,prompt,,,,,,,,Recommend rebalance options for the highest-risk overbooked member in 06_exclusion_leave_holiday_ot.
+07_onboarding_missing_weeks,PMO_EVAL_07_onboarding_missing_weeks.xlsx,finding,EMP-009,edge_onboard_missing,Info,W1,,,,
+07_onboarding_missing_weeks,PMO_EVAL_07_onboarding_missing_weeks.xlsx,finding,EMP-009,edge_onboard_missing,Info,W2,,,,
+07_onboarding_missing_weeks,PMO_EVAL_07_onboarding_missing_weeks.xlsx,data_quality,,,,,,,,
+07_onboarding_missing_weeks,PMO_EVAL_07_onboarding_missing_weeks.xlsx,prompt,,,,,,,,"Ingest 07_onboarding_missing_weeks, normalize PMO tables, and summarize required data-quality review gates."
+07_onboarding_missing_weeks,PMO_EVAL_07_onboarding_missing_weeks.xlsx,prompt,,,,,,,,Generate an overbook/idle/mismatch report for 2026-06-29 to 2026-08-07.
+07_onboarding_missing_weeks,PMO_EVAL_07_onboarding_missing_weeks.xlsx,prompt,,,,,,,,Recommend rebalance options for the highest-risk overbooked member in 07_onboarding_missing_weeks.
+08_schema_tolerance,PMO_EVAL_08_schema_tolerance.xlsx,finding,EMP-004,overbook,High,,,,,
+08_schema_tolerance,PMO_EVAL_08_schema_tolerance.xlsx,finding,EMP-001,overbook,Medium,,,,,
+08_schema_tolerance,PMO_EVAL_08_schema_tolerance.xlsx,finding,EMP-005,idle,Medium,,,,,
+08_schema_tolerance,PMO_EVAL_08_schema_tolerance.xlsx,finding,EMP-008,idle,Medium,,,,,
+08_schema_tolerance,PMO_EVAL_08_schema_tolerance.xlsx,finding,EMP-002,mismatch_under,Medium,,,,,
+08_schema_tolerance,PMO_EVAL_08_schema_tolerance.xlsx,finding,EMP-006,mismatch_over,High,,,,,
+08_schema_tolerance,PMO_EVAL_08_schema_tolerance.xlsx,finding,EMP-003,edge_exclude,Info,W2,,,,
+08_schema_tolerance,PMO_EVAL_08_schema_tolerance.xlsx,finding,W3,edge_holiday,Info,W3,,,,
+08_schema_tolerance,PMO_EVAL_08_schema_tolerance.xlsx,finding,EMP-009,edge_onboard_missing,Info,W1,,,,
+08_schema_tolerance,PMO_EVAL_08_schema_tolerance.xlsx,finding,EMP-010,data_duplicate,High,,,,,
+08_schema_tolerance,PMO_EVAL_08_schema_tolerance.xlsx,finding,EMP-007,guardrail_parttime,Info,,,,,
+08_schema_tolerance,PMO_EVAL_08_schema_tolerance.xlsx,data_quality,,,,,,,,
+08_schema_tolerance,PMO_EVAL_08_schema_tolerance.xlsx,prompt,,,,,,,,"Ingest 08_schema_tolerance, normalize PMO tables, and summarize required data-quality review gates."
+08_schema_tolerance,PMO_EVAL_08_schema_tolerance.xlsx,prompt,,,,,,,,Generate an overbook/idle/mismatch report for 2026-06-29 to 2026-08-07.
+08_schema_tolerance,PMO_EVAL_08_schema_tolerance.xlsx,prompt,,,,,,,,Recommend rebalance options for the highest-risk overbooked member in 08_schema_tolerance.
