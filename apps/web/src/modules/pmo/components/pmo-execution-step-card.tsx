@@ -258,6 +258,8 @@ function PmoReportRangeForm(props: {
   const [forwardTo, setForwardTo] = useState(forwardAllocationSection?.suggestedDateRange.to ?? '');
   const min = rangeConfig?.bounds?.min;
   const max = rangeConfig?.bounds?.max;
+  const workloadMax = max;
+  const forwardMax = undefined;
   const workloadValid =
     !workloadSection ||
     Boolean(
@@ -265,17 +267,11 @@ function PmoReportRangeForm(props: {
         workloadTo &&
         workloadFrom <= workloadTo &&
         (!min || workloadFrom >= min) &&
-        (!max || workloadTo <= max),
+        (!workloadMax || workloadTo <= workloadMax),
     );
   const forwardValid =
     !forwardAllocationSection ||
-    Boolean(
-      forwardFrom &&
-        forwardTo &&
-        forwardFrom <= forwardTo &&
-        (!min || forwardFrom >= min) &&
-        (!max || forwardTo <= max),
-    );
+    Boolean(forwardFrom && forwardTo && forwardFrom <= forwardTo && (!min || forwardFrom >= min));
   const canSubmit = workloadValid && forwardValid;
 
   return (
@@ -296,7 +292,7 @@ function PmoReportRangeForm(props: {
                     id={`${section.kind}-report-from-${stepNo}`}
                     type="date"
                     min={min}
-                    max={max}
+                    max={section.kind === 'workload' ? workloadMax : forwardMax}
                     value={section.kind === 'workload' ? workloadFrom : forwardFrom}
                     onChange={(event) =>
                       section.kind === 'workload'
@@ -311,7 +307,7 @@ function PmoReportRangeForm(props: {
                     id={`${section.kind}-report-to-${stepNo}`}
                     type="date"
                     min={min}
-                    max={max}
+                    max={section.kind === 'workload' ? workloadMax : forwardMax}
                     value={section.kind === 'workload' ? workloadTo : forwardTo}
                     onChange={(event) =>
                       section.kind === 'workload'

@@ -316,4 +316,36 @@ describe('createGenerateReportHandler', () => {
       ),
     ).rejects.toThrow('report_date_range_outside_database_bounds');
   });
+
+  it('allows forward allocation planning ranges beyond current database max', async () => {
+    const result = await createGenerateReportHandler({
+      ...deps,
+      getReportDateBounds: vi.fn().mockResolvedValue({
+        min: '2026-02-01',
+        max: '2026-11-30',
+      }),
+    }).execute(
+      makeInput({
+        planningPlan: {
+          intent_analysis: {
+            dataSourceMode: 'uploaded_file',
+            actionMode: 'publish_then_report',
+            extractedReportTypes: ['forward_allocation'],
+          },
+        },
+        resumeData: {
+          decision: 'approve',
+          forwardAllocationDateRange: { from: '2026-12-01', to: '2027-01-31' },
+        },
+      }),
+    );
+
+    expect(result.kind).toBe('completed');
+    expect(mockCreateReportRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        planningDateRange: { from: '2026-12-01', to: '2027-01-31' },
+        reportTypes: ['forward_allocation'],
+      }),
+    );
+  });
 });

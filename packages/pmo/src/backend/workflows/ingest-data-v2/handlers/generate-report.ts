@@ -106,6 +106,14 @@ function assertRangeWithinBounds(
   }
 }
 
+function assertValidFuturePlanningRange(range: { from: string; to: string }): void {
+  const from = parseDateLike(range.from);
+  const to = parseDateLike(range.to);
+  if (!from || !to || from.getTime() > to.getTime()) {
+    throw new Error('invalid_report_date_range');
+  }
+}
+
 function dateRangeFromDates(dates: Date[]): { from: string; to: string } | null {
   if (dates.length === 0) return null;
   const sorted = dates.slice().sort((a, b) => a.getTime() - b.getTime());
@@ -433,7 +441,7 @@ export function createGenerateReportHandler(
       if (split.forwardAllocation.length > 0) {
         if (!forwardAllocationDateRange)
           throw new Error('forward_allocation_report_range_required');
-        assertRangeWithinBounds(forwardAllocationDateRange, databaseBounds);
+        assertValidFuturePlanningRange(forwardAllocationDateRange);
         const forwardAllocationReportRunId = await (deps.createReportRun ?? createReportRun)({
           tenantId: input.tenantId,
           actorId: input.userId,

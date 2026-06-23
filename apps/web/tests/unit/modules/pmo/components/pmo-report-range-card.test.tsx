@@ -82,6 +82,12 @@ describe('PmoReportReviewPanel', () => {
     expect(
       screen.getByLabelText('To', { selector: '#forward_allocation-report-to-6' }),
     ).toHaveValue('2026-09-26');
+    expect(
+      screen.getByLabelText('From', { selector: '#forward_allocation-report-from-6' }),
+    ).not.toHaveAttribute('max');
+    expect(
+      screen.getByLabelText('To', { selector: '#forward_allocation-report-to-6' }),
+    ).not.toHaveAttribute('max');
     expect(screen.getByText('Workload report')).toBeInTheDocument();
     expect(screen.getByText('Forward allocation report')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Use suggested ranges' })).toBeInTheDocument();
