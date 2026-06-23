@@ -181,8 +181,8 @@ export function DemoCalculationPipeline({
 
         <TabsContent value="facts" className="mt-6">
           <SectionCard
-            title="Member × week × project facts"
-            description="Grain gốc: member × week × project. Findings và member × week rollup được tính từ đây (Active delivery projects)."
+            title="Weekly plan and log trace"
+            description="Each row is one member on one project in one week — planned hours from resource allocation and logged hours from timesheets. Findings and member rollups are built from this table (active delivery projects only)."
           >
             <DataTable
               data={data.memberWeekProjectFacts}

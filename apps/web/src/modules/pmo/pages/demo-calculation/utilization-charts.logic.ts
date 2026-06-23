@@ -1,6 +1,7 @@
 import type { CategoricalBarRow, ChartReferenceLine, DonutSlice } from '@seta/shared-ui';
 import type {
   DemoAnalyticsResult,
+  DemoFindingRow,
   DemoMemberAnalysisRow,
   DemoThresholds,
 } from '../../api/demo-analytics.ts';
@@ -408,15 +409,132 @@ export function buildThresholdReferenceLines(thresholds: DemoThresholds): ChartR
   ];
 }
 
+export interface MemberDrilldownSummary {
+  memberId: string;
+  label: string;
+  roleTitle: string | null;
+  stdHoursWeek: number | null;
+  outcome: MemberUtilizationOutcome;
+  issueType: string;
+  ragColor: string;
+  busyRate: number | null;
+  effortConsumption: number | null;
+  inScopeWeekCount: number;
+  plannedHours: number;
+  availableHours: number;
+  loggedHours: number;
+  detail: string | null;
+  excludedWeeks: Array<{ weekId: string; reason: string }>;
+}
+
+function findMemberFinding(
+  data: DemoAnalyticsResult,
+  memberId: string,
+): DemoFindingRow | undefined {
+  return (
+    data.overbookIdleFindings.find((finding) => finding.memberId === memberId) ??
+    data.mismatchFindings.find((finding) => finding.memberId === memberId)
+  );
+}
+
+function sumMemberWeekHours(data: DemoAnalyticsResult, memberId: string) {
+  let plannedHours = 0;
+  let availableHours = 0;
+  let loggedHours = 0;
+  for (const fact of data.memberWeekFacts) {
+    if (fact.memberId !== memberId || fact.scopeStatus !== 'IN_SCOPE') continue;
+    plannedHours += fact.plannedHours;
+    availableHours += fact.availableHours;
+    loggedHours += fact.loggedHours;
+  }
+  return { plannedHours, availableHours, loggedHours };
+}
+
+export function buildMemberDrilldownSummary(
+  data: DemoAnalyticsResult,
+  memberId: string,
+  getMemberLabel: (memberId: string) => string,
+): MemberDrilldownSummary | null {
+  const analysis = data.memberAnalyses.find((row) => row.memberId === memberId);
+  if (!analysis) return null;
+
+  const member =
+    data.canonical.members.find((row) => row.memberId === memberId) ??
+    data.populations.deliveryMembers.find((row) => row.memberId === memberId);
+  const finding = findMemberFinding(data, memberId);
+  const outcome = classifyMemberUtilizationOutcome(
+    analysis.busyRate,
+    analysis.effortConsumption,
+    data.thresholds,
+  );
+  const hours = sumMemberWeekHours(data, memberId);
+
+  return {
+    memberId,
+    label: getMemberLabel(memberId),
+    roleTitle: member?.roleTitle ?? null,
+    stdHoursWeek: member?.stdHoursWeek ?? null,
+    outcome,
+    issueType: finding?.issueType ?? outcomeIssueLabel(outcome),
+    ragColor: finding?.ragColor ?? outcomeRagColor(outcome),
+    busyRate: analysis.busyRate,
+    effortConsumption: analysis.effortConsumption,
+    inScopeWeekCount: analysis.inScopeWeekCount,
+    ...hours,
+    detail: finding?.detail ?? null,
+    excludedWeeks: analysis.excludedWeeks,
+  };
+}
+
+function outcomeIssueLabel(outcome: MemberUtilizationOutcome): string {
+  if (outcome === 'overbook') return 'Overbook';
+  if (outcome === 'idle') return 'Idle';
+  if (outcome === 'mismatch_under') return 'Mismatch underlog';
+  if (outcome === 'mismatch_over') return 'Mismatch overlog';
+  return 'Healthy';
+}
+
+export { outcomeIssueLabel, outcomeRagColor };
+
+function outcomeRagColor(outcome: MemberUtilizationOutcome): string {
+  if (outcome === 'overbook') return 'yellow';
+  if (outcome === 'idle') return 'red';
+  if (outcome === 'mismatch_under' || outcome === 'mismatch_over') return 'red';
+  return 'green';
+}
+
+export function buildMemberProjectSplitRows(
+  data: DemoAnalyticsResult,
+  memberId: string,
+  thresholds: DemoThresholds,
+  getProjectLabel: (projectId: string) => string,
+): CategoricalBarRow[] {
+  const rows: CategoricalBarRow[] = [];
+  for (const dependency of data.projectMemberDependencies) {
+    if (dependency.memberId !== memberId) continue;
+    const busyRate = dependency.capacityShare;
+    const row = factsToWorkloadRow(
+      dependency.projectId,
+      dependency.projectName || getProjectLabel(dependency.projectId),
+      busyRate,
+      dependency.effortConsumption,
+      thresholds,
+    );
+    if (row) rows.push(row);
+  }
+  return rows.sort((left, right) => right.value - left.value);
+}
+
 export function buildMemberWeekTimelineRows(
   data: DemoAnalyticsResult,
   memberId: string,
-): Array<{ label: string; busyRate: number }> {
+): Array<{ label: string; busyRate: number; effortConsumption: number }> {
   return data.memberWeekFacts
     .filter((fact) => fact.memberId === memberId && fact.scopeStatus === 'IN_SCOPE')
     .map((fact) => ({
       label: fact.weekId,
       busyRate: busyRatePercent(fact.busyRate) ?? 0,
+      effortConsumption: busyRatePercent(fact.effortConsumption) ?? 0,
     }))
     .sort((left, right) => left.label.localeCompare(right.label));
 }

@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   buildFindingsDonutSlices,
   buildMemberBusyRateRows,
+  buildMemberDrilldownSummary,
+  buildMemberProjectSplitRows,
+  buildMemberWeekTimelineRows,
   buildProjectWorkloadRows,
   buildThresholdReferenceLines,
   buildWeekWorkloadRows,
@@ -210,5 +213,123 @@ describe('utilization-charts.logic', () => {
     const weeks = buildWeekWorkloadRows(data, thresholds);
     expect(weeks).toHaveLength(1);
     expect(weeks[0]?.value).toBe(85);
+  });
+
+  it('builds member drill-down summary and project split rows', () => {
+    const data = {
+      thresholds,
+      canonical: {
+        members: [
+          {
+            memberId: 'EMP-004',
+            fullName: 'Pham Thi Dung',
+            roleTitle: 'Developer',
+            stdHoursWeek: 40,
+            joinDate: '2024-01-01',
+          },
+        ],
+      },
+      populations: { deliveryMembers: [], projectManagers: [] },
+      overbookIdleFindings: [
+        {
+          memberId: 'EMP-004',
+          issueType: 'overbook_red',
+          ragColor: 'red',
+          busyRate: 1.25,
+          effortConsumption: 0.98,
+          detail: 'Assigned 125% of capacity.',
+          excludedWeeks: [{ weekId: 'W0', reason: 'holiday_week' }],
+        },
+      ],
+      mismatchFindings: [],
+      memberAnalyses: [
+        {
+          memberId: 'EMP-004',
+          inScopeWeekCount: 6,
+          busyRate: 1.25,
+          effortConsumption: 0.98,
+          excludedWeeks: [{ weekId: 'W0', reason: 'holiday_week' }],
+        },
+      ],
+      memberWeekFacts: [
+        {
+          memberId: 'EMP-004',
+          weekId: 'W1',
+          scopeStatus: 'IN_SCOPE',
+          plannedHours: 50,
+          availableHours: 40,
+          loggedHours: 49,
+          expectedLoggedHours: 50,
+          busyRate: 1.25,
+          effortConsumption: 0.98,
+          ragColor: 'red',
+          issueType: 'overbook',
+          suppressionReason: null,
+        },
+      ],
+      projectMemberDependencies: [
+        {
+          projectId: 'PRJ-1',
+          projectName: 'Alpha',
+          pmId: null,
+          pmName: null,
+          memberId: 'EMP-004',
+          memberName: 'Pham Thi Dung',
+          memberRoleTitle: 'Developer',
+          allocationRole: 'Dev',
+          weeklyPlannedHours: 30,
+          plannedHoursInWindow: 180,
+          loggedHours: 176,
+          capacityShare: 0.75,
+          effortConsumption: 0.98,
+          allocationStartDate: '2026-06-29',
+          allocationEndDate: '2026-08-07',
+          projectStartDate: '2026-01-01',
+          projectEndDate: '2026-12-31',
+          projectStatus: 'Active',
+        },
+        {
+          projectId: 'PRJ-2',
+          projectName: 'Beta',
+          pmId: null,
+          pmName: null,
+          memberId: 'EMP-004',
+          memberName: 'Pham Thi Dung',
+          memberRoleTitle: 'Developer',
+          allocationRole: 'Dev',
+          weeklyPlannedHours: 20,
+          plannedHoursInWindow: 120,
+          loggedHours: 118,
+          capacityShare: 0.5,
+          effortConsumption: 0.98,
+          allocationStartDate: '2026-06-29',
+          allocationEndDate: '2026-08-07',
+          projectStartDate: '2026-01-01',
+          projectEndDate: '2026-12-31',
+          projectStatus: 'Active',
+        },
+      ],
+    } as never;
+
+    const summary = buildMemberDrilldownSummary(data, 'EMP-004', (id) => id);
+    expect(summary).toMatchObject({
+      memberId: 'EMP-004',
+      roleTitle: 'Developer',
+      stdHoursWeek: 40,
+      issueType: 'overbook_red',
+      plannedHours: 50,
+      availableHours: 40,
+      loggedHours: 49,
+      inScopeWeekCount: 6,
+      detail: 'Assigned 125% of capacity.',
+    });
+
+    const projects = buildMemberProjectSplitRows(data, 'EMP-004', thresholds, (id) => id);
+    expect(projects.map((row) => row.key)).toEqual(['PRJ-1', 'PRJ-2']);
+    expect(projects[0]?.value).toBe(75);
+    expect(projects[1]?.value).toBe(50);
+
+    const timeline = buildMemberWeekTimelineRows(data, 'EMP-004');
+    expect(timeline).toEqual([{ label: 'W1', busyRate: 125, effortConsumption: 98 }]);
   });
 });
