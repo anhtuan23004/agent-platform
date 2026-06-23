@@ -97,7 +97,11 @@ export async function seedPmoDefaultThresholdConfigsForTenant(
     .insert(overbookIdleConfig)
     .values(rows)
     .onConflictDoUpdate({
-      target: [overbookIdleConfig.tenant_id, overbookIdleConfig.natural_key_hash],
+      target: [
+        overbookIdleConfig.tenant_id,
+        overbookIdleConfig.last_ingestion_session_id,
+        overbookIdleConfig.natural_key_hash,
+      ],
       set: {
         source_row_hash: sqlExcluded('source_row_hash'),
         last_ingestion_session_id: sqlExcluded('last_ingestion_session_id'),
