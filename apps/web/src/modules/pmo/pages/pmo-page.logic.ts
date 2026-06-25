@@ -1234,7 +1234,27 @@ function reviewTypeForActionId(actionId: string | undefined): PmoReviewType {
 }
 
 export function buildExecutionCards(session: PmoPlanningSession | null): ExecutionCard[] {
-  if (!session?.plan) {
+  if (!session) {
+    return [];
+  }
+
+  // When plan is null (e.g. agent hasn't written it yet), fall back to execution_state.steps.
+  if (!session.plan) {
+    if (session.execution_state?.steps?.length) {
+      return session.execution_state.steps
+        .slice()
+        .sort((a, b) => a.step_no - b.step_no)
+        .map((step) => ({
+          step_no: step.step_no,
+          planner_step_id: step.planner_step_id,
+          action_id: step.action_id,
+          review_type: step.review_type,
+          step_name: step.step_name,
+          status: step.status,
+          description: '',
+          output_summary: step.output_summary,
+        }));
+    }
     return [];
   }
 

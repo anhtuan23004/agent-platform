@@ -1,7 +1,7 @@
 import { Button, Dropzone, Input, Label, PageChrome, Textarea, toast } from '@seta/shared-ui';
 import { Bot, RefreshCw, Workflow } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { usePanelUI } from '../../agent/chat-experience/agent-provider';
+import { useAgentSelection, usePanelUI } from '../../agent/chat-experience/agent-provider';
 import {
   type PmoPlan,
   type PmoPlanningSession,
@@ -44,6 +44,7 @@ export function PmoPage() {
   );
   const [sessions, setSessions] = useState<PmoPlanningSession[]>([]);
   const { setPanelOpen, setPendingPrompt } = usePanelUI();
+  const { actions: agentActions } = useAgentSelection();
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [agentPollingActive, setAgentPollingActive] = useState(false);
   const [isReviewPanelOpen, setIsReviewPanelOpen] = useState(false);
@@ -263,15 +264,23 @@ export function PmoPage() {
     };
   }, [loadSessions]);
 
-  // Poll for session updates while agent is running.
+  // Poll for session updates while agent is running or any session is in a non-terminal state.
+  const hasActiveSession =
+    agentPollingActive ||
+    sessions.some(
+      (s) =>
+        s.workflow_step_status === 'in_progress' ||
+        s.workflow_step_status === 'needs_review' ||
+        s.status === 'approved_plan',
+    );
   useEffect(() => {
-    if (!agentPollingActive) return;
+    if (!hasActiveSession) return;
     const timer = window.setInterval(() => {
       void loadSessions(true);
       void refreshWorkflowRuntime();
     }, 3_000);
     return () => window.clearInterval(timer);
-  }, [agentPollingActive, loadSessions, refreshWorkflowRuntime]);
+  }, [hasActiveSession, loadSessions, refreshWorkflowRuntime]);
 
   const handleSelectProfilingArea = useCallback(
     (documentId: string, sheetName: string, selectedArea: PmoProfilingArea) => {
@@ -541,6 +550,11 @@ export function PmoPage() {
             onViewSession={(sessionId) => {
               setSelectedSessionId(sessionId);
               setIsReviewPanelOpen(true);
+              const session = sessions.find((s) => s.ingestion_session_id === sessionId);
+              if (session?.chat_thread_id) {
+                agentActions.setThreadId(session.chat_thread_id);
+                setPanelOpen(true);
+              }
             }}
             onCancelWorkflow={handleCancelWorkflow}
           />

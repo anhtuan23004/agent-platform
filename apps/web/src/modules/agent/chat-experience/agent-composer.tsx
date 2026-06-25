@@ -1,7 +1,7 @@
 import { useAui, useAuiState } from '@assistant-ui/react';
 import { attachmentsBlockSend, ChatComposer, Label } from '@seta/shared-ui';
 import { X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ModelSelector } from '../components/model-selector';
 import { useChatAttachments } from '../hooks/use-chat-attachments';
 import { usePmoChatIngestAttachments } from '../hooks/use-pmo-chat-ingest-attachments';
@@ -72,8 +72,15 @@ export function AgentComposer({ compact = false }: AgentComposerProps) {
     reset();
   };
 
+  // Guard against double-fire when `aui` reference changes before
+  // the `setPendingPrompt(null)` state update propagates.
+  const pendingConsumedRef = useRef(false);
   useEffect(() => {
-    if (!pendingPrompt || isRunning) return;
+    if (pendingPrompt) pendingConsumedRef.current = false;
+  }, [pendingPrompt]);
+  useEffect(() => {
+    if (!pendingPrompt || isRunning || pendingConsumedRef.current) return;
+    pendingConsumedRef.current = true;
     const { text, autoSend } = pendingPrompt;
     setPendingPrompt(null);
     if (autoSend) {
