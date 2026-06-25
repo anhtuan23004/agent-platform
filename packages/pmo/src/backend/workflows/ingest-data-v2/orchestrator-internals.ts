@@ -825,6 +825,8 @@ export function buildStepRegistry(deps: DynamicHandlerDeps) {
   return buildPmoDynamicStepRegistry([
     createWorkbookProfilingHandler({
       getSchemaDetectionResult: deps.getSchemaDetectionResult,
+      resolveCardIdentity: deps.resolveCardIdentity,
+      readPlannerStepMeta: deps.readPlannerStepMeta,
     }),
     createColumnMappingHandler({
       resolveCardIdentity: deps.resolveCardIdentity,

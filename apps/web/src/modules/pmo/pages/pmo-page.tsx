@@ -45,6 +45,7 @@ export function PmoPage() {
   const [sessions, setSessions] = useState<PmoPlanningSession[]>([]);
   const { setPanelOpen, setPendingPrompt } = usePanelUI();
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [agentPollingActive, setAgentPollingActive] = useState(false);
   const [isReviewPanelOpen, setIsReviewPanelOpen] = useState(false);
 
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
@@ -262,6 +263,16 @@ export function PmoPage() {
     };
   }, [loadSessions]);
 
+  // Poll for session updates while agent is running.
+  useEffect(() => {
+    if (!agentPollingActive) return;
+    const timer = window.setInterval(() => {
+      void loadSessions(true);
+      void refreshWorkflowRuntime();
+    }, 3_000);
+    return () => window.clearInterval(timer);
+  }, [agentPollingActive, loadSessions, refreshWorkflowRuntime]);
+
   const handleSelectProfilingArea = useCallback(
     (documentId: string, sheetName: string, selectedArea: PmoProfilingArea) => {
       if (!selectedSession) {
@@ -472,6 +483,7 @@ export function PmoPage() {
                       : goalDraft.trim();
                     setPanelOpen(true);
                     setPendingPrompt({ text: prompt, autoSend: true });
+                    setAgentPollingActive(true);
                   }}
                 >
                   <Bot className="size-4" />

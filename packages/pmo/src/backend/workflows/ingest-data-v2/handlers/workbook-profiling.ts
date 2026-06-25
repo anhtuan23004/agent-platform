@@ -1,9 +1,13 @@
-import { appendCheckpoint, appendProposal, approveProposal, createProposal } from '@seta/ingestion';
+import { appendProposal, createProposal } from '@seta/ingestion';
+import { buildProfilingReviewCard } from '../cards.ts';
 import type { PmoDynamicStepHandler } from '../types.ts';
 import type { DynamicHandlerDeps, ProfilingResult } from './common.ts';
 
 export function createWorkbookProfilingHandler(
-  deps: Pick<DynamicHandlerDeps, 'getSchemaDetectionResult'>,
+  deps: Pick<
+    DynamicHandlerDeps,
+    'getSchemaDetectionResult' | 'resolveCardIdentity' | 'readPlannerStepMeta'
+  >,
 ): PmoDynamicStepHandler {
   return {
     actionId: 'workbook_profiling',
@@ -18,42 +22,43 @@ export function createWorkbookProfilingHandler(
         state: input.runtimeContext.detected_schema ?? {},
         stepId: 'workbook_profiling',
         proposal: profilingResult,
-        status: 'completed',
-        reviewRequired: false,
-        nextAllowedActions: ['approve', 'rerun', 'upload_more'],
+        status: 'needs_review',
+        reviewRequired: true,
+        nextAllowedActions: ['approve', 'reject', 'rerun', 'upload_more'],
         createdBy: 'agent',
         metadata: {
           validation_status: result.validation.status,
           workbook_confidence: result.validation.workbookConfidence,
         },
       });
-      const checkpoint = approveProposal({
-        proposal,
-        approvedOutput: profilingResult,
-        approvedBy: input.userId || 'system',
-        metadata: {
-          auto_approved: true,
-        },
-      });
-      const checkpointState = appendCheckpoint(
-        appendProposal(input.runtimeContext.detected_schema ?? {}, proposal),
-        checkpoint,
-      );
+      const proposalState = appendProposal(input.runtimeContext.detected_schema ?? {}, proposal);
       const detectedSchemaPayload = {
         tableMappings: result.tables,
         validationStatus: result.validation.status,
         workbookConfidence: result.validation.workbookConfidence,
-        review_proposals: checkpointState.review_proposals,
-        approved_checkpoints: checkpointState.approved_checkpoints,
+        review_proposals: proposalState.review_proposals,
+        approved_checkpoints: proposalState.approved_checkpoints,
       };
 
+      const plannerStep = await deps.readPlannerStepMeta({
+        ingestionSessionId: input.ingestionSessionId,
+        tenantId: input.tenantId,
+        step: input.step,
+      });
+
       return {
-        kind: 'completed',
+        kind: 'suspend',
+        card: buildProfilingReviewCard({
+          ingestionSessionId: input.ingestionSessionId,
+          workbookConfidence: result.validation.workbookConfidence,
+          validationStatus: result.validation.status,
+          tableMappings: result.tables,
+          identity: deps.resolveCardIdentity(input.requestContext),
+          toolCallId: `workflow:${input.runId}:pmo_profileWorkbook`,
+          plannerStep,
+        }),
         sessionStatus: 'awaiting_confirmation',
         runtimeContextPatch: {
-          detected_schema: detectedSchemaPayload,
-        },
-        sessionPatch: {
           detected_schema: detectedSchemaPayload,
         },
         outputSummary: {
