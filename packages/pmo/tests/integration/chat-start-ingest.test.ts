@@ -2,7 +2,7 @@ import { RC_THREAD_ID } from '@seta/agent-sdk';
 import { makeToolContext } from '@seta/agent-sdk/testing';
 import { closePools, initPools } from '@seta/shared-db';
 import { withTestDb } from '@seta/shared-testing';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { makePmoStartIngestTool } from '../../src/backend/agent-tools/start-ingest.ts';
 import { resetPmoDb } from '../../src/backend/db/client.ts';
 
@@ -12,7 +12,7 @@ const dbCfg = () => ({
 });
 
 describe('pmo_startIngest tool', () => {
-  it('prepares session and starts workflow with chat thread context', async () => {
+  it('prepares session and seeds agent task state (agentic path)', async () => {
     await withTestDb(dbCfg(), async ({ pool, databaseUrl }) => {
       resetPmoDb();
       initPools({ databaseUrl });
@@ -31,11 +31,7 @@ describe('pmo_startIngest tool', () => {
           [sessionId, tenantId, `pmo/${sessionId}/book.xlsx`, userId, threadId],
         );
 
-        const start = vi.fn().mockResolvedValue(undefined);
-        const createRun = vi.fn().mockResolvedValue({ runId: 'wf-run-1', start });
-        const tool = makePmoStartIngestTool({
-          mastra: { getWorkflow: () => ({ createRun }) },
-        });
+        const tool = makePmoStartIngestTool();
 
         const ctx = makeToolContext({ user_id: userId, tenant_id: tenantId });
         ctx.requestContext?.set(RC_THREAD_ID, threadId);
@@ -51,11 +47,10 @@ describe('pmo_startIngest tool', () => {
         )) as { runId: string | null; ingestionSessionId: string; message: string };
 
         expect(result).toMatchObject({
-          runId: 'wf-run-1',
+          runId: null,
           ingestionSessionId: sessionId,
+          message: expect.stringContaining('agentic ingestion'),
         });
-        expect(start).toHaveBeenCalledTimes(1);
-        expect(start.mock.calls[0]![0].requestContext.get('thread_id')).toBe(threadId);
 
         const session = await pool.query<{ status: string }>(
           `SELECT status FROM pmo.ingestion_sessions WHERE id = $1`,

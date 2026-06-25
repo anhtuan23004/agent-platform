@@ -71,11 +71,12 @@ export type AgentRouteDeps = {
    */
   resumeOrchestration?: (
     resume: {
-      decision: 'approve' | 'reject' | 'modify';
+      decision: 'approve' | 'reject' | 'modify' | 'clarify';
       overrideUserIds?: string[];
       alternateIndices?: number[];
       payloadPatch?: Record<string, unknown>;
       note?: string;
+      clarificationMessage?: string;
     },
     ctx: import('@seta/shared-orchestration').RunCtx & {
       mastraRunId: string;
@@ -92,11 +93,12 @@ export type AgentRouteDeps = {
       ChatAgent,
       (
         resume: {
-          decision: 'approve' | 'reject' | 'modify';
+          decision: 'approve' | 'reject' | 'modify' | 'clarify';
           overrideUserIds?: string[];
           alternateIndices?: number[];
           payloadPatch?: Record<string, unknown>;
           note?: string;
+          clarificationMessage?: string;
         },
         ctx: import('@seta/shared-orchestration').RunCtx & {
           mastraRunId: string;

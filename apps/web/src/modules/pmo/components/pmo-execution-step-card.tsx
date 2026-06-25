@@ -21,6 +21,7 @@ import {
   type NormalizationReviewViewModel,
   type PublishReviewViewModel,
   readAgentNoteFromApproval,
+  readClarificationsFromApproval,
   workflowStepTone,
 } from '../pages/pmo-page.logic';
 import { PmoExecutionPlanSnapshot } from './pmo-execution-plan-snapshot';
@@ -33,14 +34,75 @@ import {
 import { PmoPublishReviewPanel } from './pmo-publish-review-panel';
 import { ReportStatusCard } from './pmo-report-panel';
 
-function AgentNoteBanner({ note }: { note: string | null | undefined }) {
-  if (!note) return null;
+function CardClarificationPanel({
+  approval,
+  isCurrent,
+  onClarify,
+}: {
+  approval: WorkflowApprovalRow | null;
+  isCurrent: boolean;
+  onClarify?: (message: string) => void;
+}) {
+  const [text, setText] = useState('');
+  if (!approval) return null;
+
+  const agentNote = readAgentNoteFromApproval(approval);
+  const clarifications = readClarificationsFromApproval(approval);
+  const hasMessages = Boolean(agentNote) || clarifications.length > 0;
+  const canSend = isCurrent && approval.status === 'pending' && onClarify;
+
+  if (!hasMessages && !canSend) return null;
+
   return (
-    <div className="mb-3 rounded-lg border border-primary-border/40 bg-primary-tint/50 px-3 py-2">
-      <p className="text-caption text-primary-ink">
-        <span className="font-semibold">Agent: </span>
-        {note}
-      </p>
+    <div className="mb-3 rounded-lg border border-hairline bg-surface-1">
+      <div className="max-h-48 overflow-y-auto px-3 py-2 space-y-2">
+        {agentNote ? (
+          <div className="flex gap-2">
+            <span className="shrink-0 text-caption font-semibold text-primary-ink">Agent:</span>
+            <p className="text-caption text-ink">{agentNote}</p>
+          </div>
+        ) : null}
+        {clarifications.map((msg) => (
+          <div key={msg.ts} className="flex gap-2">
+            <span
+              className={`shrink-0 text-caption font-semibold ${msg.role === 'agent' ? 'text-primary-ink' : 'text-ink'}`}
+            >
+              {msg.role === 'agent' ? 'Agent:' : 'You:'}
+            </span>
+            <p className="text-caption text-ink">{msg.message}</p>
+          </div>
+        ))}
+      </div>
+      {canSend ? (
+        <div className="flex items-center gap-1.5 border-t border-hairline px-3 py-2">
+          <input
+            type="text"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && text.trim()) {
+                onClarify(text.trim());
+                setText('');
+              }
+            }}
+            placeholder="Type your message..."
+            className="flex-1 rounded-md border border-hairline-strong bg-canvas px-2.5 py-1.5 text-body-sm text-ink placeholder:text-ink-tertiary focus:border-primary-border focus:outline-none"
+          />
+          <button
+            type="button"
+            onClick={() => {
+              if (text.trim()) {
+                onClarify(text.trim());
+                setText('');
+              }
+            }}
+            disabled={!text.trim()}
+            className="rounded-md bg-primary px-3 py-1.5 text-body-sm font-semibold text-on-primary disabled:opacity-50"
+          >
+            Send
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -162,6 +224,7 @@ interface PmoExecutionStepCardProps {
   report: PmoExecutionStepReportProps;
   profiling: PmoExecutionStepProfilingProps;
   plan: PmoExecutionStepPlanProps;
+  submitClarification?: (approvalId: string, message: string) => void;
 }
 
 function readReportRangeConfigFromApproval(approval: WorkflowApprovalRow | null): {
@@ -543,6 +606,7 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
     report,
     profiling,
     plan: planContext,
+    submitClarification,
   } = props;
 
   const {
@@ -683,18 +747,8 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
   const isProfilingStepReadOnly = isWorkbookProfilingStep && !isProfilingPanelCurrent;
   const isApprovedReadOnly = isProfilingStepReadOnly && profilingReviewState?.status === 'approved';
 
-  const mappingAgentNote = selectedMappingApproval
-    ? readAgentNoteFromApproval(selectedMappingApproval)
-    : null;
-  const normalizationAgentNote = selectedNormalizationApproval
-    ? readAgentNoteFromApproval(selectedNormalizationApproval)
-    : null;
-  const publishAgentNote = selectedPublishApproval
-    ? readAgentNoteFromApproval(selectedPublishApproval)
-    : null;
-  const reportAgentNote = selectedReportApproval
-    ? readAgentNoteFromApproval(selectedReportApproval)
-    : null;
+  // Agent note and clarification rendering is handled by CardClarificationPanel
+  // which reads directly from the approval's proposedPayload.
 
   return (
     <li className="rounded-lg border border-hairline bg-surface-1 px-3 py-2">
@@ -751,7 +805,15 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
             </span>
           </div>
 
-          <AgentNoteBanner note={mappingAgentNote} />
+          <CardClarificationPanel
+            approval={selectedMappingApproval}
+            isCurrent={isCurrent}
+            onClarify={
+              submitClarification && selectedMappingApproval
+                ? (msg) => submitClarification(selectedMappingApproval.approvalId, msg)
+                : undefined
+            }
+          />
           <PmoMappingReviewPanel
             readOnly={isMappingReadOnly}
             selectedMappingApproval={selectedMappingApproval}
@@ -784,7 +846,15 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
             </span>
           </div>
 
-          <AgentNoteBanner note={normalizationAgentNote} />
+          <CardClarificationPanel
+            approval={selectedNormalizationApproval}
+            isCurrent={isCurrent}
+            onClarify={
+              submitClarification && selectedNormalizationApproval
+                ? (msg) => submitClarification(selectedNormalizationApproval.approvalId, msg)
+                : undefined
+            }
+          />
           {selectedNormalizationApproval ? (
             <PmoNormalizationReviewPanel
               readOnly={isNormalizationReadOnly}
@@ -832,7 +902,15 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
             </span>
           </div>
 
-          <AgentNoteBanner note={publishAgentNote} />
+          <CardClarificationPanel
+            approval={selectedPublishApproval}
+            isCurrent={isCurrent}
+            onClarify={
+              submitClarification && selectedPublishApproval
+                ? (msg) => submitClarification(selectedPublishApproval.approvalId, msg)
+                : undefined
+            }
+          />
           <PmoPublishReviewPanel
             readOnly={isPublishReadOnly}
             selectedPublishApproval={selectedPublishApproval}
@@ -845,7 +923,15 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
         </div>
       ) : isLikelyReportStep ? (
         <>
-          <AgentNoteBanner note={reportAgentNote} />
+          <CardClarificationPanel
+            approval={selectedReportApproval}
+            isCurrent={isCurrent}
+            onClarify={
+              submitClarification && selectedReportApproval
+                ? (msg) => submitClarification(selectedReportApproval.approvalId, msg)
+                : undefined
+            }
+          />
           <PmoReportReviewPanel
             step={step}
             selectedReportApproval={selectedReportApproval}

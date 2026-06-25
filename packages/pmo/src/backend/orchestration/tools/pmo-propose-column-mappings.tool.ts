@@ -24,6 +24,11 @@ export function makePmoProposedColumnMappingsTool() {
         .string()
         .optional()
         .describe('Your reasoning about this step — shown to the user on the review card'),
+      clarifications: z
+        .array(z.object({ role: z.enum(['agent', 'user']), message: z.string(), ts: z.string() }))
+        .optional()
+        .default([])
+        .describe('Conversation history from previous clarification rounds on this card'),
     }),
     output: HandlerToolResultSchema,
     suspendSchema: IngestionSuspendSchema,
@@ -39,6 +44,7 @@ export function makePmoProposedColumnMappingsTool() {
         userId,
         agentCtx: ctx,
         agentNote: input.agentNote,
+        clarifications: input.clarifications,
       });
     },
   });

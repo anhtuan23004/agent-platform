@@ -348,6 +348,15 @@ export function readAgentNoteFromApproval(approval: WorkflowApprovalRow): string
     : null;
 }
 
+export function readClarificationsFromApproval(
+  approval: WorkflowApprovalRow,
+): Array<{ role: string; message: string; ts: string }> {
+  const payload = approval.proposedPayload;
+  if (!payload || typeof payload !== 'object') return [];
+  const card = payload as { clarifications?: unknown };
+  return Array.isArray(card.clarifications) ? card.clarifications : [];
+}
+
 export function readPlannerStepIdFromApproval(approval: WorkflowApprovalRow): string | null {
   return cardMetaStringFromPayload(approval.proposedPayload, 'plannerStepId');
 }

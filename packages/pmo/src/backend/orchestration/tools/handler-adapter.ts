@@ -38,7 +38,7 @@ import {
 // ── Resume schema (shared by all ingestion tools) ───────────────────────────
 
 export const IngestionResumeSchema = z.object({
-  decision: z.enum(['approve', 'reject', 'modify']),
+  decision: z.enum(['approve', 'reject', 'modify', 'clarify']),
   // Mapping-specific
   approvedItemKey: z.string().optional(),
   approvedItemKeys: z.array(z.string()).optional(),
@@ -78,10 +78,12 @@ export type IngestionResumeData = z.infer<typeof IngestionResumeSchema>;
 // ── Output types ────────────────────────────────────────────────────────────
 
 export interface HandlerToolResult {
-  status: 'completed' | 'rejected' | 'skipped';
+  status: 'completed' | 'rejected' | 'skipped' | 'clarification_needed';
   actionId: string;
   sessionId: string;
   summary: string;
+  clarificationMessage?: string;
+  previousClarifications?: Array<{ role: string; message: string; ts: string }>;
   outputSummary?: Record<string, unknown>;
   terminalOutput?: {
     rowsWritten?: Record<string, number>;
@@ -92,10 +94,14 @@ export interface HandlerToolResult {
 }
 
 export const HandlerToolResultSchema = z.object({
-  status: z.enum(['completed', 'rejected', 'skipped']),
+  status: z.enum(['completed', 'rejected', 'skipped', 'clarification_needed']),
   actionId: z.string(),
   sessionId: z.string(),
   summary: z.string(),
+  clarificationMessage: z.string().optional(),
+  previousClarifications: z
+    .array(z.object({ role: z.string(), message: z.string(), ts: z.string() }))
+    .optional(),
   outputSummary: z.record(z.string(), z.unknown()).optional(),
   terminalOutput: z
     .object({
@@ -139,8 +145,26 @@ export async function runIngestionHandler(opts: {
   userId: string;
   agentCtx: IngestionToolContext;
   agentNote?: string;
+  clarifications?: Array<{ role: 'agent' | 'user'; message: string; ts: string }>;
 }): Promise<HandlerToolResult> {
   const { actionId, sessionId, tenantId, userId, agentCtx } = opts;
+
+  // ── Clarification: return the message to the agent without calling the handler ──
+  const resumeData = agentCtx.agent?.resumeData as Record<string, unknown> | undefined;
+  if (resumeData?.decision === 'clarify') {
+    return {
+      status: 'clarification_needed' as const,
+      actionId,
+      sessionId,
+      summary: `User clarification: ${resumeData.clarificationMessage ?? resumeData.note ?? ''}`,
+      clarificationMessage: (resumeData.clarificationMessage ?? resumeData.note ?? '') as string,
+      previousClarifications: (resumeData.previousClarifications ?? []) as Array<{
+        role: string;
+        message: string;
+        ts: string;
+      }>,
+    };
+  }
 
   // ── 1. Load session ──
   const row = await loadDynamicRuntimeSession({
@@ -217,7 +241,7 @@ export async function runIngestionHandler(opts: {
   }
 
   // ── 7. Build handler input ──
-  const resumeData = agentCtx.agent?.resumeData as Record<string, unknown> | undefined;
+  // resumeData already extracted above (used for the clarification early-return)
 
   const handlerInput = {
     ingestionSessionId: sessionId,
@@ -270,7 +294,11 @@ export async function runIngestionHandler(opts: {
     if (typeof agentCtx.agent?.suspend !== 'function') {
       throw new Error(`agent_suspend_unavailable:${actionId}`);
     }
-    const card = opts.agentNote ? { ...result.card, agentNote: opts.agentNote } : result.card;
+    const card = {
+      ...result.card,
+      ...(opts.agentNote ? { agentNote: opts.agentNote } : {}),
+      ...(opts.clarifications?.length ? { clarifications: opts.clarifications } : {}),
+    };
     await agentCtx.agent.suspend({ card });
 
     // Unreachable after suspend

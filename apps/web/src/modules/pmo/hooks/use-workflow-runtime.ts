@@ -104,11 +104,12 @@ export function useWorkflowRuntimeRunApprovals(runId: string) {
 export interface SubmitRuntimeDecisionArgs {
   approvalId: string;
   agentic: boolean;
-  decision: 'approve' | 'reject' | 'modify';
+  decision: 'approve' | 'reject' | 'modify' | 'clarify';
   overrideUserIds?: string[];
   alternateIndices?: number[];
   payloadPatch?: Record<string, unknown>;
   note?: string;
+  clarificationMessage?: string;
 }
 
 export function useSubmitWorkflowRuntimeDecision() {

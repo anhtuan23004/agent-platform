@@ -62,21 +62,23 @@ export interface ListWorkflowRunsOptions {
 }
 
 export interface DecideApprovalBody {
-  decision: 'approve' | 'reject' | 'modify';
+  decision: 'approve' | 'reject' | 'modify' | 'clarify';
   overrideUserIds?: string[];
   alternateIndex?: number;
   alternateIndices?: number[];
   payloadPatch?: Record<string, unknown>;
   note?: string;
+  clarificationMessage?: string;
 }
 
 export interface ResumeChatBody {
   approvalId: string;
-  decision: 'approve' | 'reject' | 'modify';
+  decision: 'approve' | 'reject' | 'modify' | 'clarify';
   overrideUserIds?: string[];
   alternateIndices?: number[];
   payloadPatch?: Record<string, unknown>;
   note?: string;
+  clarificationMessage?: string;
 }
 
 interface SseTokenResponse {

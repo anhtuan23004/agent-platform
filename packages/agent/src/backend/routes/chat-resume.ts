@@ -16,19 +16,22 @@ import {
 
 const ResumeBody = z.object({
   approvalId: z.string().min(1),
-  decision: z.enum(['approve', 'reject', 'modify']),
+  decision: z.enum(['approve', 'reject', 'modify', 'clarify']),
   overrideUserIds: z.array(z.string()).optional(),
   alternateIndices: z.array(z.number().int().min(0)).optional(),
   payloadPatch: z.record(z.string(), z.unknown()).optional(),
   note: z.string().optional(),
+  clarificationMessage: z.string().optional(),
 });
 
 export type ResumeDecisionData = {
-  decision: 'approve' | 'reject' | 'modify';
+  decision: 'approve' | 'reject' | 'modify' | 'clarify';
   overrideUserIds?: string[];
   alternateIndices?: number[];
   payloadPatch?: Record<string, unknown>;
   note?: string;
+  clarificationMessage?: string;
+  previousClarifications?: Array<{ role: string; message: string; ts: string }>;
 };
 
 /**
@@ -50,6 +53,22 @@ export function mapDecisionToResumeData(
   const payloadPatch = body.payloadPatch ?? {};
   const withNote = (d: ResumeDecisionData): ResumeDecisionData =>
     note !== undefined ? { ...d, ...payloadPatch, note } : { ...d, ...payloadPatch };
+
+  if (body.decision === 'clarify') {
+    const clarificationMessage = body.clarificationMessage ?? body.note ?? '';
+    // Forward existing clarifications from the card so the agent sees the full history.
+    const previousClarifications = (() => {
+      if (!card) return [];
+      const c = card as unknown as { clarifications?: unknown };
+      return Array.isArray(c.clarifications) ? c.clarifications : [];
+    })();
+    return {
+      decision: 'clarify' as const,
+      clarificationMessage,
+      previousClarifications,
+      note: body.note,
+    };
+  }
 
   if (body.decision === 'reject') {
     return withNote({ decision: 'reject' });
@@ -136,6 +155,7 @@ export function mountChatResumeRoute(app: Hono<AgentRouteEnv>, deps: AgentRouteD
       alternateIndices: body.alternateIndices,
       payloadPatch: body.payloadPatch,
       note: body.note,
+      clarificationMessage: body.clarificationMessage,
     });
 
     // Dispatch to the correct resumer based on the approval row's workflow_id.

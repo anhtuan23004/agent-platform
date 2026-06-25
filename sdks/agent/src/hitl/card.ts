@@ -75,12 +75,20 @@ export const ApprovalDetailBlockSchema = z.discriminatedUnion('kind', [
   }),
 ]);
 
+export const ClarificationMessageSchema = z.object({
+  role: z.enum(['agent', 'user']),
+  message: z.string(),
+  ts: z.string(),
+});
+export type ClarificationMessage = z.infer<typeof ClarificationMessageSchema>;
+
 export const ApprovalCardSchema = z.object({
   toolCallId: z.string(),
   intent: z.string(),
   riskBadge: z.enum(['write', 'destructive', 'external']),
   summary: z.string(),
   agentNote: z.string().optional(),
+  clarifications: z.array(ClarificationMessageSchema).optional(),
   details: z.array(ApprovalDetailBlockSchema),
   primary: z.object({ label: z.string(), argsPatch: z.record(z.string(), z.unknown()).optional() }),
   alternates: z.array(

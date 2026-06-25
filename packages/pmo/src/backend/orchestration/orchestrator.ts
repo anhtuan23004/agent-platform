@@ -42,11 +42,12 @@ export interface PmoOrchestratorDeps {
 /** The decision the approval card resolves to, forwarded verbatim into
  *  resumeStream. Structurally compatible with the staffing ResumeDecision. */
 export type PmoResumeDecision = {
-  decision: 'approve' | 'reject' | 'modify';
+  decision: 'approve' | 'reject' | 'modify' | 'clarify';
   overrideUserIds?: string[];
   alternateIndices?: number[];
   payloadPatch?: Record<string, unknown>;
   note?: string;
+  clarificationMessage?: string;
 };
 
 /** A run ctx PLUS the resume coordinates. */
@@ -71,39 +72,6 @@ interface BuiltPmoOrchestrator {
   rc: RequestContext;
   message: string;
   runOptions: Record<string, unknown>;
-}
-
-function instructionsText(): string {
-  return [
-    'You are the PMO Agent — utilization analytics over published PMO data only.',
-    '',
-    'PRIMARY TOOL — pmo_queryUtilization with an explicit intent:',
-    '- count_members_by_busy_rate: "how many busy > X%" — pass busyRateGt (1.0 = 100%, 0.5 = 50%).',
-    '  Use reporting dates from <<<PMO_ANALYTICS_SCOPE>>> when present; do not ask for dates again.',
-    '- list_flagged_members: SOP overbook/idle/mismatch only (not arbitrary "chilling").',
-    '- member_detail: follow-up "why" for a member — pass memberId; use last discussed member when user says "why" without a name.',
-    '- report_summary: full idle+overbook report for a date range.',
-    '- rebalance_candidates: who can take workload / transfer allocation.',
-    '- explain_methodology: formulas and thresholds — paste tool `summary` verbatim.',
-    '',
-    'If pmo_queryUtilization returns needsClarification, present clarificationOptions and STOP.',
-    'Never map slang (chilling, not busy) to thresholds without user picking an option.',
-    '',
-    'pmo_answerQuestion — roles, org chart, staffing, ingest/publish redirects, general chat.',
-    'Do NOT use analytics tools for those.',
-    '',
-    'pmo_refreshUtilizationFacts — only after publish or when query tools return empty and stale facts are plausible.',
-    '',
-    'Rules:',
-    '- NEVER invent numbers. Ground answers ONLY in tool output.',
-    '- When <<<PMO_ANALYTICS_SCOPE>>> has ingestionSessionId, pass it to pmo_queryUtilization.',
-    '- Ingest/upload/mapping/publish → tell user to use /pmo.',
-    '- Staffing/assignment → tell user to use Staffing Agent.',
-    '',
-    'FINAL ANSWER — after tools complete, write one concise answer with exact counts and member IDs from tool results.',
-    'For explain_methodology, paste the tool `summary` field verbatim — do not reformat.',
-    'Formulas: plain text only (e.g. busyRate = plannedHours / availableHours). Never use LaTeX, \\frac, or math delimiters.',
-  ].join('\n');
 }
 
 function agenticInstructionsText(): string {
@@ -156,9 +124,34 @@ function agenticInstructionsText(): string {
     '   - STOP and discuss with the user before proceeding.',
     '   - Describe the issue clearly and propose options.',
     '',
-    '6. For analytics queries (utilization, overbook/idle, reports on published data):',
+    '6. Before calling a tool, check if the goal is CLEAR ENOUGH to proceed.',
+    '   - If the tool has a rich review card with form controls (date pickers,',
+    '     column selectors, checkboxes), CALL THE TOOL — the user will interact',
+    '     with the structured UI on the PMO page. Do NOT ask for structured',
+    '     inputs in chat when the card already provides proper form controls.',
+    '   - If the goal is genuinely AMBIGUOUS and no card UI can resolve it,',
+    '     ASK in chat first. Examples:',
+    '     "Bạn muốn publish luôn hay chỉ review thay đổi trước?"',
+    '     "Tôi thấy 2 files được upload. Bạn muốn ingest cả 2 hay chỉ file mới nhất?"',
+    '   - If the user provides explicit values (date range, sheet names), pass',
+    '     them directly to the tool so the card pre-fills with those values.',
+    '',
+    '7. For analytics queries (utilization, overbook/idle, reports on published data):',
     '   - Use pmo_queryUtilization with the appropriate intent.',
     '   - Follow the same rules as before for analytics.',
+    '',
+    '8. When a tool returns status "clarification_needed":',
+    '   - The user sent a message on the review card asking for clarification.',
+    "   - Read their message from the result's clarificationMessage field.",
+    '   - Process their input and call the SAME tool again with:',
+    '     a. Updated parameters based on their input.',
+    '     b. A new agentNote responding to their message.',
+    '     c. The full clarifications array (previous messages from',
+    '        result.previousClarifications + their message + your response).',
+    '   - The tool will create a new card with the updated conversation history.',
+    '   - Example: user asks "use that date range" → you respond with',
+    '     agentNote: "OK, using range 2025-01-06 to 2025-03-28" and pass the',
+    '     confirmed dateRange in tool params.',
     '',
     '## Edge-case handling',
     '',
@@ -276,8 +269,7 @@ async function buildPmoOrchestrator(
   const scopeBlock = buildAnalyticsScopeBlock(ctx);
   const message = scopeBlock ? `${scopeBlock}\n\n${input.userText}` : input.userText;
 
-  const isAgentic = process.env.PMO_AGENTIC_INGESTION === 'true';
-  const instructions = isAgentic ? agenticInstructionsText() : instructionsText();
+  const instructions = agenticInstructionsText();
 
   const agent = new Agent({
     id: 'pmo.orchestrator',
@@ -312,7 +304,7 @@ async function buildPmoOrchestrator(
 
   const runOptions: Record<string, unknown> = {
     requestContext: rc,
-    maxSteps: isAgentic ? 16 : 8,
+    maxSteps: 16,
     abortSignal: ctx.abortSignal,
     providerOptions: { openai: { reasoningSummary: 'auto' } },
     ...(ctx.userMemory && ctx.threadId
