@@ -30,6 +30,7 @@ import { getPendingAssignRunIdForTask } from './get-pending-assign-run-for-task.
 
 /** Logical id of the agentic orchestrator run that owns chat-HITL approvals. */
 export const STAFFING_ORCHESTRATOR_WORKFLOW_ID = 'staffing.orchestrator';
+export const PMO_ORCHESTRATOR_WORKFLOW_ID = 'pmo.orchestrator';
 
 export interface WriteChatApprovalRowOpts {
   card: ApprovalCard;
@@ -44,6 +45,10 @@ export interface WriteChatApprovalRowOpts {
   pool: Pool;
   /** Hours until the approval expires. Defaults to 72 (matching evented workflows). */
   approvalTtlHours?: number;
+  /** Logical workflow id for the approval row. Defaults to staffing.orchestrator.
+   *  PMO tools pass 'pmo.orchestrator'. Used by the resume route to dispatch
+   *  to the correct resumer. */
+  workflowId?: string;
 }
 
 export interface WriteChatApprovalRowResult {
@@ -129,17 +134,13 @@ export async function writeChatApprovalRow(
     await client.query('BEGIN');
 
     // Synthetic agentic-run row — required by the FK on workflow_approvals.
+    const effectiveWorkflowId = opts.workflowId ?? STAFFING_ORCHESTRATOR_WORKFLOW_ID;
     const runRes = await client.query<{ run_id: string }>(
       `INSERT INTO agent.workflow_runs
          (run_id, workflow_id, tenant_id, started_by, started_via, status, input_summary, started_at)
        VALUES (gen_random_uuid(), $1, $2, $3, 'chat', 'paused', $4::jsonb, now())
        RETURNING run_id`,
-      [
-        STAFFING_ORCHESTRATOR_WORKFLOW_ID,
-        tenantId,
-        userId,
-        JSON.stringify({ taskId, thread_id: threadId }),
-      ],
+      [effectiveWorkflowId, tenantId, userId, JSON.stringify({ taskId, thread_id: threadId })],
     );
     const runId = runRes.rows[0]?.run_id;
     if (!runId) throw new Error('write-chat-approval-row: workflow_runs INSERT returned no row');

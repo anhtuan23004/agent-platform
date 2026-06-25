@@ -7,6 +7,7 @@ interface CardShape {
   intent?: string;
   riskBadge?: 'write' | 'destructive' | 'external';
   summary?: string;
+  agentNote?: string;
   details: Array<{ kind: string } & Record<string, unknown>>;
   primary: { label: string };
   alternates?: Array<{ label: string }>;
@@ -128,6 +129,15 @@ export function HitlCard({
           </span>
         ) : null}
       </header>
+
+      {card.agentNote ? (
+        <div className="mx-3.5 mt-3 rounded-lg border border-primary-border/40 bg-primary-tint/50 px-3 py-2">
+          <p className="text-caption text-primary-ink">
+            <span className="font-semibold">Agent: </span>
+            {card.agentNote}
+          </p>
+        </div>
+      ) : null}
 
       <div className="px-3.5 py-3">
         {card.summary ? (

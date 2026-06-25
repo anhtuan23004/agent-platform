@@ -65,16 +65,16 @@ export type AgentRouteDeps = {
     >
   >;
   /**
-   * Resumes a suspended native-suspend agentic chat-HITL run. Injected by the
-   * composition root (apps/server) as the staffing runtime's `runResume`. The
-   * structural type avoids an `agent → staffing` import (depcruise-forbidden);
-   * staffing's concrete `runResume` is structurally assignable.
+   * Default resume runtime for native-suspend agentic chat-HITL runs. Falls
+   * back to staffing when resumeOrchestrations has no match. The structural
+   * type avoids an `agent → staffing` import (depcruise-forbidden).
    */
   resumeOrchestration?: (
     resume: {
       decision: 'approve' | 'reject' | 'modify';
       overrideUserIds?: string[];
       alternateIndices?: number[];
+      payloadPatch?: Record<string, unknown>;
       note?: string;
     },
     ctx: import('@seta/shared-orchestration').RunCtx & {
@@ -82,6 +82,29 @@ export type AgentRouteDeps = {
       toolCallId?: string;
     },
   ) => Promise<import('@seta/shared-orchestration').ChatStreamRun>;
+  /**
+   * Per-agent resume runtimes. The chat resume route looks up the approval
+   * row's agent path to pick the correct resumer. Falls back to
+   * resumeOrchestration when no entry matches.
+   */
+  resumeOrchestrations?: Partial<
+    Record<
+      ChatAgent,
+      (
+        resume: {
+          decision: 'approve' | 'reject' | 'modify';
+          overrideUserIds?: string[];
+          alternateIndices?: number[];
+          payloadPatch?: Record<string, unknown>;
+          note?: string;
+        },
+        ctx: import('@seta/shared-orchestration').RunCtx & {
+          mastraRunId: string;
+          toolCallId?: string;
+        },
+      ) => Promise<import('@seta/shared-orchestration').ChatStreamRun>
+    >
+  >;
   /** Injected by apps/server from @seta/knowledge (the agent package may not
    *  import feature modules). Reads + parses the thread's pending attachments,
    *  enforcing the context budget. Returns a discriminated result. */

@@ -80,6 +80,7 @@ export const ApprovalCardSchema = z.object({
   intent: z.string(),
   riskBadge: z.enum(['write', 'destructive', 'external']),
   summary: z.string(),
+  agentNote: z.string().optional(),
   details: z.array(ApprovalDetailBlockSchema),
   primary: z.object({ label: z.string(), argsPatch: z.record(z.string(), z.unknown()).optional() }),
   alternates: z.array(

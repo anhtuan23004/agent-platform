@@ -20,6 +20,7 @@ import {
   type MappingViewModel,
   type NormalizationReviewViewModel,
   type PublishReviewViewModel,
+  readAgentNoteFromApproval,
   workflowStepTone,
 } from '../pages/pmo-page.logic';
 import { PmoExecutionPlanSnapshot } from './pmo-execution-plan-snapshot';
@@ -31,6 +32,18 @@ import {
 } from './pmo-profiling-details-panel';
 import { PmoPublishReviewPanel } from './pmo-publish-review-panel';
 import { ReportStatusCard } from './pmo-report-panel';
+
+function AgentNoteBanner({ note }: { note: string | null | undefined }) {
+  if (!note) return null;
+  return (
+    <div className="mb-3 rounded-lg border border-primary-border/40 bg-primary-tint/50 px-3 py-2">
+      <p className="text-caption text-primary-ink">
+        <span className="font-semibold">Agent: </span>
+        {note}
+      </p>
+    </div>
+  );
+}
 
 export interface PmoExecutionStepRuntimeProps {
   executionCurrentStepNo: number | null;
@@ -670,6 +683,19 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
   const isProfilingStepReadOnly = isWorkbookProfilingStep && !isProfilingPanelCurrent;
   const isApprovedReadOnly = isProfilingStepReadOnly && profilingReviewState?.status === 'approved';
 
+  const mappingAgentNote = selectedMappingApproval
+    ? readAgentNoteFromApproval(selectedMappingApproval)
+    : null;
+  const normalizationAgentNote = selectedNormalizationApproval
+    ? readAgentNoteFromApproval(selectedNormalizationApproval)
+    : null;
+  const publishAgentNote = selectedPublishApproval
+    ? readAgentNoteFromApproval(selectedPublishApproval)
+    : null;
+  const reportAgentNote = selectedReportApproval
+    ? readAgentNoteFromApproval(selectedReportApproval)
+    : null;
+
   return (
     <li className="rounded-lg border border-hairline bg-surface-1 px-3 py-2">
       <div className="flex items-start justify-between gap-2">
@@ -725,6 +751,7 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
             </span>
           </div>
 
+          <AgentNoteBanner note={mappingAgentNote} />
           <PmoMappingReviewPanel
             readOnly={isMappingReadOnly}
             selectedMappingApproval={selectedMappingApproval}
@@ -757,6 +784,7 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
             </span>
           </div>
 
+          <AgentNoteBanner note={normalizationAgentNote} />
           {selectedNormalizationApproval ? (
             <PmoNormalizationReviewPanel
               readOnly={isNormalizationReadOnly}
@@ -804,6 +832,7 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
             </span>
           </div>
 
+          <AgentNoteBanner note={publishAgentNote} />
           <PmoPublishReviewPanel
             readOnly={isPublishReadOnly}
             selectedPublishApproval={selectedPublishApproval}
@@ -815,14 +844,17 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
           />
         </div>
       ) : isLikelyReportStep ? (
-        <PmoReportReviewPanel
-          step={step}
-          selectedReportApproval={selectedReportApproval}
-          reportApprovalsCount={reportApprovalsCount}
-          isSubmittingReportDecision={isSubmittingReportDecision}
-          confirmReportRange={confirmReportRange}
-          rejectReportRange={rejectReportRange}
-        />
+        <>
+          <AgentNoteBanner note={reportAgentNote} />
+          <PmoReportReviewPanel
+            step={step}
+            selectedReportApproval={selectedReportApproval}
+            reportApprovalsCount={reportApprovalsCount}
+            isSubmittingReportDecision={isSubmittingReportDecision}
+            confirmReportRange={confirmReportRange}
+            rejectReportRange={rejectReportRange}
+          />
+        </>
       ) : isPlanApprovalStep ? (
         <PmoExecutionPlanSnapshot
           selectedSession={selectedSession}

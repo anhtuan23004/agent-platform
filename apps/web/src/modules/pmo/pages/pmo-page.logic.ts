@@ -339,6 +339,15 @@ function cardMetaStringFromPayload(payload: unknown, key: string): string | null
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
+export function readAgentNoteFromApproval(approval: WorkflowApprovalRow): string | null {
+  const payload = approval.proposedPayload;
+  if (!payload || typeof payload !== 'object') return null;
+  const card = payload as { agentNote?: unknown };
+  return typeof card.agentNote === 'string' && card.agentNote.trim().length > 0
+    ? card.agentNote.trim()
+    : null;
+}
+
 export function readPlannerStepIdFromApproval(approval: WorkflowApprovalRow): string | null {
   return cardMetaStringFromPayload(approval.proposedPayload, 'plannerStepId');
 }
@@ -423,6 +432,23 @@ export function isNormalizationApprovalRow(approval: WorkflowApprovalRow): boole
   }
 
   return cardToolIdFromPayload(approval.proposedPayload) === 'pmo_reviewNormalization';
+}
+
+export function isProfilingApprovalRow(approval: WorkflowApprovalRow): boolean {
+  const reviewType = readReviewTypeFromApproval(approval);
+  const actionId = readActionIdFromApproval(approval);
+  if (reviewType === 'profiling' || actionId === 'workbook_profiling') return true;
+
+  const stepId = approval.stepId;
+  if (
+    stepId === 'pmo.ingest.workbookProfiling' ||
+    stepId === 'workbookProfiling' ||
+    stepId.endsWith('.workbookProfiling')
+  ) {
+    return true;
+  }
+
+  return cardToolIdFromPayload(approval.proposedPayload) === 'pmo_profileWorkbook';
 }
 
 export function readIngestionSessionIdFromApproval(approval: WorkflowApprovalRow): string | null {

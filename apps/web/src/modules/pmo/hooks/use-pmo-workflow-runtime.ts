@@ -75,10 +75,16 @@ export function usePmoWorkflowRuntime(
     workflowId: 'pmo.ingestData.v2',
   });
 
-  const pmoIngestRuns = useMemo(
-    () => workflowRuns.data?.pages.flatMap((page) => page.rows) ?? ([] as WorkflowRunRow[]),
-    [workflowRuns.data],
-  );
+  const agenticRuns = useWorkflowRuntimeRuns({
+    scope: 'self',
+    workflowId: 'pmo.orchestrator',
+  });
+
+  const pmoIngestRuns = useMemo(() => {
+    const workflow = workflowRuns.data?.pages.flatMap((page) => page.rows) ?? [];
+    const agentic = agenticRuns.data?.pages.flatMap((page) => page.rows) ?? [];
+    return [...workflow, ...agentic] as WorkflowRunRow[];
+  }, [workflowRuns.data, agenticRuns.data]);
 
   const runtimeRunBySessionId = useMemo(() => {
     const map = new Map<string, { runId: string; status: WorkflowRunRow['status'] }>();

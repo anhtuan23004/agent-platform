@@ -90,11 +90,12 @@ export function registerAgent(deps: {
   /** Per-agent chat runtimes selected by the chat route's `agent` field. */
   chatOrchestrations?: import('./backend/routes.ts').AgentRouteDeps['chatOrchestrations'];
   /**
-   * Resume runtime for native-suspend agentic chat-HITL runs. Injected by the
-   * server entry-point as the staffing runtime's `runResume`. See
+   * Default resume runtime for native-suspend agentic chat-HITL runs. See
    * AgentRouteDeps.resumeOrchestration.
    */
   resumeOrchestration?: import('./backend/routes.ts').AgentRouteDeps['resumeOrchestration'];
+  /** Per-agent resume runtimes. See AgentRouteDeps.resumeOrchestrations. */
+  resumeOrchestrations?: import('./backend/routes.ts').AgentRouteDeps['resumeOrchestrations'];
   /**
    * Chat-attachment consume/mark functions, injected by the server entry-point
    * from @seta/knowledge (the only layer that can import a feature module into
@@ -172,6 +173,7 @@ export function registerAgent(deps: {
         chatOrchestration: deps.chatOrchestration,
         chatOrchestrations: deps.chatOrchestrations,
         resumeOrchestration: deps.resumeOrchestration,
+        resumeOrchestrations: deps.resumeOrchestrations,
         consumeThreadAttachments: deps.consumeThreadAttachments,
         markAttachmentsConsumed: deps.markAttachmentsConsumed,
         markAttachmentsFailed: deps.markAttachmentsFailed,

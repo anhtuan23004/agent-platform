@@ -10,6 +10,7 @@ import {
   real,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
@@ -576,5 +577,50 @@ export const reportRuns = pmoSchema.table(
       'report_runs_source_mode_check',
       sql`${t.source_mode} IN ('canonical_db','after_upload_publish')`,
     ),
+  ],
+);
+
+// ── Agent task state (agentic PMO memory, cross-turn persistence) ───────────
+
+export interface AgentTaskEntry {
+  taskId: string;
+  description: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'skipped' | 'blocked';
+  toolId?: string;
+  resultSummary?: string;
+}
+
+export interface AgentDecisionEntry {
+  step: string;
+  decision: string;
+  userFeedback?: string;
+  timestamp: string;
+}
+
+export interface AgentBlockerEntry {
+  description: string;
+  resolved: boolean;
+  resolution?: string;
+}
+
+export const agentTaskState = pmoSchema.table(
+  'agent_task_state',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenant_id: uuid('tenant_id').notNull(),
+    thread_id: text('thread_id').notNull(),
+    session_id: uuid('session_id'),
+    original_goal: text('original_goal').notNull(),
+    decomposed_tasks: jsonb('decomposed_tasks').$type<AgentTaskEntry[]>().notNull().default([]),
+    current_task_index: integer('current_task_index').notNull().default(0),
+    decisions: jsonb('decisions').$type<AgentDecisionEntry[]>().notNull().default([]),
+    blockers: jsonb('blockers').$type<AgentBlockerEntry[]>().notNull().default([]),
+    created_at: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index('agent_task_state_tenant_thread').on(t.tenant_id, t.thread_id),
+    index('agent_task_state_session').on(t.session_id),
+    unique('agent_task_state_tenant_thread_uq').on(t.tenant_id, t.thread_id),
   ],
 );

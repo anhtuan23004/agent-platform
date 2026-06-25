@@ -10,6 +10,15 @@ import { ensureFactsComputed } from '../analytics/ensure-facts-computed.ts';
 import type { makePmoGeneralAnswerAgent } from './agents/general-answer.ts';
 import { runUtilizationQuery } from './agents/utilization-query.ts';
 import { PmoUtilizationQueryIntent, PmoUtilizationQueryOutputSchema } from './schemas.ts';
+import { makePmoCompareChangesTool } from './tools/pmo-compare-changes.tool.ts';
+import { makePmoEchoSuspendTool } from './tools/pmo-echo-suspend.tool.ts';
+import { makePmoGenerateReportTool } from './tools/pmo-generate-report.tool.ts';
+import { makePmoLoadContextTool } from './tools/pmo-load-context.tool.ts';
+import { makePmoNormalizeToStagingTool } from './tools/pmo-normalize-to-staging.tool.ts';
+import { makePmoProfileWorkbookTool } from './tools/pmo-profile-workbook.tool.ts';
+import { makePmoProposedColumnMappingsTool } from './tools/pmo-propose-column-mappings.tool.ts';
+import { makePmoPublishChangesTool } from './tools/pmo-publish-changes.tool.ts';
+import { makePmoUpdateTaskStateTool } from './tools/pmo-update-task-state.tool.ts';
 
 export interface PmoOrchestratorToolDeps {
   generalAnswer: ReturnType<typeof makePmoGeneralAnswerAgent>;
@@ -147,9 +156,32 @@ export function makePmoOrchestratorTools(deps: PmoOrchestratorToolDeps) {
     },
   });
 
+  // Agentic ingestion + memory tools — gated behind PMO_AGENTIC_INGESTION.
+  const ingestionTools =
+    process.env.PMO_AGENTIC_INGESTION === 'true'
+      ? {
+          pmo_profileWorkbook: makePmoProfileWorkbookTool(),
+          pmo_proposeColumnMappings: makePmoProposedColumnMappingsTool(),
+          pmo_normalizeToStaging: makePmoNormalizeToStagingTool(),
+          pmo_compareChanges: makePmoCompareChangesTool(),
+          pmo_publishChanges: makePmoPublishChangesTool(),
+          pmo_generateReportIngest: makePmoGenerateReportTool(),
+          pmo_loadContext: makePmoLoadContextTool(),
+          pmo_updateTaskState: makePmoUpdateTaskStateTool(),
+        }
+      : {};
+
+  // DEV-ONLY: smoke-test tool for native-suspend HITL verification.
+  const echoSuspend =
+    process.env.PMO_ENABLE_ECHO_SUSPEND === 'true'
+      ? { pmo_echoSuspend: makePmoEchoSuspendTool() }
+      : {};
+
   return {
     pmo_queryUtilization,
     pmo_answerQuestion,
     pmo_refreshUtilizationFacts,
+    ...ingestionTools,
+    ...echoSuspend,
   };
 }

@@ -4,10 +4,12 @@ import { createUIMessageStream, createUIMessageStreamResponse } from 'ai';
 import type { Hono } from 'hono';
 import { z } from 'zod';
 import { recordApprovalDecision } from '../domain/decide-approval.ts';
+import { PMO_ORCHESTRATOR_WORKFLOW_ID } from '../domain/write-chat-approval-row.ts';
 import { pumpOrchestrationStream } from '../orchestration-ui-stream.ts';
 import {
   type AgentRouteDeps,
   type AgentRouteEnv,
+  type ChatAgent,
   handleDomainError,
   NO_BUFFER_HEADERS,
 } from './_shared.ts';
@@ -93,7 +95,7 @@ export function mountChatResumeRoute(app: Hono<AgentRouteEnv>, deps: AgentRouteD
     if (!session.effective_permissions.has('agent.workflow.approve')) {
       return c.json({ error: 'forbidden', message: 'agent.workflow.approve required' }, 403);
     }
-    if (!deps.resumeOrchestration) {
+    if (!deps.resumeOrchestration && !deps.resumeOrchestrations) {
       return c.json({ error: 'not_supported', message: 'chat resume runtime not configured' }, 500);
     }
 
@@ -136,7 +138,20 @@ export function mountChatResumeRoute(app: Hono<AgentRouteEnv>, deps: AgentRouteD
       note: body.note,
     });
 
-    const resumeOrchestration = deps.resumeOrchestration;
+    // Dispatch to the correct resumer based on the approval row's workflow_id.
+    const agentForWorkflow: ChatAgent =
+      ctx.workflowId === PMO_ORCHESTRATOR_WORKFLOW_ID ? 'pmo' : 'staffing';
+    const resumeOrchestration =
+      deps.resumeOrchestrations?.[agentForWorkflow] ?? deps.resumeOrchestration;
+    if (!resumeOrchestration) {
+      return c.json(
+        {
+          error: 'not_supported',
+          message: `no resume runtime configured for ${agentForWorkflow} agent`,
+        },
+        500,
+      );
+    }
     const mastraRunId = ctx.mastraRunId;
     const toolCallId = ctx.toolCallId ?? undefined;
     const threadId = ctx.surfaceChatThreadId ?? undefined;

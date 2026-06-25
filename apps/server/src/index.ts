@@ -159,9 +159,11 @@ const staffingOrchestration = buildStaffingOrchestrationRuntime({
     },
   },
 });
-// The PMO Agent chat runtime is analytics-only; ingest/publish lives in /pmo.
+// The PMO Agent chat runtime: analytics + native-suspend HITL for agentic
+// ingestion. Shares the same mastraStorage so cross-instance resume works.
 const pmoChatOrchestration = buildPmoChatOrchestrationRuntime({
   resolveModel: () => resolveModel('auto', { tierHint: 'fast' }).model,
+  mastraStorage,
 });
 
 SpecializedAgentRegistry.freeze();
@@ -188,8 +190,13 @@ const agent = registerAgent({
     pmo: pmoChatOrchestration.runStream,
   },
   // Native-suspend HITL resume: POST /chat/resume re-enters the suspended
-  // proposeAssignment composite via resumeStream. Same composition-root binding.
+  // tool composite via resumeStream. Dispatches to the correct resumer
+  // (staffing or PMO) based on the approval's agent path.
   resumeOrchestration: staffingOrchestration.runResume,
+  resumeOrchestrations: {
+    staffing: staffingOrchestration.runResume,
+    pmo: pmoChatOrchestration.runResume,
+  },
   // Chat attachments: apps/server is the only layer that can import the
   // @seta/knowledge consume/mark functions into the engine surface.
   consumeThreadAttachments: async ({ tenantId, threadId, query }) => {
