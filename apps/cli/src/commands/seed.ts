@@ -8,13 +8,16 @@ import {
   createGroup,
   createPlan,
   createTask,
+  deleteTask,
   listBuckets,
   listGroups,
   listPlans,
   listTasks,
+  updateTask,
 } from '@seta/planner';
 import {
   DEFAULT_PMO02_WORKBOOK_PATH,
+  derivePlannerSeedFromMockDb,
   pmoMockDbExists,
   resolvePmoMockDbPath,
   seedPmo02FromMockDbForTenant,
@@ -59,6 +62,48 @@ export interface SeedOpts {
   adminName?: string;
   password?: string;
   only?: string;
+  plannerSource?: string;
+}
+
+type PlannerSource = 'csv' | 'pmo02';
+
+function resolvePlannerSource(explicit?: string): PlannerSource {
+  if (explicit === 'csv' || explicit === 'pmo02') return explicit;
+  return pmoMockDbExists() ? 'pmo02' : 'csv';
+}
+
+function derivedSeedToParsedCsvs(
+  derived: ReturnType<typeof derivePlannerSeedFromMockDb>,
+): ParsedCsvs {
+  return {
+    users: derived.users,
+    groups: derived.groups,
+    plans: derived.plans,
+    buckets: derived.buckets,
+    planMembers: derived.planMembers,
+    tasks: derived.tasks,
+    timesheet: derived.timesheet,
+  };
+}
+
+function loadPlannerSeedData(
+  opts: SeedOpts,
+  modules: Set<Module>,
+): { csvs: ParsedCsvs; plannerSource: PlannerSource } {
+  const needsCsvs = modules.has('users') || modules.has('planner') || modules.has('availability');
+  const plannerSource = resolvePlannerSource(opts.plannerSource);
+  if (!needsCsvs) {
+    return { csvs: emptyCsvs(), plannerSource };
+  }
+  if (plannerSource === 'pmo02') {
+    log.info(
+      { mockDbPath: resolvePmoMockDbPath() },
+      'phase 1: deriving planner seed from PMO_02 mock DB',
+    );
+    return { csvs: derivedSeedToParsedCsvs(derivePlannerSeedFromMockDb()), plannerSource };
+  }
+  log.info({ dir: opts.dir }, 'phase 1: parsing CSVs');
+  return { csvs: parseCsvs(opts.dir), plannerSource };
 }
 
 async function resolveTenantIdOrNull(input: string): Promise<string | null> {
@@ -92,6 +137,33 @@ function emptyCsvs(): ParsedCsvs {
     tasks: [],
     timesheet: [],
   };
+}
+
+/** Legacy planner seed titles from RA allocation rows: `Project X — BE (0.6%)`. */
+const LEGACY_RA_TASK_TITLE = /— .+ \([\d.]+%\)$/;
+
+async function purgeLegacyRaPlannerTasks(
+  planIds: Iterable<string>,
+  session: SessionScope,
+): Promise<number> {
+  let deleted = 0;
+  for (const planId of planIds) {
+    const { tasks: existing } = await listTasks({
+      filters: { plan_id: planId },
+      limit: 200,
+      session,
+    });
+    for (const task of existing) {
+      if (!LEGACY_RA_TASK_TITLE.test(task.title)) continue;
+      try {
+        await deleteTask({ task_id: task.id, expected_version: task.version, session });
+        deleted++;
+      } catch (err) {
+        log.warn({ task_id: task.id, title: task.title, err }, 'legacy RA task delete failed');
+      }
+    }
+  }
+  return deleted;
 }
 
 async function resolveUserIdByEmail(tenantId: string, email: string): Promise<string> {
@@ -174,11 +246,8 @@ export async function seedCommand(opts: SeedOpts): Promise<void> {
   const session = await buildAdminSession(tenantId, opts.adminEmail);
   const modules = parseModules(opts.only);
 
-  const needsCsvs = modules.has('users') || modules.has('planner') || modules.has('availability');
-  const csvs = needsCsvs ? parseCsvs(opts.dir) : emptyCsvs();
-  if (needsCsvs) {
-    log.info({ dir: opts.dir }, 'phase 1: parsing CSVs');
-  } else {
+  const { csvs, plannerSource } = loadPlannerSeedData(opts, modules);
+  if (!modules.has('users') && !modules.has('planner') && !modules.has('availability')) {
     log.info('phase 1: CSV parsing skipped');
   }
 
@@ -469,13 +538,31 @@ export async function seedCommand(opts: SeedOpts): Promise<void> {
     let tasksReused = 0;
     let assignmentsCreated = 0;
     let tasksSkipped = 0;
+    let tasksStatusUpdated = 0;
+    let legacyRaTasksDeleted = 0;
+
+    if (plannerSource === 'pmo02') {
+      legacyRaTasksDeleted = await purgeLegacyRaPlannerTasks(planMap.values(), session);
+      if (legacyRaTasksDeleted > 0) {
+        log.info({ legacyRaTasksDeleted }, 'purged legacy RA allocation planner tasks');
+      }
+    }
 
     // Pre-load tasks for every plan we created/reused.
-    const existingTasksByKey = new Map<string, string>(); // `${planId}::${title}` → task id
+    const existingTasksByKey = new Map<
+      string,
+      { id: string; version: number; percent_complete: number }
+    >();
     for (const planId of new Set(planMap.values())) {
       try {
         const { tasks: existing } = await listTasks({ filters: { plan_id: planId }, session });
-        for (const t of existing) existingTasksByKey.set(`${planId}::${t.title}`, t.id);
+        for (const t of existing) {
+          existingTasksByKey.set(`${planId}::${t.title}`, {
+            id: t.id,
+            version: t.version,
+            percent_complete: t.percent_complete,
+          });
+        }
       } catch {
         // plan may have been skipped — ignore
       }
@@ -493,8 +580,32 @@ export async function seedCommand(opts: SeedOpts): Promise<void> {
       }
 
       const taskTitle = row.title || 'Untitled';
-      const existingTaskId = existingTasksByKey.get(`${planId}::${taskTitle}`);
-      if (existingTaskId) {
+      const statusFields = mapStatusFields(row.status);
+      const existingTask = existingTasksByKey.get(`${planId}::${taskTitle}`);
+      if (existingTask) {
+        if (existingTask.percent_complete !== statusFields.percent_complete) {
+          try {
+            const updated = await updateTask({
+              task_id: existingTask.id,
+              expected_version: existingTask.version,
+              patch: {
+                percent_complete: statusFields.percent_complete as 0 | 50 | 100,
+              },
+              session,
+            });
+            existingTasksByKey.set(`${planId}::${taskTitle}`, {
+              id: updated.id,
+              version: updated.version,
+              percent_complete: updated.percent_complete,
+            });
+            tasksStatusUpdated++;
+          } catch (err) {
+            log.warn(
+              { csv_task_id: row.task_id, task_id: existingTask.id, err },
+              'updateTask status sync failed',
+            );
+          }
+        }
         tasksReused++;
         continue;
       }
@@ -502,7 +613,6 @@ export async function seedCommand(opts: SeedOpts): Promise<void> {
       const bucketId = bucketMap.get(row.bucket_id) ?? undefined;
       const skill_tags = splitIds(row.tags);
 
-      const statusFields = mapStatusFields(row.status);
       const task = await createTask({
         plan_id: planId,
         bucket_id: bucketId,
@@ -544,6 +654,8 @@ export async function seedCommand(opts: SeedOpts): Promise<void> {
         reused: tasksReused,
         assignments: assignmentsCreated,
         skipped: tasksSkipped,
+        legacyRaTasksDeleted,
+        statusUpdated: tasksStatusUpdated,
       })}\n`,
     );
   }
@@ -689,5 +801,5 @@ export async function seedCommand(opts: SeedOpts): Promise<void> {
     }
   }
 
-  log.info({ tenant_id: tenantId, modules: [...modules] }, 'seed: complete');
+  log.info({ tenant_id: tenantId, modules: [...modules], plannerSource }, 'seed: complete');
 }

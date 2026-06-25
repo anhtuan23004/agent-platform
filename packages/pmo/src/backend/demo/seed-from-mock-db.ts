@@ -11,6 +11,7 @@ import { pmoDb } from '../db/client.ts';
 import type * as schema from '../db/schema.ts';
 import {
   calendarWeeks,
+  ingestionSessions,
   leaveRecords,
   memberMaster,
   memberSkillsProjection,
@@ -23,6 +24,9 @@ import {
 import { computeNaturalKeyHash, computeSourceRowHash } from '../ingestion/stage-changes.ts';
 import { syncRecommendationProjectionsFromDemoCsv } from '../reporting/recommendations/index.ts';
 import { loadDefaultThresholdConfigs } from './default-threshold-config.ts';
+import { tuneRecommendationResourceAllocations } from './tune-recommendation-allocations.ts';
+
+const SEED_INGESTION_CREATED_BY = '00000000-0000-0000-0000-0000000000aa';
 
 /** Where seed assets live: repo root (dev) or `apps/cli` (deployed server image). */
 export function resolvePmoSeedAssetRoot(): string {
@@ -122,12 +126,19 @@ function toBool(v: number | boolean | null | undefined): boolean | null {
   return v !== 0;
 }
 
-function queryJson<T extends Record<string, unknown>>(mockDbPath: string, sqlText: string): T[] {
+export function queryMockDbJson<T extends Record<string, unknown>>(
+  mockDbPath: string,
+  sqlText: string,
+): T[] {
   const proc = spawnSync('sqlite3', ['-json', mockDbPath, sqlText], { encoding: 'utf8' });
   if (proc.status !== 0) throw new Error(proc.stderr || proc.stdout);
   const trimmed = proc.stdout.trim();
   if (!trimmed) return [];
   return JSON.parse(trimmed) as T[];
+}
+
+function queryJson<T extends Record<string, unknown>>(mockDbPath: string, sqlText: string): T[] {
+  return queryMockDbJson(mockDbPath, sqlText);
 }
 
 function readSeedCsv<T extends Record<string, string>>(filename: string): T[] {
@@ -260,19 +271,21 @@ export async function seedPmo02FromMockDbForTenant(
           source_row: index + 1,
         }));
 
-  const allocations = queryJson<{
-    member_id: string;
-    project_id: string;
-    role: string | null;
-    allocation_pct: number;
-    start_date: string;
-    end_date: string;
-    weekly_planned_hours: number | null;
-    source_row: number | null;
-  }>(
-    mockDbPath,
-    `SELECT member_id, project_id, role, allocation_pct, start_date, end_date, weekly_planned_hours, source_row
-     FROM pmo_resource_allocations WHERE is_active = 1`,
+  const allocations = tuneRecommendationResourceAllocations(
+    queryJson<{
+      member_id: string;
+      project_id: string;
+      role: string | null;
+      allocation_pct: number;
+      start_date: string;
+      end_date: string;
+      weekly_planned_hours: number | null;
+      source_row: number | null;
+    }>(
+      mockDbPath,
+      `SELECT member_id, project_id, role, allocation_pct, start_date, end_date, weekly_planned_hours, source_row
+       FROM pmo_resource_allocations WHERE is_active = 1`,
+    ),
   );
 
   const tsRows = queryJson<{
@@ -323,6 +336,23 @@ export async function seedPmo02FromMockDbForTenant(
   if (members.length === 0 || weeks.length === 0) {
     throw new Error(`mock-data.db at ${mockDbPath} has no active PMO member/week rows`);
   }
+
+  await db.insert(ingestionSessions).values({
+    id: ingestionSessionId,
+    tenant_id: tenantId,
+    status: 'published',
+    source_kind: 'seed',
+    source_file_key: `seed://${mockDbPath}`,
+    source_file_name: 'PMO_02_RA_Timesheet_Monitoring.xlsx',
+    mime_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    reporting_period_key: 'PMO_02',
+    reporting_period_start: parseRequiredDate('reporting_period_start', '2026-06-29'),
+    reporting_period_end: parseRequiredDate('reporting_period_end', '2026-08-07'),
+    created_by: SEED_INGESTION_CREATED_BY,
+    publish_reviewed_at: now(),
+    created_at: now(),
+    finished_at: now(),
+  });
 
   const mockMemberIds = new Set(members.map((m) => m.member_id));
   const projectionMemberProfiles = readSeedCsv<{
