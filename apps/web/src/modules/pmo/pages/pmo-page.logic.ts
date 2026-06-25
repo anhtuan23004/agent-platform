@@ -1064,10 +1064,6 @@ export function statusTone(statusLabel: string): string {
     return 'bg-success-tint text-success-ink';
   }
 
-  if (statusLabel === 'Generating plan') {
-    return 'bg-warning-tint text-warning-ink';
-  }
-
   return 'bg-primary-tint text-primary-ink';
 }
 
@@ -1334,41 +1330,6 @@ export function buildExecutionCards(session: PmoPlanningSession | null): Executi
       description: step.description,
     };
   });
-}
-
-export function buildPlanningTimeline(
-  state: PmoPlanningSession['planning_state'] | null,
-): Array<{ id: number; label: string; state: TimelineState }> {
-  const labels = [
-    'Upload workbook',
-    'Analyze goal and build plan',
-    'Plan review and regeneration',
-    'Approve plan and move next step',
-    'Execute next workflow steps',
-  ];
-
-  const mapState = (s: PmoPlanningSession['planning_state'] | null): TimelineState[] => {
-    if (s === 'approved_plan') {
-      return ['done', 'done', 'done', 'current', 'pending'];
-    }
-
-    if (s === 'plan_review') {
-      return ['done', 'done', 'current', 'pending', 'pending'];
-    }
-
-    if (s === 'generating_plan' || s === 'plan_generation_failed') {
-      return ['done', 'current', 'pending', 'pending', 'pending'];
-    }
-
-    return ['current', 'pending', 'pending', 'pending', 'pending'];
-  };
-
-  const states = mapState(state);
-  return labels.map((label, index) => ({
-    id: index + 1,
-    label,
-    state: states[index] ?? 'pending',
-  }));
 }
 
 export function resolveExecutionCurrentStepIndex(params: {

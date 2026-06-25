@@ -18,11 +18,3 @@ export function isPmoSessionCancelable(
   if (runtimeStatus && TERMINAL_RUNTIME_STATUSES.has(runtimeStatus)) return false;
   return true;
 }
-
-export function isPmoSessionGeneratable(session: PmoPlanningSession): boolean {
-  return (
-    (session.planning_state === 'uploaded' ||
-      session.planning_state === 'plan_generation_failed') &&
-    session.workflow_step_status !== 'cancelled'
-  );
-}

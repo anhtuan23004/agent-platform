@@ -22,8 +22,8 @@ function session(id: string): PmoPlanningSession {
     reporting_period_end: null,
     planning_state: 'uploaded',
     status_label: 'Uploaded',
-    active_gate: 'Generate plan',
-    progress_text: '0 / 3',
+    active_gate: 'Awaiting agent',
+    progress_text: 'Awaiting agent',
     progress_pct: 0,
     goal: '',
     intent: null,
@@ -44,25 +44,21 @@ function session(id: string): PmoPlanningSession {
 }
 
 describe('PmoSessionHistoryPanel', () => {
-  it('shows generating state only on active session row', () => {
+  it('renders session rows with View and Cancel buttons', () => {
     render(
       <PmoSessionHistoryPanel
         sessions={[session('run-1'), session('run-2')]}
         selectedSessionId={null}
         isLoadingSessions={false}
         isCancellingWorkflowBySessionId={{}}
-        generatingSessionId="run-2"
         isWorkflowCancelable={() => true}
-        isSessionGeneratable={() => true}
         onSelectSession={vi.fn()}
         onViewSession={vi.fn()}
-        onGeneratePlan={vi.fn()}
         onCancelWorkflow={vi.fn()}
       />,
     );
 
-    const idleRowButton = screen.getByRole('button', { name: 'Generate' });
-    expect(idleRowButton).toBeDisabled();
-    expect(screen.getAllByRole('button', { name: 'Generating...' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'View' })).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: 'Cancel' })).toHaveLength(2);
   });
 });

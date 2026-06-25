@@ -1,6 +1,6 @@
 import { CheckCircle2, LockKeyhole } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import type { PmoPlan, PmoPlanningSession } from '../api/client';
+import type { PmoPlanningSession } from '../api/client';
 import type { ExecutionCard } from '../pages/pmo-page.logic';
 import { statusTone, workflowStepTone } from '../pages/pmo-page.logic';
 import {
@@ -29,21 +29,7 @@ interface WorkflowCardModel {
 
 interface PmoWorkflowCardsSectionProps {
   selectedSession: PmoPlanningSession;
-  plan: PmoPlan | null;
-  goalDraft: string;
   executionCards: ExecutionCard[];
-  selectedFeedback: string;
-  onFeedbackChange: (nextValue: string) => void;
-  isGenerating: boolean;
-  isApproving: boolean;
-  isConfirmingIntent: boolean;
-  onConfirmIntent: (selection?: {
-    dataSourceMode?: 'existing_db' | 'uploaded_file';
-    actionMode?: NonNullable<PmoPlan['intent_analysis']>['actionMode'];
-  }) => void;
-  onRegeneratePlan: () => void;
-  onApprovePlanAndStart: () => void;
-  feedbackHistoryItems: Array<{ key: string; feedback: string }>;
   runtime: PmoExecutionStepRuntimeProps;
   mapping: PmoExecutionStepMappingProps;
   normalization: PmoExecutionStepNormalizationProps;
@@ -135,39 +121,6 @@ function buildWorkflowCards(params: {
   }
 
   return cards;
-}
-
-export function IntentResolutionOptions(props: {
-  options: NonNullable<NonNullable<PmoPlan['intent_analysis']>['resolution_options']>;
-  isSubmitting: boolean;
-  onConfirm: PmoWorkflowCardsSectionProps['onConfirmIntent'];
-}) {
-  const { options, isSubmitting, onConfirm } = props;
-
-  return (
-    <div className="space-y-3 rounded-md border border-warning-border bg-warning-tint/30 p-3">
-      <p className="font-medium text-ink">Choose workflow scope</p>
-      <div className="grid gap-2">
-        {options.map((option) => (
-          <button
-            key={option.id}
-            type="button"
-            className="rounded-md border border-hairline bg-surface-1 px-3 py-2 text-left transition-colors hover:border-primary hover:bg-primary-tint/20 disabled:opacity-60"
-            onClick={() =>
-              onConfirm({
-                dataSourceMode: option.dataSourceMode,
-                actionMode: option.actionMode,
-              })
-            }
-            disabled={isSubmitting}
-          >
-            <span className="block font-medium text-ink">{option.label}</span>
-            <span className="mt-0.5 block text-ink-subtle">{option.description}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
 }
 
 export function PmoWorkflowCardsSection(props: PmoWorkflowCardsSectionProps) {

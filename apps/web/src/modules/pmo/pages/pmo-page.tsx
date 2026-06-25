@@ -1,6 +1,7 @@
 import { Button, Dropzone, Input, Label, PageChrome, Textarea, toast } from '@seta/shared-ui';
-import { Loader2, RefreshCw, Workflow } from 'lucide-react';
+import { Bot, RefreshCw, Workflow } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { usePanelUI } from '../../agent/chat-experience/agent-provider';
 import {
   type PmoPlan,
   type PmoPlanningSession,
@@ -42,6 +43,7 @@ export function PmoPage() {
     'Ingest this workbook and prepare data for RA calculation.',
   );
   const [sessions, setSessions] = useState<PmoPlanningSession[]>([]);
+  const { setPanelOpen, setPendingPrompt } = usePanelUI();
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [isReviewPanelOpen, setIsReviewPanelOpen] = useState(false);
 
@@ -52,29 +54,11 @@ export function PmoPage() {
 
   const [uploadedInfo, setUploadedInfo] = useState<UploadedWorkbookInfo | null>(null);
 
-  const [feedbackBySessionId, setFeedbackBySessionId] = useState<Record<string, string>>({});
-
   const selectedSession = useMemo(
     () =>
       sessions.find((row) => row.ingestion_session_id === selectedSessionId) ?? sessions[0] ?? null,
     [sessions, selectedSessionId],
   );
-
-  const selectedFeedback = selectedSession
-    ? (feedbackBySessionId[selectedSession.ingestion_session_id] ?? '')
-    : '';
-
-  const selectedUploadedSessionId =
-    (selectedSession?.planning_state === 'uploaded' ||
-      selectedSession?.planning_state === 'plan_generation_failed') &&
-    selectedSession.workflow_step_status !== 'cancelled'
-      ? selectedSession.ingestion_session_id
-      : null;
-  const fallbackUploadedSessionId = selectedSession
-    ? null
-    : (uploadedInfo?.ingestionSessionId ?? null);
-  const targetGenerateSessionId: string | null =
-    selectedUploadedSessionId ?? fallbackUploadedSessionId;
 
   const executionCards = buildExecutionCards(selectedSession);
   const executionState = selectedSession?.execution_state ?? null;
@@ -111,23 +95,6 @@ export function PmoPage() {
     executionCards,
     executionCurrentStepNo: executionState?.current_step_no ?? null,
   });
-
-  const feedbackHistoryItems = useMemo(() => {
-    if (!selectedSession) {
-      return [] as Array<{ key: string; feedback: string }>;
-    }
-
-    const duplicateCountByValue = new Map<string, number>();
-    return selectedSession.feedback_history.map((feedback) => {
-      const duplicateCount = (duplicateCountByValue.get(feedback) ?? 0) + 1;
-      duplicateCountByValue.set(feedback, duplicateCount);
-
-      return {
-        key: `${selectedSession.ingestion_session_id}-feedback-${feedback}-${duplicateCount}`,
-        feedback,
-      };
-    });
-  }, [selectedSession]);
 
   const selectedRuntimeRun = selectedSession
     ? (runtimeRunBySessionId.get(selectedSession.ingestion_session_id) ?? null)
@@ -206,34 +173,21 @@ export function PmoPage() {
 
   const {
     isUploading,
-    isGenerating,
-    generatingSessionId,
-    isApproving,
-    isConfirmingIntent,
     isAppendingDocument,
     isSavingProfilingReview,
     isApprovingProfiling,
     isCancellingWorkflowBySessionId,
     refreshPage,
     onFile,
-    handleAnalyzeGeneratePlan,
-    handleGeneratePlanForSession,
-    handleRegeneratePlan,
-    handleApprovePlanAndStart,
-    handleConfirmPlanIntent,
     handleAppendDocument,
     handleSaveProfilingReview,
     handleApproveProfilingContinue,
     isWorkflowCancelable,
-    isSessionGeneratable,
     handleCancelWorkflow,
   } = usePmoSessionActions({
     reportingPeriodKey,
-    goalDraft,
-    targetGenerateSessionId,
     selectedSession,
     profilingDocuments,
-    feedbackBySessionId,
     profilingOverridesBySessionId,
     loadSessions,
     setSelectedSessionId,
@@ -242,8 +196,6 @@ export function PmoPage() {
     refreshWorkflowRuntime,
     runtimeRunBySessionId,
   });
-  const planGenerationActive =
-    isGenerating || selectedSession?.planning_state === 'generating_plan';
 
   const {
     editingMappingKey,
@@ -309,14 +261,6 @@ export function PmoPage() {
       window.clearTimeout(timer);
     };
   }, [loadSessions]);
-
-  useEffect(() => {
-    if (!sessions.some((session) => session.planning_state === 'generating_plan')) return;
-    const timer = window.setInterval(() => {
-      void loadSessions(true);
-    }, 2_000);
-    return () => window.clearInterval(timer);
-  }, [loadSessions, sessions]);
 
   const handleSelectProfilingArea = useCallback(
     (documentId: string, sheetName: string, selectedArea: PmoProfilingArea) => {
@@ -458,7 +402,7 @@ export function PmoPage() {
     <PageChrome
       breadcrumb={['Work']}
       title="PMO Ingestion"
-      subtitle="Persisted state workflow: upload -> generate plan -> review/regenerate -> approve."
+      subtitle="Persisted state workflow: upload workbook, then execute profiling, mapping, normalization, and publish steps."
       actions={
         <div className="flex items-center gap-2">
           <Button type="button" size="sm" variant="secondary" onClick={refreshPage}>
@@ -478,7 +422,8 @@ export function PmoPage() {
               <div>
                 <h2 className="text-body-sm font-semibold text-ink">Workflow path</h2>
                 <p className="mt-0.5 text-body-sm text-ink-subtle">
-                  Upload workbook, generate plan from Goal via LLM, review/regenerate, then approve.
+                  Upload workbook, then execute profiling, mapping, normalization, and publish
+                  steps.
                 </p>
               </div>
             </div>
@@ -492,7 +437,7 @@ export function PmoPage() {
                     value={reportingPeriodKey}
                     onChange={(e) => setReportingPeriodKey(e.target.value)}
                     placeholder="e.g. 2025-W35"
-                    disabled={isUploading || planGenerationActive}
+                    disabled={isUploading}
                   />
                 </div>
 
@@ -508,37 +453,30 @@ export function PmoPage() {
                     value={goalDraft}
                     onChange={(e) => setGoalDraft(e.target.value)}
                     className="resize-none"
-                    placeholder="Describe an ingest workflow or a report to generate from PMO data."
-                    disabled={planGenerationActive}
+                    placeholder="Describe what to do with the uploaded workbook."
                   />
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="primary"
-                    onClick={handleAnalyzeGeneratePlan}
-                    disabled={
-                      (!targetGenerateSessionId && !goalDraft.trim()) || planGenerationActive
-                    }
-                  >
-                    {planGenerationActive ? (
-                      <>
-                        <Loader2 className="size-4 animate-spin" />
-                        Generating plan...
-                      </>
-                    ) : (
-                      'Analyze & generate plan'
-                    )}
-                  </Button>
-
-                  <span className="rounded-full border border-hairline bg-surface-1 px-2 py-0.5 text-caption text-ink-subtle">
-                    {targetGenerateSessionId
-                      ? 'Ready to generate plan'
-                      : 'Enter a database report goal or upload a workbook'}
-                  </span>
-                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="primary"
+                  disabled={!goalDraft.trim() || (!uploadedInfo && !selectedSession)}
+                  onClick={() => {
+                    const sessionId =
+                      uploadedInfo?.ingestionSessionId ??
+                      selectedSession?.ingestion_session_id ??
+                      '';
+                    const prompt = sessionId
+                      ? `${goalDraft.trim()}\n\n[Session: ${sessionId}]`
+                      : goalDraft.trim();
+                    setPanelOpen(true);
+                    setPendingPrompt({ text: prompt, autoSend: true });
+                  }}
+                >
+                  <Bot className="size-4" />
+                  Start with Agent
+                </Button>
               </section>
 
               <Dropzone
@@ -586,15 +524,12 @@ export function PmoPage() {
             selectedSessionId={selectedSession?.ingestion_session_id ?? null}
             isLoadingSessions={isLoadingSessions}
             isCancellingWorkflowBySessionId={isCancellingWorkflowBySessionId}
-            generatingSessionId={generatingSessionId}
             isWorkflowCancelable={isWorkflowCancelable}
-            isSessionGeneratable={isSessionGeneratable}
             onSelectSession={setSelectedSessionId}
             onViewSession={(sessionId) => {
               setSelectedSessionId(sessionId);
               setIsReviewPanelOpen(true);
             }}
-            onGeneratePlan={handleGeneratePlanForSession}
             onCancelWorkflow={handleCancelWorkflow}
           />
 
@@ -611,23 +546,7 @@ export function PmoPage() {
               <div className="space-y-3">
                 <PmoWorkflowCardsSection
                   selectedSession={selectedSession}
-                  plan={plan}
-                  goalDraft={goalDraft}
                   executionCards={executionCardsForDisplay}
-                  selectedFeedback={selectedFeedback}
-                  onFeedbackChange={(nextValue) => {
-                    setFeedbackBySessionId((prev) => ({
-                      ...prev,
-                      [selectedSession.ingestion_session_id]: nextValue,
-                    }));
-                  }}
-                  isGenerating={planGenerationActive}
-                  isApproving={isApproving}
-                  isConfirmingIntent={isConfirmingIntent}
-                  onConfirmIntent={handleConfirmPlanIntent}
-                  onRegeneratePlan={handleRegeneratePlan}
-                  onApprovePlanAndStart={handleApprovePlanAndStart}
-                  feedbackHistoryItems={feedbackHistoryItems}
                   runtime={executionRuntime}
                   mapping={executionMapping}
                   normalization={executionNormalization}

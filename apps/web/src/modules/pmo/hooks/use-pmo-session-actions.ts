@@ -1,8 +1,6 @@
 import { toast } from '@seta/shared-ui';
 import { useCallback, useState } from 'react';
 import {
-  type GeneratePlanInput,
-  type PmoPlan,
   type PmoPlanningSession,
   type PmoProfilingArea,
   type PmoProfilingSheetReviewOverride,
@@ -11,7 +9,7 @@ import {
 } from '../api/client';
 import { workflowRuntimeApi } from '../api/workflow-runtime';
 import { shortId } from '../pages/pmo-page.logic';
-import { isPmoSessionCancelable, isPmoSessionGeneratable } from './pmo-session-cancel';
+import { isPmoSessionCancelable } from './pmo-session-cancel';
 
 export interface UploadedWorkbookInfo {
   ingestionSessionId: string;
@@ -23,11 +21,8 @@ export interface UploadedWorkbookInfo {
 
 interface UsePmoSessionActionsOptions {
   reportingPeriodKey: string;
-  goalDraft: string;
-  targetGenerateSessionId: string | null;
   selectedSession: PmoPlanningSession | null;
   profilingDocuments: PmoSessionDocumentProfileRecord[];
-  feedbackBySessionId: Record<string, string>;
   profilingOverridesBySessionId: Record<
     string,
     Record<string, { finalArea: PmoProfilingArea; markIgnore: boolean }>
@@ -42,29 +37,16 @@ interface UsePmoSessionActionsOptions {
 
 interface UsePmoSessionActionsResult {
   isUploading: boolean;
-  isGenerating: boolean;
-  generatingSessionId: string | null;
-  isApproving: boolean;
-  isConfirmingIntent: boolean;
   isAppendingDocument: boolean;
   isSavingProfilingReview: boolean;
   isApprovingProfiling: boolean;
   isCancellingWorkflowBySessionId: Record<string, boolean>;
   refreshPage: () => void;
   onFile: (file: File) => Promise<void>;
-  handleAnalyzeGeneratePlan: () => Promise<void>;
-  handleGeneratePlanForSession: (session: PmoPlanningSession) => Promise<void>;
-  handleRegeneratePlan: () => Promise<void>;
-  handleApprovePlanAndStart: () => Promise<void>;
-  handleConfirmPlanIntent: (selection?: {
-    dataSourceMode?: 'existing_db' | 'uploaded_file';
-    actionMode?: NonNullable<PmoPlan['intent_analysis']>['actionMode'];
-  }) => Promise<void>;
   handleAppendDocument: (file: File) => Promise<void>;
   handleSaveProfilingReview: () => Promise<void>;
   handleApproveProfilingContinue: () => Promise<void>;
   isWorkflowCancelable: (run: PmoPlanningSession) => boolean;
-  isSessionGeneratable: (run: PmoPlanningSession) => boolean;
   handleCancelWorkflow: (run: PmoPlanningSession) => Promise<void>;
 }
 
@@ -73,11 +55,8 @@ export function usePmoSessionActions(
 ): UsePmoSessionActionsResult {
   const {
     reportingPeriodKey,
-    goalDraft,
-    targetGenerateSessionId,
     selectedSession,
     profilingDocuments,
-    feedbackBySessionId,
     profilingOverridesBySessionId,
     loadSessions,
     setSelectedSessionId,
@@ -88,10 +67,6 @@ export function usePmoSessionActions(
   } = options;
 
   const [isUploading, setIsUploading] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [generatingSessionId, setGeneratingSessionId] = useState<string | null>(null);
-  const [isApproving, setIsApproving] = useState(false);
-  const [isConfirmingIntent, setIsConfirmingIntent] = useState(false);
   const [isAppendingDocument, setIsAppendingDocument] = useState(false);
   const [isSavingProfilingReview, setIsSavingProfilingReview] = useState(false);
   const [isApprovingProfiling, setIsApprovingProfiling] = useState(false);
@@ -125,7 +100,7 @@ export function usePmoSessionActions(
         await loadSessions(true);
 
         toast.success('Workbook uploaded', {
-          description: 'Analyze & Generate Plan is now enabled.',
+          description: 'Session created. Select the session to view workflow cards.',
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Upload failed.';
@@ -135,229 +110,6 @@ export function usePmoSessionActions(
       }
     },
     [loadSessions, reportingPeriodKey, setIsReviewPanelOpen, setSelectedSessionId, setUploadedInfo],
-  );
-
-  const handleAnalyzeGeneratePlan = useCallback(async () => {
-    if (!targetGenerateSessionId && !goalDraft.trim()) {
-      toast.error('Goal required', {
-        description: 'Describe the database report you want, or upload a workbook first.',
-      });
-      return;
-    }
-
-    if (isGenerating) {
-      return;
-    }
-
-    const goal = goalDraft.trim() || 'Generate ingestion workflow plan from uploaded workbook.';
-
-    setIsGenerating(true);
-    setGeneratingSessionId(targetGenerateSessionId);
-    try {
-      const payload: GeneratePlanInput = {
-        ...(targetGenerateSessionId ? { ingestion_session_id: targetGenerateSessionId } : {}),
-        goal,
-      };
-
-      const generated = await pmoApi.generatePlan(payload);
-      await loadSessions(true);
-      setSelectedSessionId(generated.ingestion_session_id);
-
-      toast.success('Plan queued', {
-        description: 'Generation continues in the background. This page will update automatically.',
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Plan generation failed.';
-      toast.error('Generate failed', { description: message });
-    } finally {
-      setIsGenerating(false);
-      setGeneratingSessionId(null);
-    }
-  }, [goalDraft, isGenerating, loadSessions, setSelectedSessionId, targetGenerateSessionId]);
-
-  const handleGeneratePlanForSession = useCallback(
-    async (session: PmoPlanningSession) => {
-      if (
-        session.planning_state !== 'uploaded' &&
-        session.planning_state !== 'plan_generation_failed'
-      ) {
-        toast.error('Cannot generate plan', {
-          description: 'Plan generation is available only for uploaded sessions.',
-        });
-        return;
-      }
-
-      if (session.workflow_step_status === 'cancelled') {
-        toast.error('Cannot generate plan', {
-          description: 'This upload session has been cancelled.',
-        });
-        return;
-      }
-
-      if (isGenerating) {
-        return;
-      }
-
-      const defaultGoal =
-        'Ingest this workbook, publish approved changes, and generate an idle/overbook report.';
-      const goal = goalDraft.trim() || session.goal || defaultGoal;
-
-      setIsGenerating(true);
-      setGeneratingSessionId(session.ingestion_session_id);
-      try {
-        await pmoApi.generatePlan({
-          ingestion_session_id: session.ingestion_session_id,
-          goal,
-        });
-        setSelectedSessionId(session.ingestion_session_id);
-        setIsReviewPanelOpen(true);
-        await loadSessions(true);
-
-        toast.success('Plan generated', {
-          description: 'Upload history status moved to Plan Review.',
-        });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Plan generation failed.';
-        toast.error('Generate failed', { description: message });
-      } finally {
-        setIsGenerating(false);
-        setGeneratingSessionId(null);
-      }
-    },
-    [goalDraft, isGenerating, loadSessions, setIsReviewPanelOpen, setSelectedSessionId],
-  );
-
-  const handleRegeneratePlan = useCallback(async () => {
-    if (!selectedSession) {
-      return;
-    }
-
-    if (
-      selectedSession.planning_state !== 'plan_review' &&
-      selectedSession.planning_state !== 'plan_generation_failed'
-    ) {
-      toast.error('Cannot regenerate', {
-        description: 'Plan can be regenerated from Plan Review or after a generation failure.',
-      });
-      return;
-    }
-
-    if (isGenerating) {
-      return;
-    }
-
-    const defaultGoal =
-      'Ingest this workbook, publish approved changes, and generate an idle/overbook report.';
-    const goal = goalDraft.trim() || selectedSession.goal || defaultGoal;
-    const feedback = (feedbackBySessionId[selectedSession.ingestion_session_id] ?? '').trim();
-
-    setIsGenerating(true);
-    try {
-      await pmoApi.generatePlan({
-        ingestion_session_id: selectedSession.ingestion_session_id,
-        goal,
-        previous_plan: selectedSession.plan,
-        plan_feedback: feedback || undefined,
-      });
-
-      await loadSessions(true);
-      toast.success('Plan queued', {
-        description: 'Generation continues in the background. This page will update automatically.',
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Plan regeneration failed.';
-      toast.error('Regenerate failed', { description: message });
-    } finally {
-      setIsGenerating(false);
-    }
-  }, [feedbackBySessionId, goalDraft, isGenerating, loadSessions, selectedSession]);
-
-  const handleApprovePlanAndStart = useCallback(async () => {
-    if (!selectedSession) {
-      return;
-    }
-
-    if (selectedSession.planning_state !== 'plan_review') {
-      toast.error('Cannot approve', {
-        description: 'Only Plan Review state can move to next workflow step.',
-      });
-      return;
-    }
-
-    if (isApproving) {
-      return;
-    }
-
-    setIsApproving(true);
-    try {
-      await pmoApi.approvePlan(selectedSession.ingestion_session_id);
-      const isDatabaseReport =
-        selectedSession.plan?.intent_analysis?.dataSourceMode === 'existing_db' &&
-        selectedSession.plan?.intent_analysis?.actionMode === 'generate_report';
-      if (isDatabaseReport && !runtimeRunBySessionId.has(selectedSession.ingestion_session_id)) {
-        await pmoApi.startIngestWorkflow({
-          ingestionSessionId: selectedSession.ingestion_session_id,
-        });
-      }
-      await Promise.all([loadSessions(true), refreshWorkflowRuntime()]);
-
-      toast.success('Plan approved', {
-        description: isDatabaseReport
-          ? 'The database report workflow has started.'
-          : 'Workbook Profiling is ready for PMO review before the runtime workflow starts.',
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Plan approval failed.';
-      toast.error('Approve failed', { description: message });
-    } finally {
-      setIsApproving(false);
-    }
-  }, [isApproving, loadSessions, refreshWorkflowRuntime, runtimeRunBySessionId, selectedSession]);
-
-  const handleConfirmPlanIntent = useCallback(
-    async (selection?: {
-      dataSourceMode?: 'existing_db' | 'uploaded_file';
-      actionMode?: NonNullable<PmoPlan['intent_analysis']>['actionMode'];
-    }) => {
-      if (!selectedSession) {
-        return;
-      }
-
-      if (selectedSession.planning_state !== 'intent_review') {
-        toast.error('Cannot confirm intent', {
-          description: 'Intent can be confirmed only while intent review is active.',
-        });
-        return;
-      }
-
-      if (isConfirmingIntent) {
-        return;
-      }
-
-      setIsConfirmingIntent(true);
-      try {
-        await pmoApi.confirmPlanIntent({
-          ingestionSessionId: selectedSession.ingestion_session_id,
-          dataSourceMode: selection?.dataSourceMode,
-          actionMode: selection?.actionMode,
-        });
-        await pmoApi.generatePlan({
-          ingestion_session_id: selectedSession.ingestion_session_id,
-          goal: selectedSession.goal,
-        });
-        await loadSessions(true);
-
-        toast.success('Intent confirmed', {
-          description: 'Intent used as input. Plan review now ready.',
-        });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Intent confirmation failed.';
-        toast.error('Confirm intent failed', { description: message });
-      } finally {
-        setIsConfirmingIntent(false);
-      }
-    },
-    [isConfirmingIntent, loadSessions, selectedSession],
   );
 
   const handleAppendDocument = useCallback(
@@ -543,10 +295,6 @@ export function usePmoSessionActions(
     [runtimeRunBySessionId],
   );
 
-  const isSessionGeneratable = useCallback((run: PmoPlanningSession): boolean => {
-    return isPmoSessionGeneratable(run);
-  }, []);
-
   const handleCancelWorkflow = useCallback(
     async (run: PmoPlanningSession) => {
       if (!isWorkflowCancelable(run)) {
@@ -636,26 +384,16 @@ export function usePmoSessionActions(
 
   return {
     isUploading,
-    isGenerating,
-    generatingSessionId,
-    isApproving,
-    isConfirmingIntent,
     isAppendingDocument,
     isSavingProfilingReview,
     isApprovingProfiling,
     isCancellingWorkflowBySessionId,
     refreshPage,
     onFile,
-    handleAnalyzeGeneratePlan,
-    handleGeneratePlanForSession,
-    handleRegeneratePlan,
-    handleApprovePlanAndStart,
-    handleConfirmPlanIntent,
     handleAppendDocument,
     handleSaveProfilingReview,
     handleApproveProfilingContinue,
     isWorkflowCancelable,
-    isSessionGeneratable,
     handleCancelWorkflow,
   };
 }

@@ -157,8 +157,22 @@ export async function prepareChatIngestSession(
   }
 
   if (input.chatThreadId) {
-    if (!row.chat_thread_id || row.chat_thread_id !== input.chatThreadId) {
+    if (row.chat_thread_id && row.chat_thread_id !== input.chatThreadId) {
+      // Session already linked to a different chat thread — reject.
       throw new Error('ingestion_session_not_in_chat_thread');
+    }
+    if (!row.chat_thread_id) {
+      // Session uploaded via PMO page dropzone (no chat thread).
+      // Link it to the current chat thread so the agent can drive it.
+      await db
+        .update(ingestionSessions)
+        .set({ chat_thread_id: input.chatThreadId })
+        .where(
+          and(
+            eq(ingestionSessions.id, input.ingestionSessionId),
+            eq(ingestionSessions.tenant_id, input.tenantId),
+          ),
+        );
     }
   }
 

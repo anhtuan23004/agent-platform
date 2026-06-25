@@ -400,13 +400,7 @@ export interface PmoPlanningSession {
   reporting_period_key: string | null;
   reporting_period_start: string | null;
   reporting_period_end: string | null;
-  planning_state:
-    | 'uploaded'
-    | 'intent_review'
-    | 'generating_plan'
-    | 'plan_generation_failed'
-    | 'plan_review'
-    | 'approved_plan';
+  planning_state: 'uploaded' | 'approved_plan';
   status_label: string;
   active_gate: string;
   progress_text: string;
@@ -437,41 +431,6 @@ export interface PmoPlanningSession {
 
 export interface ListPlanningSessionsResponse {
   items: PmoPlanningSession[];
-}
-
-export interface GeneratePlanInput {
-  ingestion_session_id?: string;
-  goal: string;
-  previous_plan?: PmoPlan | null;
-  plan_feedback?: string;
-}
-
-export interface GeneratePlanResponse {
-  ingestion_session_id: string;
-  planning_state: 'generating_plan';
-}
-
-export interface ApprovePlanResponse {
-  ingestion_session_id: string;
-  planning_state: 'approved_plan';
-  approved_at: string;
-  execution_state: PmoWorkflowExecutionState;
-  profiling_documents: PmoSessionDocumentProfileRecord[];
-  profiling_summary: PmoWorkbookProfilingSessionSummary | null;
-  profiling_review: PmoProfilingReviewState | null;
-}
-
-export interface ConfirmPlanIntentResponse {
-  ingestion_session_id: string;
-  planning_state: 'uploaded';
-  intent: PmoPlan['intent_analysis'];
-  confirmed_at: string;
-}
-
-export interface ConfirmPlanIntentInput {
-  ingestionSessionId: string;
-  dataSourceMode?: 'existing_db' | 'uploaded_file';
-  actionMode?: NonNullable<PmoPlan['intent_analysis']>['actionMode'];
 }
 
 export interface AppendSessionDocumentResponse {
@@ -594,40 +553,6 @@ export const pmoApi = {
       credentials: 'include',
     });
     return jsonOrThrow<ListPlanningSessionsResponse>(res);
-  },
-
-  async generatePlan(input: GeneratePlanInput): Promise<GeneratePlanResponse> {
-    const res = await fetch('/api/pmo/v1/plan/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(input),
-      credentials: 'include',
-    });
-    return jsonOrThrow<GeneratePlanResponse>(res);
-  },
-
-  async approvePlan(ingestionSessionId: string): Promise<ApprovePlanResponse> {
-    const res = await fetch('/api/pmo/v1/plan/approve', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ingestion_session_id: ingestionSessionId }),
-      credentials: 'include',
-    });
-    return jsonOrThrow<ApprovePlanResponse>(res);
-  },
-
-  async confirmPlanIntent(input: ConfirmPlanIntentInput): Promise<ConfirmPlanIntentResponse> {
-    const res = await fetch('/api/pmo/v1/plan/confirm-intent', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ingestion_session_id: input.ingestionSessionId,
-        dataSourceMode: input.dataSourceMode,
-        actionMode: input.actionMode,
-      }),
-      credentials: 'include',
-    });
-    return jsonOrThrow<ConfirmPlanIntentResponse>(res);
   },
 
   async appendSessionDocument(

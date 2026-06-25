@@ -2,8 +2,6 @@ import { useMemo } from 'react';
 import type { PmoPlanningSession } from '../api/client';
 import type { WorkflowApprovalRow, WorkflowRunRow } from '../api/workflow-runtime';
 import {
-  buildExecutionRuntimeTimeline,
-  buildPlanningTimeline,
   type ExecutionCard,
   executionStepMatchesRuntimeStep,
   isMappingApprovalRow,
@@ -20,9 +18,7 @@ import {
   readActiveWorkflowStepId,
   readIngestionSessionIdFromApproval,
   readIngestionSessionIdFromRunInput,
-  resolveExecutionCurrentStepIndex,
   sessionIdsMatch,
-  type TimelineState,
 } from '../pages/pmo-page.logic';
 import {
   useWorkflowRuntimePendingApprovals,
@@ -60,13 +56,12 @@ export interface UsePmoWorkflowRuntimeResult {
   selectedReportApproval: WorkflowApprovalRow | null;
   runtimeActiveStepId: string | null;
   hasRuntimeCurrentStepMatch: boolean;
-  timeline: Array<{ id: number; label: string; state: TimelineState }>;
 }
 
 export function usePmoWorkflowRuntime(
   options: UsePmoWorkflowRuntimeOptions,
 ): UsePmoWorkflowRuntimeResult {
-  const { selectedSession, executionCards, executionCurrentStepNo } = options;
+  const { selectedSession, executionCards } = options;
 
   const pendingApprovals = useWorkflowRuntimePendingApprovals();
 
@@ -364,39 +359,6 @@ export function usePmoWorkflowRuntime(
     );
   }, [executionCards, runtimeActiveStepId]);
 
-  const timeline = useMemo(() => {
-    const planningState = selectedSession?.planning_state ?? null;
-    if (!selectedSession) {
-      return buildPlanningTimeline(planningState);
-    }
-
-    if (planningState !== 'approved_plan' && !selectedWorkflowRun) {
-      return buildPlanningTimeline(planningState);
-    }
-
-    if (executionCards.length === 0) {
-      return buildPlanningTimeline(planningState);
-    }
-
-    const currentStepIndex = resolveExecutionCurrentStepIndex({
-      cards: executionCards,
-      runtimeActiveStepId,
-      executionCurrentStepNo,
-    });
-
-    return buildExecutionRuntimeTimeline({
-      cards: executionCards,
-      currentStepIndex,
-      runStatus: selectedWorkflowRun?.status ?? null,
-    });
-  }, [
-    executionCards,
-    executionCurrentStepNo,
-    runtimeActiveStepId,
-    selectedSession,
-    selectedWorkflowRun,
-  ]);
-
   return {
     pendingApprovals,
     workflowRuns,
@@ -415,6 +377,5 @@ export function usePmoWorkflowRuntime(
     selectedReportApproval: effectiveReportApproval,
     runtimeActiveStepId,
     hasRuntimeCurrentStepMatch,
-    timeline,
   };
 }
