@@ -4,6 +4,7 @@ import { loadDynamicRuntimeSession, updateDynamicRuntimeSession } from './contex
 import {
   applyMappingOverrides,
   attachRuntimeContextToState,
+  attachStepViewToState,
   buildArtifactAccessors,
   buildStatePatch,
   buildStepRegistry,
@@ -136,6 +137,10 @@ export async function runDynamicIngestOrchestrator(
       userId: input.userId,
       runId: input.runId,
       planningGoal: row.planning_goal,
+      fileName: row.source_file_name ?? undefined,
+      fileSizeBytes: row.source_file_size_bytes,
+      mimeType: row.mime_type,
+      uploadedAt: row.created_at.toISOString(),
       reportingPeriodStart: row.reporting_period_start,
       reportingPeriodEnd: row.reporting_period_end,
       requestContext: input.requestContext,
@@ -159,6 +164,15 @@ export async function runDynamicIngestOrchestrator(
     if (result.kind === 'suspend') {
       state = markStepsForSuspend(state, activeStep);
       state = attachRuntimeContextToState(state, runtimeContext);
+      state = attachStepViewToState({
+        state,
+        step: activeStep,
+        runtimeContext,
+        status: 'needs_review',
+        approvalPayload: result.card,
+        outputSummary: result.outputSummary,
+        reviewStatus: 'pending',
+      });
       await updateDynamicRuntimeSession({
         ingestionSessionId: input.ingestionSessionId,
         tenantId: input.tenantId,
@@ -180,6 +194,14 @@ export async function runDynamicIngestOrchestrator(
     if (result.kind === 'rejected') {
       state = markStepRejected(state, activeStep);
       state = attachRuntimeContextToState(state, runtimeContext);
+      state = attachStepViewToState({
+        state,
+        step: activeStep,
+        runtimeContext,
+        status: 'failed',
+        outputSummary: result.outputSummary,
+        reviewStatus: 'rejected',
+      });
       await updateDynamicRuntimeSession({
         ingestionSessionId: input.ingestionSessionId,
         tenantId: input.tenantId,
@@ -210,6 +232,14 @@ export async function runDynamicIngestOrchestrator(
 
     const advanced = markStepCompleted(state, activeStep, result.outputSummary);
     state = attachRuntimeContextToState(advanced.state, runtimeContext);
+    state = attachStepViewToState({
+      state,
+      step: activeStep,
+      runtimeContext,
+      status: 'completed',
+      outputSummary: result.outputSummary,
+      reviewStatus: activeStep.review_type === 'none' ? 'not_needed' : 'approved',
+    });
 
     const nextStatus = advanced.nextStep
       ? statusForAction(advanced.nextStep.action_id)

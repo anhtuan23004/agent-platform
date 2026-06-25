@@ -35,6 +35,7 @@ import type {
   DynamicRuntimeSessionStatus,
   PlannerExecutionStateV2,
   PlannerExecutionStepV2,
+  PlannerStepViewState,
   PmoDynamicHandlerInput,
 } from './types.ts';
 
@@ -259,6 +260,59 @@ export function readExecutionStateV2(raw: unknown, planningPlan: unknown): Plann
       ? raw.current_step_status
       : 'in_progress';
 
+  const stepViews = isObject(raw.step_views)
+    ? Object.fromEntries(
+        Object.entries(raw.step_views)
+          .map(([key, value]): [string, PlannerStepViewState] | null => {
+            if (!isObject(value)) return null;
+            const actionId =
+              typeof value.action_id === 'string' ? (value.action_id as PmoPlanActionId) : null;
+            const reviewType =
+              typeof value.review_type === 'string' ? (value.review_type as PmoReviewType) : null;
+            const plannerStepId =
+              typeof value.planner_step_id === 'string' ? value.planner_step_id : null;
+            const stepName = typeof value.step_name === 'string' ? value.step_name : null;
+            const status =
+              value.status === 'in_progress' ||
+              value.status === 'needs_review' ||
+              value.status === 'completed' ||
+              value.status === 'failed' ||
+              value.status === 'cancelled'
+                ? value.status
+                : null;
+            const updatedAt = typeof value.updated_at === 'string' ? value.updated_at : null;
+            if (!actionId || !reviewType || !plannerStepId || !stepName || !status || !updatedAt) {
+              return null;
+            }
+            return [
+              key,
+              {
+                action_id: actionId,
+                review_type: reviewType,
+                planner_step_id: plannerStepId,
+                step_name: stepName,
+                status,
+                review_status:
+                  value.review_status === 'not_needed' ||
+                  value.review_status === 'pending' ||
+                  value.review_status === 'approved' ||
+                  value.review_status === 'rejected' ||
+                  value.review_status === 'modified'
+                    ? value.review_status
+                    : undefined,
+                approval_payload: value.approval_payload,
+                runtime_payload: value.runtime_payload,
+                output_summary: isObject(value.output_summary)
+                  ? (value.output_summary as Record<string, unknown>)
+                  : undefined,
+                updated_at: updatedAt,
+              },
+            ];
+          })
+          .filter((entry): entry is [string, PlannerStepViewState] => Boolean(entry)),
+      )
+    : undefined;
+
   return {
     state_version: 2,
     started_at: asIsoOrNow(typeof raw.started_at === 'string' ? raw.started_at : undefined),
@@ -282,6 +336,7 @@ export function readExecutionStateV2(raw: unknown, planningPlan: unknown): Plann
     report_result: isObject(raw.report_result)
       ? (raw.report_result as PlannerExecutionStateV2['report_result'])
       : undefined,
+    step_views: stepViews,
   };
 }
 
@@ -367,6 +422,20 @@ export function normalizeRuntimeContextFromSessionRow(params: {
     if (isObject(params.workflowExecutionState.report_result)) {
       context.report_result = params.workflowExecutionState
         .report_result as DynamicIngestRuntimeContext['report_result'];
+    }
+    if (
+      Array.isArray(params.workflowExecutionState.documents) &&
+      isObject(params.workflowExecutionState.profiling_summary) &&
+      isObject(params.workflowExecutionState.profiling_review)
+    ) {
+      type RuntimeProfiling = NonNullable<DynamicIngestRuntimeContext['profiling']>;
+      context.profiling = {
+        documents: params.workflowExecutionState.documents as RuntimeProfiling['documents'],
+        summary: params.workflowExecutionState
+          .profiling_summary as unknown as RuntimeProfiling['summary'],
+        review: params.workflowExecutionState
+          .profiling_review as unknown as RuntimeProfiling['review'],
+      };
     }
   }
 
@@ -512,6 +581,10 @@ export function runtimeContextToSessionPatch(
   if (patch.detected_schema) sessionPatch.detected_schema = patch.detected_schema;
   if (patch.confirmed_mapping) sessionPatch.confirmed_mapping = patch.confirmed_mapping;
   if (patch.staging_result) sessionPatch.change_summary = patch.staging_result;
+  if (patch.profiling) {
+    sessionPatch.profiling_documents = patch.profiling.documents;
+    sessionPatch.profiling_summary = patch.profiling.summary;
+  }
   return sessionPatch;
 }
 
@@ -523,6 +596,80 @@ export function attachRuntimeContextToState(
     ...state,
     ...(runtimeContext.report_request ? { report_request: runtimeContext.report_request } : {}),
     ...(runtimeContext.report_result ? { report_result: runtimeContext.report_result } : {}),
+    ...(runtimeContext.profiling
+      ? {
+          documents: runtimeContext.profiling.documents,
+          profiling_summary: runtimeContext.profiling.summary,
+          profiling_review: runtimeContext.profiling.review,
+        }
+      : {}),
+  };
+}
+
+export function runtimePayloadForAction(
+  runtimeContext: DynamicIngestRuntimeContext,
+  actionId: PmoPlanActionId,
+): unknown {
+  if (actionId === 'workbook_profiling') {
+    return {
+      detected_schema: runtimeContext.detected_schema,
+      profiling: runtimeContext.profiling,
+    };
+  }
+  if (actionId === 'column_mapping') {
+    return {
+      detected_schema: runtimeContext.detected_schema,
+      confirmed_mapping: runtimeContext.confirmed_mapping,
+    };
+  }
+  if (
+    actionId === 'normalize_to_staging' ||
+    actionId === 'database_change_summary' ||
+    actionId === 'publish_after_approval'
+  ) {
+    return {
+      confirmed_mapping: runtimeContext.confirmed_mapping,
+      staging_result: runtimeContext.staging_result,
+    };
+  }
+  if (actionId === 'generate_report') {
+    return {
+      report_request: runtimeContext.report_request,
+      report_result: runtimeContext.report_result,
+    };
+  }
+  return {};
+}
+
+export function attachStepViewToState(params: {
+  state: PlannerExecutionStateV2;
+  step: PlannerExecutionStepV2;
+  runtimeContext: DynamicIngestRuntimeContext;
+  status: PlannerStepViewState['status'];
+  approvalPayload?: unknown;
+  outputSummary?: Record<string, unknown>;
+  reviewStatus?: PlannerExecutionStepV2['review_status'];
+}): PlannerExecutionStateV2 {
+  const updatedAt = new Date().toISOString();
+  const key = params.step.action_id;
+  return {
+    ...params.state,
+    step_views: {
+      ...(params.state.step_views ?? {}),
+      [key]: {
+        action_id: params.step.action_id,
+        review_type: params.step.review_type,
+        planner_step_id: params.step.planner_step_id,
+        step_name: params.step.step_name,
+        status: params.status,
+        review_status: params.reviewStatus ?? params.step.review_status,
+        approval_payload:
+          params.approvalPayload ?? params.state.step_views?.[key]?.approval_payload,
+        runtime_payload: runtimePayloadForAction(params.runtimeContext, params.step.action_id),
+        output_summary: params.outputSummary ?? params.step.output_summary,
+        updated_at: updatedAt,
+      },
+    },
   };
 }
 

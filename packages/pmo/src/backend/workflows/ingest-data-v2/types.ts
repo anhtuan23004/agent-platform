@@ -4,6 +4,7 @@ import type { PmoPlanActionId, PmoReviewType } from '../../planning/step-metadat
 import type {
   ProfilingReviewState,
   SessionDocumentProfileRecord,
+  WorkbookProfilingSessionSummary,
   WorkflowExecutionStepStatus,
 } from '../../profiling/workbook-profiling.ts';
 
@@ -43,6 +44,19 @@ export interface PlannerExecutionStepV2 {
   review_status?: 'not_needed' | 'pending' | 'approved' | 'rejected' | 'modified';
 }
 
+export interface PlannerStepViewState {
+  action_id: PmoPlanActionId;
+  review_type: PmoReviewType;
+  planner_step_id: string;
+  step_name: string;
+  status: DynamicCurrentStepStatus;
+  review_status?: PlannerExecutionStepV2['review_status'];
+  approval_payload?: unknown;
+  runtime_payload?: unknown;
+  output_summary?: Record<string, unknown>;
+  updated_at: string;
+}
+
 export interface PlannerExecutionStateV2 {
   state_version: 2;
   started_at: string;
@@ -52,10 +66,11 @@ export interface PlannerExecutionStateV2 {
   current_step_status: DynamicCurrentStepStatus;
   steps: PlannerExecutionStepV2[];
   documents: SessionDocumentProfileRecord[];
-  profiling_summary: Record<string, unknown> | null;
+  profiling_summary: WorkbookProfilingSessionSummary | Record<string, unknown> | null;
   profiling_review: ProfilingReviewState | null;
   report_request?: DynamicIngestRuntimeContext['report_request'];
   report_result?: DynamicIngestRuntimeContext['report_result'];
+  step_views?: Record<string, PlannerStepViewState>;
 }
 
 export interface DynamicIngestRuntimeContext {
@@ -114,11 +129,20 @@ export interface DynamicIngestRuntimeContext {
       dateRange: { from: string; to: string };
     };
   };
+  profiling?: {
+    documents: SessionDocumentProfileRecord[];
+    summary: WorkbookProfilingSessionSummary;
+    review: ProfilingReviewState;
+  };
 }
 
 export interface PmoDynamicHandlerInput {
   ingestionSessionId: string;
   fileKey?: string;
+  fileName?: string;
+  fileSizeBytes?: number | null;
+  mimeType?: string | null;
+  uploadedAt?: string | null;
   tenantId: string;
   userId: string;
   runId: string;

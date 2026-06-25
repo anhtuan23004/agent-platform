@@ -729,14 +729,22 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
   // Render mapping/normalization/publish panels when:
   // 1. The step is the current actionable step (pending approval), OR
   // 2. The step has a decided approval (historical read-only view).
-  const isMappingReadOnly = !isCurrent && Boolean(selectedMappingApproval);
+  const isMappingReadOnly =
+    Boolean(selectedMappingApproval?.status && selectedMappingApproval.status !== 'pending') ||
+    (!isCurrent && Boolean(selectedMappingApproval));
   const shouldRenderMappingDetails =
     isLikelyMappingStep && (isCurrent || Boolean(selectedMappingApproval));
-  const isNormalizationReadOnly = !isCurrent && Boolean(selectedNormalizationApproval);
+  const isNormalizationReadOnly =
+    Boolean(
+      selectedNormalizationApproval?.status && selectedNormalizationApproval.status !== 'pending',
+    ) ||
+    (!isCurrent && Boolean(selectedNormalizationApproval));
   const shouldRenderNormalizationDetails =
     isLikelyNormalizationStep &&
     (isCurrent || Boolean(selectedNormalizationApproval) || Boolean(step.output_summary));
-  const isPublishReadOnly = !isCurrent && Boolean(selectedPublishApproval);
+  const isPublishReadOnly =
+    Boolean(selectedPublishApproval?.status && selectedPublishApproval.status !== 'pending') ||
+    (!isCurrent && Boolean(selectedPublishApproval));
   const shouldRenderPublishDetails =
     isLikelyPublishStep && (isCurrent || Boolean(selectedPublishApproval));
   const hasOpenProfilingReview =

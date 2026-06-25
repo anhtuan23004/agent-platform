@@ -11,6 +11,9 @@ export interface DynamicRuntimeSessionRow {
   status: string;
   source_file_key: string | null;
   source_file_name: string | null;
+  source_file_size_bytes: number | null;
+  mime_type: string | null;
+  created_at: Date;
   planning_goal: string | null;
   reporting_period_start: Date | null;
   reporting_period_end: Date | null;
@@ -35,6 +38,8 @@ export interface DynamicRuntimeSessionPatch {
   detected_schema?: unknown;
   confirmed_mapping?: unknown;
   change_summary?: unknown;
+  profiling_documents?: unknown;
+  profiling_summary?: unknown;
 }
 
 function normalizeBoolFlag(raw: string | undefined): boolean {
@@ -87,6 +92,9 @@ export async function loadDynamicRuntimeSession(params: {
       status: ingestionSessions.status,
       source_file_key: ingestionSessions.source_file_key,
       source_file_name: ingestionSessions.source_file_name,
+      source_file_size_bytes: ingestionSessions.source_file_size_bytes,
+      mime_type: ingestionSessions.mime_type,
+      created_at: ingestionSessions.created_at,
       planning_goal: ingestionSessions.planning_goal,
       reporting_period_start: ingestionSessions.reporting_period_start,
       reporting_period_end: ingestionSessions.reporting_period_end,

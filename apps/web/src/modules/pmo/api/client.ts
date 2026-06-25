@@ -352,6 +352,19 @@ export interface PmoWorkflowExecutionStep {
   output_summary?: Record<string, unknown>;
 }
 
+export interface PmoStepViewState {
+  action_id: string;
+  review_type: string;
+  planner_step_id: string;
+  step_name: string;
+  status: 'in_progress' | 'needs_review' | 'completed' | 'failed' | 'cancelled';
+  review_status?: 'not_needed' | 'pending' | 'approved' | 'rejected' | 'modified';
+  approval_payload?: unknown;
+  runtime_payload?: unknown;
+  output_summary?: Record<string, unknown>;
+  updated_at: string;
+}
+
 export interface PmoWorkbookProfilingSessionSummary {
   generated_at: string;
   document_count: number;
@@ -371,7 +384,7 @@ export interface PmoWorkbookProfilingSessionSummary {
 }
 
 export interface PmoWorkflowExecutionState {
-  state_version: 1;
+  state_version: 1 | 2;
   started_at: string;
   updated_at: string;
   current_step_no: number;
@@ -382,6 +395,7 @@ export interface PmoWorkflowExecutionState {
   profiling_review: PmoProfilingReviewState | null;
   report_request?: unknown;
   report_result?: unknown;
+  step_views?: Record<string, PmoStepViewState>;
 }
 
 export interface PmoPlanningSession {

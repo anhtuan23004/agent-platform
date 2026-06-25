@@ -1,6 +1,7 @@
 import type {
   PmoPlanningSession,
   PmoSessionDocumentProfileRecord,
+  PmoStepViewState,
   PmoWorkflowExecutionStepStatus,
 } from '../api/client';
 import type { WorkflowApprovalRow, WorkflowRunRow } from '../api/workflow-runtime';
@@ -34,6 +35,7 @@ export type ExecutionCard = {
   status: PmoWorkflowExecutionStepStatus;
   description?: string;
   output_summary?: Record<string, unknown>;
+  view_state?: PmoStepViewState;
 };
 
 export type ExecutionActionGroup = {
@@ -1233,6 +1235,26 @@ function reviewTypeForActionId(actionId: string | undefined): PmoReviewType {
   return 'generic';
 }
 
+function findStepViewState(
+  session: PmoPlanningSession,
+  step: {
+    action_id?: string;
+    planner_step_id?: string;
+    step_no?: number;
+  },
+): PmoStepViewState | undefined {
+  const views = session.execution_state?.step_views;
+  if (!views) return undefined;
+
+  if (step.action_id && views[step.action_id]) return views[step.action_id];
+
+  return Object.values(views).find((view) => {
+    if (step.planner_step_id && view.planner_step_id === step.planner_step_id) return true;
+    if (step.action_id && view.action_id === step.action_id) return true;
+    return false;
+  });
+}
+
 export function buildExecutionCards(session: PmoPlanningSession | null): ExecutionCard[] {
   if (!session) {
     return [];
@@ -1252,7 +1274,8 @@ export function buildExecutionCards(session: PmoPlanningSession | null): Executi
           step_name: step.step_name,
           status: step.status,
           description: '',
-          output_summary: step.output_summary,
+          output_summary: step.output_summary ?? findStepViewState(session, step)?.output_summary,
+          view_state: findStepViewState(session, step),
         }));
     }
     return [];
@@ -1270,6 +1293,14 @@ export function buildExecutionCards(session: PmoPlanningSession | null): Executi
 
     const cards = sortedWorkflow.map((step, index) => {
       const actionId = step.action_id ?? inferActionIdFromStepName(step.step_name);
+      const runtimeStep = session.execution_state?.steps.find(
+        (item) => item.step_no === step.step_no,
+      );
+      const viewState = findStepViewState(session, {
+        action_id: actionId,
+        planner_step_id: step.planner_step_id,
+        step_no: step.step_no,
+      });
       return {
         step_no: step.step_no,
         planner_step_id: step.planner_step_id ?? `pmo.planner.step.${step.step_no}.${actionId}`,
@@ -1280,8 +1311,8 @@ export function buildExecutionCards(session: PmoPlanningSession | null): Executi
           statusByStepNo.get(step.step_no) ??
           (session.planning_state === 'approved_plan' && index === 0 ? 'in_progress' : 'pending'),
         description: step.description,
-        output_summary: session.execution_state?.steps.find((item) => item.step_no === step.step_no)
-          ?.output_summary,
+        output_summary: runtimeStep?.output_summary ?? viewState?.output_summary,
+        view_state: viewState,
       };
     });
 
@@ -1298,7 +1329,8 @@ export function buildExecutionCards(session: PmoPlanningSession | null): Executi
         step_name: step.step_name,
         status: step.status,
         description: '',
-        output_summary: step.output_summary,
+        output_summary: step.output_summary ?? findStepViewState(session, step)?.output_summary,
+        view_state: findStepViewState(session, step),
       }));
 
     return [...cards, ...runtimeOnlySteps].sort((a, b) => a.step_no - b.step_no);
@@ -1316,7 +1348,8 @@ export function buildExecutionCards(session: PmoPlanningSession | null): Executi
         step_name: step.step_name,
         status: step.status,
         description: '',
-        output_summary: step.output_summary,
+        output_summary: step.output_summary ?? findStepViewState(session, step)?.output_summary,
+        view_state: findStepViewState(session, step),
       }));
   }
 
@@ -1348,6 +1381,11 @@ export function buildExecutionCards(session: PmoPlanningSession | null): Executi
             : 'pending'
           : 'pending',
       description: step.description,
+      view_state: findStepViewState(session, {
+        action_id: actionId,
+        planner_step_id: step.planner_step_id,
+        step_no: step.step_no,
+      }),
     };
   });
 }
