@@ -1016,6 +1016,44 @@ export function buildPmoRoutes(deps: RouteBuildDeps): Hono<SessionEnv> {
     return c.json({ items: mapped });
   });
 
+  // PATCH /api/pmo/v1/ingestion-sessions/:id/thread
+  // Links (or re-links) a session to a chat thread so both surfaces share state.
+  app.patch('/api/pmo/v1/ingestion-sessions/:id/thread', async (c) => {
+    const session = c.get('user');
+    const sessionId = c.req.param('id');
+    const body = (await c.req.json().catch(() => ({}))) as { chat_thread_id?: unknown };
+    const threadId =
+      typeof body.chat_thread_id === 'string' && body.chat_thread_id.trim()
+        ? body.chat_thread_id.trim()
+        : null;
+
+    if (!threadId) {
+      return c.json({ error: 'chat_thread_id is required' }, 400);
+    }
+
+    const db = pmoDb();
+    const updated = await db
+      .update(ingestionSessions)
+      .set({ chat_thread_id: threadId })
+      .where(
+        and(
+          eq(ingestionSessions.id, sessionId),
+          eq(ingestionSessions.tenant_id, session.tenant_id),
+        ),
+      )
+      .returning({ id: ingestionSessions.id, chat_thread_id: ingestionSessions.chat_thread_id });
+
+    if (updated.length === 0) {
+      return c.json({ error: 'session_not_found' }, 404);
+    }
+
+    const row = updated[0];
+    return c.json({
+      ingestion_session_id: row?.id,
+      chat_thread_id: row?.chat_thread_id,
+    });
+  });
+
   // POST /plan/generate, /plan/confirm-intent, /plan/approve — removed (agentic migration).
   // The PMO agent now handles planning via tools.
   void 0; // planning-routes-tombstone

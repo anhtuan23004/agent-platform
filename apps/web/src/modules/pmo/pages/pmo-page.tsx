@@ -44,7 +44,7 @@ export function PmoPage() {
   );
   const [sessions, setSessions] = useState<PmoPlanningSession[]>([]);
   const { setPanelOpen, setPendingPrompt } = usePanelUI();
-  const { actions: agentActions } = useAgentSelection();
+  const { selection, actions: agentActions } = useAgentSelection();
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [agentPollingActive, setAgentPollingActive] = useState(false);
   const [isReviewPanelOpen, setIsReviewPanelOpen] = useState(false);
@@ -90,6 +90,7 @@ export function PmoPage() {
     selectedPublishView,
     reportApprovals,
     selectedReportApproval,
+    approvalByActionId,
     runtimeActiveStepId,
     hasRuntimeCurrentStepMatch,
   } = usePmoWorkflowRuntime({
@@ -188,6 +189,7 @@ export function PmoPage() {
     handleCancelWorkflow,
   } = usePmoSessionActions({
     reportingPeriodKey,
+    chatThreadId: selection.threadId,
     selectedSession,
     profilingDocuments,
     profilingOverridesBySessionId,
@@ -341,6 +343,7 @@ export function PmoPage() {
     firstExecutionStepNo,
     runtimeActiveStepId,
     hasRuntimeCurrentStepMatch,
+    approvalByActionId,
   };
 
   const executionMapping = {
@@ -482,17 +485,26 @@ export function PmoPage() {
                   size="sm"
                   variant="primary"
                   disabled={!goalDraft.trim() || (!uploadedInfo && !selectedSession)}
-                  onClick={() => {
+                  onClick={async () => {
                     const sessionId =
                       uploadedInfo?.ingestionSessionId ??
                       selectedSession?.ingestion_session_id ??
                       '';
+                    // Link the session to the current chat thread so both surfaces share state.
+                    if (sessionId) {
+                      try {
+                        await pmoApi.linkSessionToThread(sessionId, selection.threadId);
+                      } catch {
+                        // Best-effort: the session may already be linked or the thread may not exist yet.
+                      }
+                    }
                     const prompt = sessionId
                       ? `${goalDraft.trim()}\n\n[Session: ${sessionId}]`
                       : goalDraft.trim();
                     setPanelOpen(true);
                     setPendingPrompt({ text: prompt, autoSend: true });
                     setAgentPollingActive(true);
+                    void loadSessions(true);
                   }}
                 >
                   <Bot className="size-4" />

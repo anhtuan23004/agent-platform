@@ -1,6 +1,4 @@
 import { AgentRegistry, type AgentTool } from '@seta/agent-sdk';
-import { ingestDataV2WorkflowSpec } from '../workflows/ingest-data-v2/spec.ts';
-import { pmoPlannerSnapshotDecorator } from '../workflows/planner-snapshot-decorator.ts';
 import { pmoAnalyticsTools } from './index.ts';
 
 export const pmoAgentTools: AgentTool[] = [...pmoAnalyticsTools];
@@ -20,7 +18,3 @@ AgentRegistry.registerSpecialist({
     'You are the PMO Agent. Answer utilization questions via pmo_queryUtilization (explicit intent) over published PMO data. For roles/staffing use Staffing Agent; for ingest use /pmo. Never invent numbers.',
   tools: Object.fromEntries(pmoAnalyticsTools.map((tool) => [(tool as { id: string }).id, tool])),
 });
-
-// Register workflows with AgentRegistry so they appear in Workflows UI
-AgentRegistry.registerWorkflow(ingestDataV2WorkflowSpec);
-AgentRegistry.registerWorkflowSnapshotDecorator(pmoPlannerSnapshotDecorator);

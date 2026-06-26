@@ -19,7 +19,11 @@ import {
   type MappingProgressItem,
   type MappingViewModel,
   type NormalizationReviewViewModel,
+  type PmoPlanActionId,
   type PublishReviewViewModel,
+  parseMappingView,
+  parseNormalizationReviewView,
+  parsePublishReviewView,
   readAgentNoteFromApproval,
   readClarificationsFromApproval,
   workflowStepTone,
@@ -113,6 +117,7 @@ export interface PmoExecutionStepRuntimeProps {
   firstExecutionStepNo: number | null;
   runtimeActiveStepId: string | null;
   hasRuntimeCurrentStepMatch: boolean;
+  approvalByActionId: Partial<Record<PmoPlanActionId, WorkflowApprovalRow>>;
 }
 
 export interface PmoExecutionStepMappingProps {
@@ -595,6 +600,31 @@ function StepOutputSummary(props: { summary: Record<string, unknown> }) {
   );
 }
 
+function groupMappingItems(items: MappingProgressItem[]): GroupedMappingItemsBySheet[] {
+  if (items.length === 0) return [];
+
+  const sorted = [...items].sort((a, b) => {
+    const sheetCompare = (a.sourceSheet ?? '').localeCompare(b.sourceSheet ?? '');
+    if (sheetCompare !== 0) return sheetCompare;
+    const tableCompare = a.table.localeCompare(b.table);
+    if (tableCompare !== 0) return tableCompare;
+    return a.field.localeCompare(b.field);
+  });
+
+  const groups: GroupedMappingItemsBySheet[] = [];
+  for (const item of sorted) {
+    const sheetName = item.sourceSheet ?? 'Unknown sheet';
+    const last = groups[groups.length - 1];
+    if (!last || last.sheetName !== sheetName) {
+      groups.push({ sheetName, items: [item] });
+      continue;
+    }
+    last.items.push(item);
+  }
+
+  return groups;
+}
+
 export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
   const {
     selectedSession,
@@ -725,28 +755,62 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
     /report|utili[sz]ation|overbook|idle/i.test(step.step_name);
   const isPlanApprovalStep = /plan\s*approval|approve\s*plan/i.test(step.step_name);
   const shouldRenderProfilingDetails = isWorkbookProfilingStep;
+  const stepActionApproval = step.action_id
+    ? (runtime.approvalByActionId[step.action_id as PmoPlanActionId] ?? null)
+    : null;
+  const selectedMappingApprovalForStep =
+    isLikelyMappingStep && stepActionApproval ? stepActionApproval : selectedMappingApproval;
+  const selectedMappingViewForStep =
+    isLikelyMappingStep && stepActionApproval
+      ? parseMappingView(stepActionApproval)
+      : selectedMappingView;
+  const groupedMappingItemsForStep =
+    selectedMappingViewForStep === selectedMappingView
+      ? groupedMappingItems
+      : groupMappingItems(selectedMappingViewForStep?.items ?? []);
+  const selectedNormalizationApprovalForStep =
+    isLikelyNormalizationStep && stepActionApproval
+      ? stepActionApproval
+      : selectedNormalizationApproval;
+  const selectedNormalizationViewForStep =
+    isLikelyNormalizationStep && stepActionApproval
+      ? parseNormalizationReviewView(stepActionApproval)
+      : selectedNormalizationView;
+  const selectedPublishApprovalForStep =
+    isLikelyPublishStep && stepActionApproval ? stepActionApproval : selectedPublishApproval;
+  const selectedPublishViewForStep =
+    isLikelyPublishStep && stepActionApproval
+      ? parsePublishReviewView(stepActionApproval)
+      : selectedPublishView;
+  const selectedReportApprovalForStep =
+    isLikelyReportStep && stepActionApproval ? stepActionApproval : selectedReportApproval;
 
   // Render mapping/normalization/publish panels when:
   // 1. The step is the current actionable step (pending approval), OR
   // 2. The step has a decided approval (historical read-only view).
   const isMappingReadOnly =
-    Boolean(selectedMappingApproval?.status && selectedMappingApproval.status !== 'pending') ||
-    (!isCurrent && Boolean(selectedMappingApproval));
+    Boolean(
+      selectedMappingApprovalForStep?.status && selectedMappingApprovalForStep.status !== 'pending',
+    ) ||
+    (!isCurrent && Boolean(selectedMappingApprovalForStep));
   const shouldRenderMappingDetails =
-    isLikelyMappingStep && (isCurrent || Boolean(selectedMappingApproval));
+    isLikelyMappingStep && (isCurrent || Boolean(selectedMappingApprovalForStep));
   const isNormalizationReadOnly =
     Boolean(
-      selectedNormalizationApproval?.status && selectedNormalizationApproval.status !== 'pending',
+      selectedNormalizationApprovalForStep?.status &&
+        selectedNormalizationApprovalForStep.status !== 'pending',
     ) ||
-    (!isCurrent && Boolean(selectedNormalizationApproval));
+    (!isCurrent && Boolean(selectedNormalizationApprovalForStep));
   const shouldRenderNormalizationDetails =
     isLikelyNormalizationStep &&
-    (isCurrent || Boolean(selectedNormalizationApproval) || Boolean(step.output_summary));
+    (isCurrent || Boolean(selectedNormalizationApprovalForStep) || Boolean(step.output_summary));
   const isPublishReadOnly =
-    Boolean(selectedPublishApproval?.status && selectedPublishApproval.status !== 'pending') ||
-    (!isCurrent && Boolean(selectedPublishApproval));
+    Boolean(
+      selectedPublishApprovalForStep?.status && selectedPublishApprovalForStep.status !== 'pending',
+    ) ||
+    (!isCurrent && Boolean(selectedPublishApprovalForStep));
   const shouldRenderPublishDetails =
-    isLikelyPublishStep && (isCurrent || Boolean(selectedPublishApproval));
+    isLikelyPublishStep && (isCurrent || Boolean(selectedPublishApprovalForStep));
   const hasOpenProfilingReview =
     isWorkbookProfilingStep &&
     selectedSession.planning_state === 'approved_plan' &&
@@ -814,20 +878,20 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
           </div>
 
           <CardClarificationPanel
-            approval={selectedMappingApproval}
+            approval={selectedMappingApprovalForStep}
             isCurrent={isCurrent}
             onClarify={
-              submitClarification && selectedMappingApproval
-                ? (msg) => submitClarification(selectedMappingApproval.approvalId, msg)
+              submitClarification && selectedMappingApprovalForStep
+                ? (msg) => submitClarification(selectedMappingApprovalForStep.approvalId, msg)
                 : undefined
             }
           />
           <PmoMappingReviewPanel
             readOnly={isMappingReadOnly}
-            selectedMappingApproval={selectedMappingApproval}
+            selectedMappingApproval={selectedMappingApprovalForStep}
             mappingApprovalsCount={mappingApprovalsCount}
-            groupedMappingItems={groupedMappingItems}
-            selectedMappingView={selectedMappingView}
+            groupedMappingItems={groupedMappingItemsForStep}
+            selectedMappingView={selectedMappingViewForStep}
             editingMappingKey={editingMappingKey}
             selectedMappingAlternate={selectedMappingAlternate}
             editingMappingItem={editingMappingItem}
@@ -855,20 +919,20 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
           </div>
 
           <CardClarificationPanel
-            approval={selectedNormalizationApproval}
+            approval={selectedNormalizationApprovalForStep}
             isCurrent={isCurrent}
             onClarify={
-              submitClarification && selectedNormalizationApproval
-                ? (msg) => submitClarification(selectedNormalizationApproval.approvalId, msg)
+              submitClarification && selectedNormalizationApprovalForStep
+                ? (msg) => submitClarification(selectedNormalizationApprovalForStep.approvalId, msg)
                 : undefined
             }
           />
-          {selectedNormalizationApproval ? (
+          {selectedNormalizationApprovalForStep ? (
             <PmoNormalizationReviewPanel
               readOnly={isNormalizationReadOnly}
-              selectedNormalizationApproval={selectedNormalizationApproval}
+              selectedNormalizationApproval={selectedNormalizationApprovalForStep}
               normalizationApprovalsCount={normalizationApprovalsCount}
-              selectedNormalizationView={selectedNormalizationView}
+              selectedNormalizationView={selectedNormalizationViewForStep}
               memberAdditionDrafts={memberAdditionDrafts}
               canApproveNormalization={canApproveNormalization}
               isSubmittingNormalizationDecision={isSubmittingNormalizationDecision}
@@ -884,9 +948,9 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
           ) : (
             <PmoNormalizationReviewPanel
               readOnly={isNormalizationReadOnly}
-              selectedNormalizationApproval={selectedNormalizationApproval}
+              selectedNormalizationApproval={selectedNormalizationApprovalForStep}
               normalizationApprovalsCount={normalizationApprovalsCount}
-              selectedNormalizationView={selectedNormalizationView}
+              selectedNormalizationView={selectedNormalizationViewForStep}
               memberAdditionDrafts={memberAdditionDrafts}
               canApproveNormalization={canApproveNormalization}
               isSubmittingNormalizationDecision={isSubmittingNormalizationDecision}
@@ -911,19 +975,19 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
           </div>
 
           <CardClarificationPanel
-            approval={selectedPublishApproval}
+            approval={selectedPublishApprovalForStep}
             isCurrent={isCurrent}
             onClarify={
-              submitClarification && selectedPublishApproval
-                ? (msg) => submitClarification(selectedPublishApproval.approvalId, msg)
+              submitClarification && selectedPublishApprovalForStep
+                ? (msg) => submitClarification(selectedPublishApprovalForStep.approvalId, msg)
                 : undefined
             }
           />
           <PmoPublishReviewPanel
             readOnly={isPublishReadOnly}
-            selectedPublishApproval={selectedPublishApproval}
+            selectedPublishApproval={selectedPublishApprovalForStep}
             publishApprovalsCount={publishApprovalsCount}
-            selectedPublishView={selectedPublishView}
+            selectedPublishView={selectedPublishViewForStep}
             isSubmittingPublishDecision={isSubmittingPublishDecision}
             approvePublish={approvePublish}
             rejectPublish={rejectPublish}
@@ -932,17 +996,17 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
       ) : isLikelyReportStep ? (
         <>
           <CardClarificationPanel
-            approval={selectedReportApproval}
+            approval={selectedReportApprovalForStep}
             isCurrent={isCurrent}
             onClarify={
-              submitClarification && selectedReportApproval
-                ? (msg) => submitClarification(selectedReportApproval.approvalId, msg)
+              submitClarification && selectedReportApprovalForStep
+                ? (msg) => submitClarification(selectedReportApprovalForStep.approvalId, msg)
                 : undefined
             }
           />
           <PmoReportReviewPanel
             step={step}
-            selectedReportApproval={selectedReportApproval}
+            selectedReportApproval={selectedReportApprovalForStep}
             reportApprovalsCount={reportApprovalsCount}
             isSubmittingReportDecision={isSubmittingReportDecision}
             confirmReportRange={confirmReportRange}

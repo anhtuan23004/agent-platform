@@ -486,16 +486,6 @@ export interface CancelWorkflowResponse {
   workflow_step_status: 'in_progress' | 'needs_review' | 'completed' | 'failed' | 'cancelled';
 }
 
-export interface StartIngestWorkflowInput {
-  ingestionSessionId: string;
-  fileKey?: string;
-  reportingPeriodKey?: string;
-}
-
-export interface StartIngestWorkflowResponse {
-  runId: string;
-}
-
 export interface UploadWorkbookOptions {
   reportingPeriodKey?: string;
   chatThreadId?: string;
@@ -544,16 +534,20 @@ export const pmoApi = {
     return uploadWorkbookThroughProxy(file, options, options.onProgress);
   },
 
-  async startIngestWorkflow(input: StartIngestWorkflowInput): Promise<StartIngestWorkflowResponse> {
-    const workflowId = 'pmo.ingestData.v2';
-
-    const res = await fetch(`/api/agent/v1/workflows/runs/${workflowId}/start`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(input),
-      credentials: 'include',
-    });
-    return jsonOrThrow<StartIngestWorkflowResponse>(res);
+  async linkSessionToThread(
+    sessionId: string,
+    chatThreadId: string,
+  ): Promise<{ ingestion_session_id: string; chat_thread_id: string }> {
+    const res = await fetch(
+      `/api/pmo/v1/ingestion-sessions/${encodeURIComponent(sessionId)}/thread`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_thread_id: chatThreadId }),
+        credentials: 'include',
+      },
+    );
+    return jsonOrThrow(res);
   },
 
   async listPlanningSessions(input?: {

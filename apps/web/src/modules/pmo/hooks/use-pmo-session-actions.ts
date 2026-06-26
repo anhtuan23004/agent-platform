@@ -8,7 +8,6 @@ import {
   pmoApi,
 } from '../api/client';
 import { workflowRuntimeApi } from '../api/workflow-runtime';
-import { shortId } from '../pages/pmo-page.logic';
 import { isPmoSessionCancelable } from './pmo-session-cancel';
 
 export interface UploadedWorkbookInfo {
@@ -21,6 +20,7 @@ export interface UploadedWorkbookInfo {
 
 interface UsePmoSessionActionsOptions {
   reportingPeriodKey: string;
+  chatThreadId: string;
   selectedSession: PmoPlanningSession | null;
   profilingDocuments: PmoSessionDocumentProfileRecord[];
   profilingOverridesBySessionId: Record<
@@ -55,8 +55,8 @@ export function usePmoSessionActions(
 ): UsePmoSessionActionsResult {
   const {
     reportingPeriodKey,
+    chatThreadId,
     selectedSession,
-    profilingDocuments,
     profilingOverridesBySessionId,
     loadSessions,
     setSelectedSessionId,
@@ -82,7 +82,10 @@ export function usePmoSessionActions(
     async (file: File) => {
       setIsUploading(true);
       try {
-        const uploaded = await pmoApi.uploadWorkbook(file, reportingPeriodKey || undefined);
+        const uploaded = await pmoApi.uploadWorkbook(file, {
+          reportingPeriodKey: reportingPeriodKey || undefined,
+          chatThreadId,
+        });
         const nowIso = new Date().toISOString();
         const sessionId = uploaded.ingestion_session_id;
 
@@ -109,7 +112,14 @@ export function usePmoSessionActions(
         setIsUploading(false);
       }
     },
-    [loadSessions, reportingPeriodKey, setIsReviewPanelOpen, setSelectedSessionId, setUploadedInfo],
+    [
+      chatThreadId,
+      loadSessions,
+      reportingPeriodKey,
+      setIsReviewPanelOpen,
+      setSelectedSessionId,
+      setUploadedInfo,
+    ],
   );
 
   const handleAppendDocument = useCallback(
@@ -226,62 +236,20 @@ export function usePmoSessionActions(
 
     setIsApprovingProfiling(true);
     try {
-      const response = await pmoApi.approveProfilingContinue(selectedSession.ingestion_session_id);
-      const existingRuntimeRun = runtimeRunBySessionId.get(selectedSession.ingestion_session_id);
-      const sourceFileKey =
-        response.profiling_documents[0]?.source_file_key ?? profilingDocuments[0]?.source_file_key;
-
-      let startedRunId: string | null = null;
-      let startWorkflowError: string | null = null;
-
-      if (!existingRuntimeRun) {
-        if (!sourceFileKey) {
-          startWorkflowError = 'No source workbook key found to start workflow run.';
-        } else {
-          try {
-            const started = await pmoApi.startIngestWorkflow({
-              ingestionSessionId: selectedSession.ingestion_session_id,
-              fileKey: sourceFileKey,
-              reportingPeriodKey: reportingPeriodKey.trim() || undefined,
-            });
-            startedRunId = started.runId;
-          } catch (startErr) {
-            startWorkflowError =
-              startErr instanceof Error ? startErr.message : 'Failed to start workflow run.';
-          }
-        }
-      }
+      await pmoApi.approveProfilingContinue(selectedSession.ingestion_session_id);
 
       await Promise.all([loadSessions(true), refreshWorkflowRuntime()]);
 
-      if (startWorkflowError) {
-        toast.error('Profiling approved but workflow did not start', {
-          description: startWorkflowError,
-        });
-      } else if (startedRunId) {
-        toast.success('Profiling approved and workflow started', {
-          description: `Workflow run ${shortId(startedRunId)} is now synchronized from PMO decisions.`,
-        });
-      } else {
-        toast.success('Profiling approved', {
-          description: 'Workflow moved to the next PMO-controlled step.',
-        });
-      }
+      toast.success('Profiling approved', {
+        description: 'Profiling gate approved. The agent will continue processing.',
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to approve profiling gate.';
       toast.error('Approve failed', { description: message });
     } finally {
       setIsApprovingProfiling(false);
     }
-  }, [
-    isApprovingProfiling,
-    loadSessions,
-    profilingDocuments,
-    refreshWorkflowRuntime,
-    reportingPeriodKey,
-    runtimeRunBySessionId,
-    selectedSession,
-  ]);
+  }, [isApprovingProfiling, loadSessions, refreshWorkflowRuntime, selectedSession]);
 
   const isRuntimeRunCancelable = useCallback((status: string | null | undefined): boolean => {
     return status === 'pending' || status === 'running' || status === 'paused';

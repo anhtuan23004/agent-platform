@@ -1,5 +1,6 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo } from 'react';
+import { notifyApprovalResolved } from '../../agent/hooks/use-approval-events';
 import { type WorkflowRunScope, workflowRuntimeApi } from '../api/workflow-runtime';
 
 const PAGE_SIZE = 25;
@@ -113,10 +114,20 @@ export interface SubmitRuntimeDecisionArgs {
 }
 
 export function useSubmitWorkflowRuntimeDecision() {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ approvalId, agentic, ...decision }: SubmitRuntimeDecisionArgs) =>
       agentic
         ? workflowRuntimeApi.resumeChat({ approvalId, ...decision })
         : workflowRuntimeApi.decideApproval(approvalId, decision),
+    onSuccess: (_data, variables) => {
+      // After a successful decision, notify the chat panel so it reloads the
+      // thread messages that the agent produced during resume.
+      if (variables.agentic) {
+        notifyApprovalResolved();
+      }
+      // Invalidate approval queries so the PMO cards reflect the decision.
+      void qc.invalidateQueries({ queryKey: workflowRuntimeQueryKeys.pendingApprovals() });
+    },
   });
 }
