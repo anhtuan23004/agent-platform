@@ -1,5 +1,5 @@
 import { Button, Dropzone, Input, Label, PageChrome, Textarea, toast } from '@seta/shared-ui';
-import { Bot, RefreshCw, Workflow } from 'lucide-react';
+import { Bot, Loader2, RefreshCw, Workflow } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAgentSelection } from '../../agent/chat-experience/agent-provider';
 import { markThreadFresh } from '../../agent/lib/fresh-thread-store';
@@ -47,6 +47,7 @@ export function PmoPage() {
   const { selection } = useAgentSelection();
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [agentPollingActive, setAgentPollingActive] = useState(false);
+  const [isAgentRunning, setIsAgentRunning] = useState(false);
   const [isReviewPanelOpen, setIsReviewPanelOpen] = useState(false);
 
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
@@ -486,7 +487,9 @@ export function PmoPage() {
                   type="button"
                   size="sm"
                   variant="primary"
-                  disabled={!goalDraft.trim() || (!uploadedInfo && !selectedSession)}
+                  disabled={
+                    isAgentRunning || !goalDraft.trim() || (!uploadedInfo && !selectedSession)
+                  }
                   onClick={async () => {
                     const sessionId =
                       uploadedInfo?.ingestionSessionId ??
@@ -510,6 +513,7 @@ export function PmoPage() {
                     // Send directly to the PMO agent chat API.  The response
                     // is SSE; we fire-and-forget — the pending-approvals poll
                     // will surface the profiling card when the agent suspends.
+                    setIsAgentRunning(true);
                     try {
                       const res = await fetch('/api/agent/v1/chat', {
                         method: 'POST',
@@ -534,14 +538,14 @@ export function PmoPage() {
                           (body as { message?: string }).message ?? `HTTP ${res.status}`,
                         );
                       }
-                      toast.success('Agent started', {
-                        description:
-                          'The PMO agent is processing the workbook. Approval will appear shortly.',
-                      });
                       // Drain the SSE stream in background so the server
                       // completes the turn (writes approval row on suspend).
-                      void res.text().then(() => loadSessions(true));
+                      void res.text().then(() => {
+                        setIsAgentRunning(false);
+                        void loadSessions(true);
+                      });
                     } catch (err) {
+                      setIsAgentRunning(false);
                       toast.error('Failed to start agent', {
                         description:
                           err instanceof Error ? err.message : 'Could not reach the agent.',
@@ -551,8 +555,17 @@ export function PmoPage() {
                     void loadSessions(true);
                   }}
                 >
-                  <Bot className="size-4" />
-                  Start with Agent
+                  {isAgentRunning ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" />
+                      Agent is processing...
+                    </>
+                  ) : (
+                    <>
+                      <Bot className="size-4" />
+                      Start with Agent
+                    </>
+                  )}
                 </Button>
               </section>
 
@@ -624,6 +637,7 @@ export function PmoPage() {
                 <PmoWorkflowCardsSection
                   selectedSession={selectedSession}
                   executionCards={executionCardsForDisplay}
+                  isAgentRunning={isAgentRunning}
                   runtime={executionRuntime}
                   mapping={executionMapping}
                   normalization={executionNormalization}

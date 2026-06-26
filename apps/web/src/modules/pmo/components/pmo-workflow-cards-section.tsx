@@ -1,4 +1,4 @@
-import { CheckCircle2, LockKeyhole } from 'lucide-react';
+import { CheckCircle2, Loader2, LockKeyhole } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { PmoPlanningSession } from '../api/client';
 import type { ExecutionCard } from '../pages/pmo-page.logic';
@@ -30,6 +30,7 @@ interface WorkflowCardModel {
 interface PmoWorkflowCardsSectionProps {
   selectedSession: PmoPlanningSession;
   executionCards: ExecutionCard[];
+  isAgentRunning?: boolean;
   runtime: PmoExecutionStepRuntimeProps;
   mapping: PmoExecutionStepMappingProps;
   normalization: PmoExecutionStepNormalizationProps;
@@ -127,6 +128,7 @@ export function PmoWorkflowCardsSection(props: PmoWorkflowCardsSectionProps) {
   const {
     selectedSession,
     executionCards,
+    isAgentRunning,
     runtime,
     mapping,
     normalization,
@@ -164,6 +166,13 @@ export function PmoWorkflowCardsSection(props: PmoWorkflowCardsSectionProps) {
           {selectedSession.status_label}
         </span>
       </div>
+
+      {isAgentRunning && (
+        <div className="mt-3 flex items-center gap-2 rounded-md border border-info/30 bg-info/5 px-3 py-2 text-caption text-info">
+          <Loader2 className="size-4 animate-spin" />
+          Agent is processing the workbook. Steps will appear as the agent progresses.
+        </div>
+      )}
 
       <div className="mt-3 overflow-x-auto pb-1">
         <ol className="flex min-w-max gap-2">
