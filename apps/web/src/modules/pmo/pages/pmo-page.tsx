@@ -1,7 +1,9 @@
 import { Button, Dropzone, Input, Label, PageChrome, Textarea, toast } from '@seta/shared-ui';
+import { useNavigate } from '@tanstack/react-router';
 import { Bot, RefreshCw, Workflow } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAgentSelection, usePanelUI } from '../../agent/chat-experience/agent-provider';
+import { markThreadFresh } from '../../agent/lib/fresh-thread-store';
 import {
   type PmoPlan,
   type PmoPlanningSession,
@@ -45,6 +47,7 @@ export function PmoPage() {
   const [sessions, setSessions] = useState<PmoPlanningSession[]>([]);
   const { setPendingPrompt } = usePanelUI();
   const { selection } = useAgentSelection();
+  const navigate = useNavigate();
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [agentPollingActive, setAgentPollingActive] = useState(false);
   const [isReviewPanelOpen, setIsReviewPanelOpen] = useState(false);
@@ -78,6 +81,7 @@ export function PmoPage() {
     pendingApprovals,
     workflowRuns,
     runtimeRunBySessionId,
+    selectedProfilingApproval,
     mappingApprovals,
     selectedMappingApproval,
     selectedMappingView,
@@ -199,7 +203,7 @@ export function PmoPage() {
     setUploadedInfo,
     refreshWorkflowRuntime,
     runtimeRunBySessionId,
-    profilingApproval: approvalByActionId.workbook_profiling ?? null,
+    profilingApproval: selectedProfilingApproval,
   });
 
   const {
@@ -491,20 +495,30 @@ export function PmoPage() {
                       uploadedInfo?.ingestionSessionId ??
                       selectedSession?.ingestion_session_id ??
                       '';
-                    // Link the session to the current chat thread so both surfaces share state.
+                    // Mint a fresh thread so the URL, runtime, and Mastra row
+                    // agree from the first send (same contract as /pmo/agent
+                    // route's beforeLoad).
+                    const threadId = crypto.randomUUID();
+                    markThreadFresh(threadId);
+                    // Link the session to the new thread so both surfaces share state.
                     if (sessionId) {
                       try {
-                        await pmoApi.linkSessionToThread(sessionId, selection.threadId);
+                        await pmoApi.linkSessionToThread(sessionId, threadId);
                       } catch {
-                        // Best-effort: the session may already be linked or the thread may not exist yet.
+                        // Best-effort: the session may already be linked.
                       }
                     }
                     const prompt = sessionId
                       ? `${goalDraft.trim()}\n\n[Session: ${sessionId}]`
                       : goalDraft.trim();
+                    // Queue the prompt so AgentComposer auto-sends on mount,
+                    // then navigate to /pmo/agent where the runtime lives.
                     setPendingPrompt({ text: prompt, autoSend: true });
                     setAgentPollingActive(true);
-                    void loadSessions(true);
+                    void navigate({
+                      to: '/pmo/agent',
+                      search: { thread: threadId },
+                    });
                   }}
                 >
                   <Bot className="size-4" />

@@ -363,8 +363,21 @@ export function readPlannerStepIdFromApproval(approval: WorkflowApprovalRow): st
   return cardMetaStringFromPayload(approval.proposedPayload, 'plannerStepId');
 }
 
+/** toolId → actionId fallback for cards that omit meta.actionId. */
+const TOOL_ID_TO_ACTION_ID: Record<string, string> = {
+  pmo_profileWorkbook: 'workbook_profiling',
+  pmo_confirmMapping: 'column_mapping',
+  pmo_reviewNormalization: 'normalize_to_staging',
+  pmo_confirmPublish: 'publish_after_approval',
+  pmo_confirmReportRange: 'generate_report',
+};
+
 export function readActionIdFromApproval(approval: WorkflowApprovalRow): string | null {
-  return cardMetaStringFromPayload(approval.proposedPayload, 'actionId');
+  const explicit = cardMetaStringFromPayload(approval.proposedPayload, 'actionId');
+  if (explicit) return explicit;
+  // Infer from toolId when actionId is absent (newer card builders may omit it).
+  const toolId = cardToolIdFromPayload(approval.proposedPayload);
+  return toolId ? (TOOL_ID_TO_ACTION_ID[toolId] ?? null) : null;
 }
 
 export function readReviewTypeFromApproval(approval: WorkflowApprovalRow): string | null {
