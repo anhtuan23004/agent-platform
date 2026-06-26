@@ -234,27 +234,35 @@ export function usePmoSessionActions(
       return;
     }
 
+    if (profilingApproval?.status !== 'pending') {
+      toast.error('No pending approval', {
+        description:
+          'No pending profiling approval found. The approval may have already been resolved.',
+      });
+      return;
+    }
+
     if (isApprovingProfiling) {
       return;
     }
 
     setIsApprovingProfiling(true);
     try {
-      await pmoApi.approveProfilingContinue(selectedSession.ingestion_session_id);
-
-      // Resume the agent if there is a pending agentic profiling approval.
-      if (profilingApproval?.agentic) {
-        try {
-          await workflowRuntimeApi.resumeChat({
-            approvalId: profilingApproval.approvalId,
-            decision: 'approve',
-          });
-          notifyApprovalResolved();
-        } catch {
-          // Best-effort: the approval may already have been resolved.
-        }
+      // Approve profiling through the canonical agent decision path.
+      // The agent handler's resume path updates PMO session state
+      // (profiling_review, step status, step advancement) transactionally.
+      if (profilingApproval.agentic) {
+        await workflowRuntimeApi.resumeChat({
+          approvalId: profilingApproval.approvalId,
+          decision: 'approve',
+        });
+      } else {
+        await workflowRuntimeApi.decideApproval(profilingApproval.approvalId, {
+          decision: 'approve',
+        });
       }
 
+      notifyApprovalResolved();
       await Promise.all([loadSessions(true), refreshWorkflowRuntime()]);
 
       toast.success('Profiling approved', {

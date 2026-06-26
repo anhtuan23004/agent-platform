@@ -852,6 +852,7 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
           profilingReviewState={profilingReviewState}
           profilingSummary={profilingSummary}
           profilingDocuments={profilingDocuments}
+          profilingApproval={stepActionApproval}
           selectedSessionOverrides={selectedSessionOverrides}
           profilingAreas={profilingAreas}
           isAppendingDocument={isAppendingDocument}

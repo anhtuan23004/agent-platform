@@ -7,6 +7,7 @@ import type {
   PmoWorkbookProfilingSessionSummary,
   PmoWorkflowExecutionStepStatus,
 } from '../api/client';
+import type { WorkflowApprovalRow } from '../api/workflow-runtime';
 import {
   documentStatusTone,
   formatLocalDate,
@@ -27,6 +28,8 @@ interface PmoProfilingDetailsPanelProps {
   profilingReviewState: PmoProfilingReviewState | null | undefined;
   profilingSummary: PmoWorkbookProfilingSessionSummary | null | undefined;
   profilingDocuments: PmoSessionDocumentProfileRecord[];
+  /** Real approval row from agent.workflow_approvals — null when no approval exists. */
+  profilingApproval: WorkflowApprovalRow | null;
   selectedSessionOverrides: Record<string, ProfilingOverrideEntry>;
   profilingAreas: PmoProfilingArea[];
   isAppendingDocument: boolean;
@@ -60,6 +63,7 @@ export function PmoProfilingDetailsPanel(props: PmoProfilingDetailsPanelProps) {
     profilingReviewState,
     profilingSummary,
     profilingDocuments,
+    profilingApproval,
     selectedSessionOverrides,
     profilingAreas,
     isAppendingDocument,
@@ -74,7 +78,14 @@ export function PmoProfilingDetailsPanel(props: PmoProfilingDetailsPanelProps) {
     onSelectSheetArea,
     onToggleSheetIgnore,
   } = props;
+
+  // Approve is only possible when a real pending approval row exists in
+  // agent.workflow_approvals AND the profiling review is still in needs_review.
+  // Without a pending approval row the CTA is hidden — the step shows as a
+  // read-only historical snapshot instead.
+  const hasPendingApprovalRow = profilingApproval?.status === 'pending';
   const canApproveProfiling =
+    hasPendingApprovalRow &&
     profilingReviewState?.status === 'needs_review' &&
     stepStatus !== 'failed' &&
     stepStatus !== 'cancelled';
@@ -286,6 +297,16 @@ export function PmoProfilingDetailsPanel(props: PmoProfilingDetailsPanelProps) {
           </ul>
         )}
       </div>
+
+      {canShowProfilingActions &&
+      isCurrent &&
+      profilingReviewState?.status === 'needs_review' &&
+      !hasPendingApprovalRow ? (
+        <p className="text-ink-subtle">
+          Waiting for the agent to create a profiling approval. The approve action will appear once
+          the agent suspends with a review card.
+        </p>
+      ) : null}
 
       {canShowProfilingActions && isCurrent ? (
         <div className="space-y-2">

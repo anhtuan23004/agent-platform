@@ -6,6 +6,7 @@ import {
   executionStepMatchesRuntimeStep,
   isMappingApprovalRow,
   isNormalizationApprovalRow,
+  isProfilingApprovalRow,
   isPublishApprovalRow,
   isReportApprovalRow,
   type MappingProgressItem,
@@ -29,37 +30,6 @@ import {
   useWorkflowRuntimeRuns,
 } from './use-workflow-runtime';
 
-function syntheticApprovalFromViewState(
-  step: ExecutionCard | undefined,
-  selectedSession: PmoPlanningSession | null,
-): WorkflowApprovalRow | null {
-  const payload = step?.view_state?.approval_payload;
-  if (!step?.view_state || !payload) return null;
-
-  return {
-    approvalId: `step-view:${selectedSession?.ingestion_session_id ?? 'unknown'}:${step.view_state.action_id}`,
-    runId: '',
-    stepId: step.view_state.planner_step_id,
-    proposedPayload: payload,
-    approverUserId: '',
-    surfaceCanvas: true,
-    surfaceChatThreadId: selectedSession?.chat_thread_id ?? null,
-    agentic: true,
-    status: 'decided',
-    decisionPayload: null,
-    decidedAt: step.view_state.updated_at,
-    expiresAt: step.view_state.updated_at,
-    createdAt: step.view_state.updated_at,
-  };
-}
-
-function findExecutionCardByAction(
-  cards: ExecutionCard[],
-  actionIds: string[],
-): ExecutionCard | undefined {
-  return cards.find((card) => card.action_id && actionIds.includes(card.action_id));
-}
-
 function findApprovalByAction(
   approvals: WorkflowApprovalRow[],
   actionId: PmoPlanActionId,
@@ -82,6 +52,8 @@ export interface UsePmoWorkflowRuntimeResult {
   pendingApprovals: ReturnType<typeof useWorkflowRuntimePendingApprovals>;
   workflowRuns: ReturnType<typeof useWorkflowRuntimeRuns>;
   runtimeRunBySessionId: Map<string, { runId: string; status: WorkflowRunRow['status'] }>;
+  profilingApprovals: WorkflowApprovalRow[];
+  selectedProfilingApproval: WorkflowApprovalRow | null;
   mappingApprovals: WorkflowApprovalRow[];
   selectedMappingApproval: WorkflowApprovalRow | null;
   selectedMappingView: MappingViewModel | null;
@@ -144,6 +116,11 @@ export function usePmoWorkflowRuntime(
 
     return null;
   }, [pmoIngestRuns, runtimeRunBySessionId, selectedSession]);
+
+  const profilingApprovals = useMemo(
+    () => (pendingApprovals.data ?? []).filter((approval) => isProfilingApprovalRow(approval)),
+    [pendingApprovals.data],
+  );
 
   const mappingApprovals = useMemo(
     () => (pendingApprovals.data ?? []).filter((approval) => isMappingApprovalRow(approval)),
@@ -259,6 +236,29 @@ export function usePmoWorkflowRuntime(
     return null;
   }, [reportApprovals, selectedSession, selectedWorkflowRun]);
 
+  const selectedProfilingApproval = useMemo(() => {
+    if (!selectedSession) return null;
+
+    if (selectedWorkflowRun?.runId) {
+      const matchedByRun = profilingApprovals.find(
+        (approval) => approval.runId === selectedWorkflowRun.runId,
+      );
+      if (matchedByRun) return matchedByRun;
+    }
+
+    const exactMatch = profilingApprovals.find((approval) => {
+      const ingestionSessionId = readIngestionSessionIdFromApproval(approval);
+      return sessionIdsMatch(ingestionSessionId, selectedSession.ingestion_session_id);
+    });
+    if (exactMatch) return exactMatch;
+
+    if (!selectedWorkflowRun?.runId && profilingApprovals.length === 1) {
+      return profilingApprovals[0] ?? null;
+    }
+
+    return null;
+  }, [profilingApprovals, selectedSession, selectedWorkflowRun]);
+
   const pendingApprovalsForSelectedSession = useMemo(() => {
     if (!selectedSession) return [] as WorkflowApprovalRow[];
     const rows = pendingApprovals.data ?? [];
@@ -271,6 +271,7 @@ export function usePmoWorkflowRuntime(
 
   const selectedWorkflowRunId =
     selectedWorkflowRun?.runId ??
+    selectedProfilingApproval?.runId ??
     selectedMappingApproval?.runId ??
     selectedNormalizationApproval?.runId ??
     selectedPublishApproval?.runId ??
@@ -318,56 +319,27 @@ export function usePmoWorkflowRuntime(
     );
   }, [runApprovals.data, selectedWorkflowRunId]);
 
+  const historicalProfilingApproval = useMemo(() => {
+    if (!selectedWorkflowRunId) return null;
+    return (
+      (runApprovals.data ?? []).find(
+        (a) => a.runId === selectedWorkflowRunId && isProfilingApprovalRow(a),
+      ) ?? null
+    );
+  }, [runApprovals.data, selectedWorkflowRunId]);
+
   // Use pending approval when available (actionable), fall back to decided
   // approval from the run history (read-only).
+  const effectiveProfilingApproval = selectedProfilingApproval ?? historicalProfilingApproval;
   const effectiveMappingApproval = selectedMappingApproval ?? historicalMappingApproval;
   const effectiveNormalizationApproval =
     selectedNormalizationApproval ?? historicalNormalizationApproval;
   const effectivePublishApproval = selectedPublishApproval ?? historicalPublishApproval;
   const effectiveReportApproval = selectedReportApproval ?? historicalReportApproval;
 
-  const mappingStepViewApproval = useMemo(
-    () =>
-      syntheticApprovalFromViewState(
-        findExecutionCardByAction(executionCards, ['column_mapping']),
-        selectedSession,
-      ),
-    [executionCards, selectedSession],
-  );
-  const normalizationStepViewApproval = useMemo(
-    () =>
-      syntheticApprovalFromViewState(
-        findExecutionCardByAction(executionCards, ['normalize_to_staging']),
-        selectedSession,
-      ),
-    [executionCards, selectedSession],
-  );
-  const publishStepViewApproval = useMemo(
-    () =>
-      syntheticApprovalFromViewState(
-        findExecutionCardByAction(executionCards, [
-          'database_change_summary',
-          'publish_after_approval',
-        ]),
-        selectedSession,
-      ),
-    [executionCards, selectedSession],
-  );
-  const reportStepViewApproval = useMemo(
-    () =>
-      syntheticApprovalFromViewState(
-        findExecutionCardByAction(executionCards, ['generate_report']),
-        selectedSession,
-      ),
-    [executionCards, selectedSession],
-  );
-
-  const effectiveMappingApprovalWithView = effectiveMappingApproval ?? mappingStepViewApproval;
-  const effectiveNormalizationApprovalWithView =
-    effectiveNormalizationApproval ?? normalizationStepViewApproval;
-  const effectivePublishApprovalWithView = effectivePublishApproval ?? publishStepViewApproval;
-  const effectiveReportApprovalWithView = effectiveReportApproval ?? reportStepViewApproval;
-
+  // approvalByActionId resolves each known action to its canonical approval
+  // row: pending first, then historical. No synthetic fallback from step view
+  // state — step_views.approval_payload is a cached display snapshot only.
   const approvalByActionId = useMemo(() => {
     const historicalApprovals = runApprovals.data ?? [];
     const actionIds: PmoPlanActionId[] = [
@@ -383,18 +355,14 @@ export function usePmoWorkflowRuntime(
     for (const actionId of actionIds) {
       const pending = findApprovalByAction(pendingApprovalsForSelectedSession, actionId);
       const historical = findApprovalByAction(historicalApprovals, actionId);
-      const fromStepView = syntheticApprovalFromViewState(
-        findExecutionCardByAction(executionCards, [actionId]),
-        selectedSession,
-      );
-      const approval = pending ?? historical ?? fromStepView;
+      const approval = pending ?? historical;
       if (approval) out[actionId] = approval;
     }
     return out;
-  }, [executionCards, pendingApprovalsForSelectedSession, runApprovals.data, selectedSession]);
+  }, [pendingApprovalsForSelectedSession, runApprovals.data]);
 
   const selectedMappingApprovalForDisplay = useMemo(() => {
-    const approval = effectiveMappingApprovalWithView;
+    const approval = effectiveMappingApproval;
     if (!approval) return null;
     // For decided (historical) approvals, always display them — the
     // "has later pending approval" suppression only applies to pending ones.
@@ -405,7 +373,7 @@ export function usePmoWorkflowRuntime(
       publishApprovals.some((a) => a.runId === mappingRunId) ||
       reportApprovals.some((a) => a.runId === mappingRunId);
     return hasLaterApprovalForRun ? null : approval;
-  }, [normalizationApprovals, publishApprovals, reportApprovals, effectiveMappingApprovalWithView]);
+  }, [normalizationApprovals, publishApprovals, reportApprovals, effectiveMappingApproval]);
 
   const runtimeActiveStepId = useMemo(() => {
     if (selectedReportApproval?.stepId) return selectedReportApproval.stepId;
@@ -445,16 +413,16 @@ export function usePmoWorkflowRuntime(
       : selectedMappingApprovalForDisplay;
   const selectedNormalizationApprovalForAction =
     currentActionId === 'normalize_to_staging'
-      ? (approvalByActionId.normalize_to_staging ?? effectiveNormalizationApprovalWithView)
-      : effectiveNormalizationApprovalWithView;
+      ? (approvalByActionId.normalize_to_staging ?? effectiveNormalizationApproval)
+      : effectiveNormalizationApproval;
   const selectedPublishApprovalForAction =
     currentActionId === 'database_change_summary' || currentActionId === 'publish_after_approval'
-      ? (approvalByActionId[currentActionId] ?? effectivePublishApprovalWithView)
-      : effectivePublishApprovalWithView;
+      ? (approvalByActionId[currentActionId] ?? effectivePublishApproval)
+      : effectivePublishApproval;
   const selectedReportApprovalForAction =
     currentActionId === 'generate_report'
-      ? (approvalByActionId.generate_report ?? effectiveReportApprovalWithView)
-      : effectiveReportApprovalWithView;
+      ? (approvalByActionId.generate_report ?? effectiveReportApproval)
+      : effectiveReportApproval;
 
   const selectedMappingView = useMemo(
     () => parseMappingView(selectedMappingApprovalForAction),
@@ -502,6 +470,8 @@ export function usePmoWorkflowRuntime(
     pendingApprovals,
     workflowRuns,
     runtimeRunBySessionId,
+    profilingApprovals,
+    selectedProfilingApproval: effectiveProfilingApproval,
     mappingApprovals,
     selectedMappingApproval: selectedMappingApprovalForAction,
     selectedMappingView,
