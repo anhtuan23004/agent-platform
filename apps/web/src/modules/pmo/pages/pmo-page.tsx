@@ -1,8 +1,7 @@
 import { Button, Dropzone, Input, Label, PageChrome, Textarea, toast } from '@seta/shared-ui';
-import { useNavigate } from '@tanstack/react-router';
 import { Bot, RefreshCw, Workflow } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useAgentSelection, usePanelUI } from '../../agent/chat-experience/agent-provider';
+import { useAgentSelection } from '../../agent/chat-experience/agent-provider';
 import { markThreadFresh } from '../../agent/lib/fresh-thread-store';
 import {
   type PmoPlan,
@@ -45,9 +44,7 @@ export function PmoPage() {
     'Ingest this workbook and prepare data for RA calculation.',
   );
   const [sessions, setSessions] = useState<PmoPlanningSession[]>([]);
-  const { setPendingPrompt } = usePanelUI();
   const { selection } = useAgentSelection();
-  const navigate = useNavigate();
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [agentPollingActive, setAgentPollingActive] = useState(false);
   const [isReviewPanelOpen, setIsReviewPanelOpen] = useState(false);
@@ -495,12 +492,11 @@ export function PmoPage() {
                       uploadedInfo?.ingestionSessionId ??
                       selectedSession?.ingestion_session_id ??
                       '';
-                    // Mint a fresh thread so the URL, runtime, and Mastra row
-                    // agree from the first send (same contract as /pmo/agent
-                    // route's beforeLoad).
+                    // Mint a fresh thread so the Mastra row is created with
+                    // a client-owned id (same contract as /pmo/agent route).
                     const threadId = crypto.randomUUID();
                     markThreadFresh(threadId);
-                    // Link the session to the new thread so both surfaces share state.
+                    // Link the session to the new thread.
                     if (sessionId) {
                       try {
                         await pmoApi.linkSessionToThread(sessionId, threadId);
@@ -511,14 +507,48 @@ export function PmoPage() {
                     const prompt = sessionId
                       ? `${goalDraft.trim()}\n\n[Session: ${sessionId}]`
                       : goalDraft.trim();
-                    // Queue the prompt so AgentComposer auto-sends on mount,
-                    // then navigate to /pmo/agent where the runtime lives.
-                    setPendingPrompt({ text: prompt, autoSend: true });
+                    // Send directly to the PMO agent chat API.  The response
+                    // is SSE; we fire-and-forget — the pending-approvals poll
+                    // will surface the profiling card when the agent suspends.
+                    try {
+                      const res = await fetch('/api/agent/v1/chat', {
+                        method: 'POST',
+                        credentials: 'include',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          id: threadId,
+                          messages: [
+                            {
+                              id: crypto.randomUUID(),
+                              role: 'user',
+                              content: [{ type: 'text', text: prompt }],
+                            },
+                          ],
+                          agent: 'pmo',
+                          ...(sessionId ? { ingestionSessionId: sessionId } : {}),
+                        }),
+                      });
+                      if (!res.ok) {
+                        const body = await res.json().catch(() => ({}));
+                        throw new Error(
+                          (body as { message?: string }).message ?? `HTTP ${res.status}`,
+                        );
+                      }
+                      toast.success('Agent started', {
+                        description:
+                          'The PMO agent is processing the workbook. Approval will appear shortly.',
+                      });
+                      // Drain the SSE stream in background so the server
+                      // completes the turn (writes approval row on suspend).
+                      void res.text().then(() => loadSessions(true));
+                    } catch (err) {
+                      toast.error('Failed to start agent', {
+                        description:
+                          err instanceof Error ? err.message : 'Could not reach the agent.',
+                      });
+                    }
                     setAgentPollingActive(true);
-                    void navigate({
-                      to: '/pmo/agent',
-                      search: { thread: threadId },
-                    });
+                    void loadSessions(true);
                   }}
                 >
                   <Bot className="size-4" />
