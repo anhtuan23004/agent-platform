@@ -45,6 +45,9 @@ function findApprovalByAction(
  *  2. ingestion session id embedded in the card payload
  *  3. surfaceChatThreadId matches session's chat_thread_id
  *  4. singleton fallback (exactly one candidate)
+ *  5. most recently created candidate (last resort when multiple
+ *     candidates exist but none matched by the tiers above — handles
+ *     stale approvals from old sessions and __LOCALID_* thread ids)
  */
 function resolveApproval(
   candidates: WorkflowApprovalRow[],
@@ -77,7 +80,13 @@ function resolveApproval(
   // 4. singleton fallback
   if (candidates.length === 1) return candidates[0] ?? null;
 
-  return null;
+  // 5. most recently created — when multiple candidates exist but none
+  // matched above (e.g. __LOCALID_* thread ids, missing session id in
+  // payload, stale approvals from prior sessions).
+  const sorted = [...candidates].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
+  return sorted[0] ?? null;
 }
 
 export interface GroupedMappingItemsBySheet {
