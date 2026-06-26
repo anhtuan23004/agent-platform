@@ -4,8 +4,13 @@ import { createUIMessageStream, createUIMessageStreamResponse } from 'ai';
 import type { Hono } from 'hono';
 import { z } from 'zod';
 import { recordApprovalDecision } from '../domain/decide-approval.ts';
-import { PMO_ORCHESTRATOR_WORKFLOW_ID } from '../domain/write-chat-approval-row.ts';
-import { pumpOrchestrationStream } from '../orchestration-ui-stream.ts';
+import {
+  PendingAssignmentExistsError,
+  PMO_ORCHESTRATOR_WORKFLOW_ID,
+  STAFFING_ORCHESTRATOR_WORKFLOW_ID,
+  writeChatApprovalRow,
+} from '../domain/write-chat-approval-row.ts';
+import { type ApprovalEvent, pumpOrchestrationStream } from '../orchestration-ui-stream.ts';
 import {
   type AgentRouteDeps,
   type AgentRouteEnv,
@@ -176,6 +181,35 @@ export function mountChatResumeRoute(app: Hono<AgentRouteEnv>, deps: AgentRouteD
     const toolCallId = ctx.toolCallId ?? undefined;
     const threadId = ctx.surfaceChatThreadId ?? undefined;
 
+    // When the resumed agent continues and suspends again (e.g. profiling
+    // approved -> agent calls column mapping -> suspends), we must write the
+    // new approval row. Without this, the subsequent HITL card never appears
+    // in the pending-approvals DB poll and PMO workflow cards show empty.
+    const workflowIdForResume =
+      ctx.workflowId === PMO_ORCHESTRATOR_WORKFLOW_ID
+        ? PMO_ORCHESTRATOR_WORKFLOW_ID
+        : STAFFING_ORCHESTRATOR_WORKFLOW_ID;
+    const onApproval = async (ev: ApprovalEvent): Promise<void> => {
+      try {
+        await writeChatApprovalRow({
+          card: ev.card,
+          mastraRunId: ev.mastraRunId,
+          toolCallId: ev.toolCallId,
+          threadId: threadId ?? null,
+          tenantId: session.tenant_id,
+          userId: session.user_id,
+          pool: deps.pool,
+          workflowId: workflowIdForResume,
+        });
+      } catch (err) {
+        if (err instanceof PendingAssignmentExistsError) return;
+        (deps.log?.error ?? console.error)(
+          { subsystem: 'agent.chat.resume', event: 'onApproval.write.failed', threadId, err },
+          'failed to write chat approval row on resume — continuing turn',
+        );
+      }
+    };
+
     const uiStream = createUIMessageStream({
       execute: async ({ writer }) => {
         const run = await resumeOrchestration(resume, {
@@ -196,7 +230,7 @@ export function mountChatResumeRoute(app: Hono<AgentRouteEnv>, deps: AgentRouteD
         await pumpOrchestrationStream(
           writer as unknown as import('../orchestration-ui-stream.ts').UiStreamWriter,
           aiParts as AsyncIterable<{ type: string; delta?: string; data?: unknown }>,
-          { finalize: run.finalize, onApproval: async () => {} },
+          { finalize: run.finalize, onApproval },
         );
       },
     });
