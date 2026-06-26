@@ -220,7 +220,7 @@ function agenticInstructionsText(): string {
     '- NEVER retry a rejected step automatically — always ask the user what to do.',
     '- Analytics formulas are computed by tools, not by you.',
     '- Tenant scope comes from your session context, never from the user prompt.',
-    '- When <<<PMO_ANALYTICS_SCOPE>>> is present, use it for analytics queries.',
+    '- When <<<PMO_SESSION_SCOPE>>> is present, use its variables (ingestionSessionId, dates) as defaults for any tool calls that require them.',
     '- For explain_methodology, paste the tool summary field verbatim.',
     '- Formulas: plain text only. Never use LaTeX.',
   ].join('\n');
@@ -228,12 +228,12 @@ function agenticInstructionsText(): string {
 
 function buildAnalyticsScopeBlock(ctx: PmoOrchestratorRunCtx): string | null {
   if (!ctx.ingestionSessionId) return null;
-  const lines = ['<<<PMO_ANALYTICS_SCOPE>>>', `ingestionSessionId: ${ctx.ingestionSessionId}`];
+  const lines = ['<<<PMO_SESSION_SCOPE>>>', `ingestionSessionId: ${ctx.ingestionSessionId}`];
   if (ctx.reportingDateFrom && ctx.reportingDateTo) {
     lines.push(`reportingDateFrom: ${ctx.reportingDateFrom}`);
     lines.push(`reportingDateTo: ${ctx.reportingDateTo}`);
   }
-  lines.push('<<<END_PMO_ANALYTICS_SCOPE>>>');
+  lines.push('<<<END_PMO_SESSION_SCOPE>>>');
   return lines.join('\n');
 }
 

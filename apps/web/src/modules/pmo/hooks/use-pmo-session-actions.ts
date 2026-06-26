@@ -32,7 +32,7 @@ interface UsePmoSessionActionsOptions {
   setSelectedSessionId: React.Dispatch<React.SetStateAction<string | null>>;
   setIsReviewPanelOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setUploadedInfo: React.Dispatch<React.SetStateAction<UploadedWorkbookInfo | null>>;
-  refreshWorkflowRuntime: () => Promise<void>;
+  refreshWorkflowRuntime: () => Promise<unknown>;
   runtimeRunBySessionId: Map<string, { runId: string; status: string }>;
   /** Pending agentic profiling approval — used to resume the agent on approve. */
   profilingApproval: WorkflowApprovalRow | null;

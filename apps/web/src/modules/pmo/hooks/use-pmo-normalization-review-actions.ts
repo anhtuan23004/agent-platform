@@ -20,7 +20,7 @@ interface UsePmoNormalizationReviewActionsOptions {
   selectedNormalizationApproval: WorkflowApprovalRow | null;
   selectedNormalizationView: NormalizationReviewViewModel | null;
   loadSessions: (keepSelection?: boolean) => Promise<void>;
-  refreshWorkflowRuntime: () => Promise<void>;
+  refreshWorkflowRuntime: () => Promise<unknown>;
 }
 
 interface UsePmoNormalizationReviewActionsResult {

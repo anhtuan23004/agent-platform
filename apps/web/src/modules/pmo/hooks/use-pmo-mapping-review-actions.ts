@@ -14,7 +14,7 @@ interface UsePmoMappingReviewActionsOptions {
   selectedMappingApproval: WorkflowApprovalRow | null;
   selectedMappingView: MappingViewModel | null;
   loadSessions: (keepSelection?: boolean) => Promise<void>;
-  refreshMappingApprovals: () => Promise<void>;
+  refreshMappingApprovals: () => Promise<unknown>;
 }
 
 interface UsePmoMappingReviewActionsResult {

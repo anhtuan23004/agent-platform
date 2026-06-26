@@ -8,6 +8,7 @@ import { isDedupApprovalPayload } from './approval-card-shape.ts';
 import { cardIntent, cardToolId, outcomeText, STATUS_LABELS } from './decided-approval.ts';
 import { HitlApprovalCard } from './hitl-approval-card.tsx';
 import { HitlCardHost } from './hitl-card-host.tsx';
+import { isPmoIngestApproval, PmoChatHitlCard } from './pmo-chat-hitl-card.tsx';
 
 export interface ChatEmbeddedHitlProps {
   threadId: string | undefined;
@@ -127,9 +128,22 @@ export function ChatEmbeddedHitl({ threadId }: ChatEmbeddedHitlProps) {
             />
           );
         }
-        // Non-dedup cards submit through HitlCardHost's own useSubmitDecision
-        // (which routes agentic → /chat/resume); it self-invalidates on success,
-        // so the justDecided bridge above stays scoped to the legacy dedup path.
+        // PMO ingest cards get a dedicated rich card with structured tables,
+        // confidence badges, and candidate lists instead of the generic HitlCard.
+        if (isPmoIngestApproval(approval)) {
+          return (
+            <PmoChatHitlCard
+              key={approval.approvalId}
+              approval={approval}
+              canAct
+              threadId={threadId}
+            />
+          );
+        }
+        // Non-dedup, non-PMO cards submit through HitlCardHost's own
+        // useSubmitDecision (which routes agentic → /chat/resume); it
+        // self-invalidates on success, so the justDecided bridge above
+        // stays scoped to the legacy dedup path.
         return (
           <HitlCardHost key={approval.approvalId} approval={approval} canAct threadId={threadId} />
         );

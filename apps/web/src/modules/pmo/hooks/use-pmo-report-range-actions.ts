@@ -17,7 +17,7 @@ interface ReportDateRangePayload {
 interface UsePmoReportRangeActionsOptions {
   selectedReportApproval: WorkflowApprovalRow | null;
   loadSessions: (keepSelection?: boolean) => Promise<void>;
-  refreshWorkflowRuntime: () => Promise<void>;
+  refreshWorkflowRuntime: () => Promise<unknown>;
 }
 
 interface UsePmoReportRangeActionsResult {

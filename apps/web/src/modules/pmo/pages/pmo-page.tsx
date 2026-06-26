@@ -22,6 +22,7 @@ import {
   formatBytes,
   formatLocalDate,
   profilingSheetKey,
+  readIngestionSessionIdFromApproval,
 } from './pmo-page.logic';
 
 const ACCEPT = '.xlsx,.xlsm';
@@ -169,11 +170,13 @@ export function PmoPage() {
   }, []);
 
   const refreshMappingApprovals = useCallback(async () => {
-    await pendingApprovals.refetch();
+    const res = await pendingApprovals.refetch();
+    return res;
   }, [pendingApprovals]);
 
   const refreshWorkflowRuntime = useCallback(async () => {
-    await Promise.all([refreshMappingApprovals(), workflowRuns.refetch()]);
+    const [approvalsRes] = await Promise.all([refreshMappingApprovals(), workflowRuns.refetch()]);
+    return approvalsRes;
   }, [refreshMappingApprovals, workflowRuns]);
 
   const {
@@ -514,6 +517,7 @@ export function PmoPage() {
                     // is SSE; we fire-and-forget — the pending-approvals poll
                     // will surface the profiling card when the agent suspends.
                     setIsAgentRunning(true);
+                    setAgentPollingActive(true);
                     try {
                       const res = await fetch('/api/agent/v1/chat', {
                         method: 'POST',
@@ -540,9 +544,36 @@ export function PmoPage() {
                       }
                       // Drain the SSE stream in background so the server
                       // completes the turn (writes approval row on suspend).
-                      void res.text().then(() => {
+                      // Once done, refresh everything so the profiling card
+                      // appears immediately.
+                      void res.text().then(async () => {
                         setIsAgentRunning(false);
-                        void loadSessions(true);
+                        await loadSessions(false);
+                        // Select the session that was just processed and open
+                        // the review panel so the user sees the profiling step.
+                        if (sessionId) {
+                          setSelectedSessionId(sessionId);
+                          setIsReviewPanelOpen(true);
+                        }
+                        // Refresh pending approvals so the approve button
+                        // picks up the profiling approval row the agent wrote.
+                        const approvalsRes = await refreshWorkflowRuntime();
+
+                        const hasApproval = approvalsRes?.data?.some(
+                          (a) => readIngestionSessionIdFromApproval(a) === sessionId,
+                        );
+
+                        if (hasApproval) {
+                          toast.success('Agent ready for review', {
+                            description:
+                              'Agent suspended successfully. Review the results and approve to continue.',
+                          });
+                        } else {
+                          toast.success('Agent finished processing', {
+                            description:
+                              'Agent responded. Open PMO Agent chat tab if you need to clarify further.',
+                          });
+                        }
                       });
                     } catch (err) {
                       setIsAgentRunning(false);
@@ -551,7 +582,6 @@ export function PmoPage() {
                           err instanceof Error ? err.message : 'Could not reach the agent.',
                       });
                     }
-                    setAgentPollingActive(true);
                     void loadSessions(true);
                   }}
                 >

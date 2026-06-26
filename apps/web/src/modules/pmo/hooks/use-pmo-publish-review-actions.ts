@@ -7,7 +7,7 @@ import { useSubmitWorkflowRuntimeDecision } from './use-workflow-runtime';
 interface UsePmoPublishReviewActionsOptions {
   selectedPublishApproval: WorkflowApprovalRow | null;
   loadSessions: (keepSelection?: boolean) => Promise<void>;
-  refreshWorkflowRuntime: () => Promise<void>;
+  refreshWorkflowRuntime: () => Promise<unknown>;
 }
 
 interface UsePmoPublishReviewActionsResult {

@@ -56,7 +56,7 @@ export function makePmoOrchestratorTools(deps: PmoOrchestratorToolDeps) {
       '- rebalance_candidates: rebalance suggestions for overbooked members.',
       '- explain_methodology: formulas, thresholds, exclusions — paste returned `summary` verbatim.',
       '',
-      'When <<<PMO_ANALYTICS_SCOPE>>> is present, pass ingestionSessionId and use reporting dates from scope.',
+      'When <<<PMO_SESSION_SCOPE>>> is present, pass ingestionSessionId and use reporting dates from scope.',
       'If needsClarification is true, ask the user to pick an option — do not invent numbers.',
     ].join('\n'),
     input: z.object({
