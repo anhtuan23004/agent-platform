@@ -41,14 +41,26 @@ export type ResumeDecisionData = {
 
 /**
  * Maps a decide-approval decision + the persisted ApprovalCard + the request
- * body into the proposeAssignment composite's resume payload. The composite is
- * STATELESS — it reads the assignee set ONLY from `resume.overrideUserIds`, so
- * the endpoint must populate it from the card (approve) or the user's edit
- * (modify). Pure function.
+ * body into the workflow's resume payload. Merges the full `argsPatch` from
+ * the chosen card option (primary, alternate, or decline) so domain-specific
+ * fields are forwarded to the handler — not only staffing's
+ * `assigneeUserIds` but also PMO's `approvedItemKey`, `approvedItemKeys`,
+ * `mappingOverrides`, `proceedToNextStep`, report-range date params, etc.
  *
- * Card contract (from staffing buildAssignApprovalCard):
+ * The body's `decision` always takes precedence over any `decision` field
+ * inside `argsPatch`. Client-supplied `payloadPatch` overrides card values
+ * (applied last by `withNote`).
+ *
+ * Card contract (staffing):
  *   primary.argsPatch     = { action:'assign', assigneeUserIds: string[], taskId }
  *   alternates[i].argsPatch = { action:'assign', assigneeUserIds: string[], taskId }
+ *
+ * Card contract (PMO mapping):
+ *   primary.argsPatch     = { decision, approvedItemKey?, approvedItemKeys,
+ *                             approvedByByItemKey, mappingOverrides, proceedToNextStep? }
+ *   alternates[i].argsPatch = { decision, approvedItemKeys, approvedByByItemKey,
+ *                               mappingOverride, mappingOverrides }
+ *   decline.argsPatch     = { decision, approvedItemKeys, approvedByByItemKey, mappingOverrides }
  */
 export function mapDecisionToResumeData(
   card: ApprovalCard | null,
@@ -76,32 +88,51 @@ export function mapDecisionToResumeData(
   }
 
   if (body.decision === 'reject') {
-    return withNote({ decision: 'reject' });
+    // Merge decline.argsPatch so accumulated state (e.g. PMO approvedItemKeys,
+    // mappingOverrides) is forwarded to the handler.
+    const declinePatch = (card?.decline?.argsPatch ?? {}) as Record<string, unknown>;
+    return withNote({ ...declinePatch, decision: 'reject' } as ResumeDecisionData);
   }
 
   if (body.decision === 'modify') {
-    return withNote({ decision: 'modify', overrideUserIds: body.overrideUserIds ?? [] });
+    // For modify with alternates (e.g. PMO mapping "use different column"),
+    // merge the alternate's argsPatch so domain-specific fields like
+    // mappingOverride, mappingOverrides, approvedItemKeys are forwarded.
+    const modIdx = body.alternateIndices?.[0];
+    const modPatch =
+      modIdx !== undefined && card?.alternates?.[modIdx]
+        ? (card.alternates[modIdx]?.argsPatch ?? ({} as Record<string, unknown>))
+        : ({} as Record<string, unknown>);
+    return withNote({
+      ...modPatch,
+      decision: 'modify',
+      overrideUserIds: body.overrideUserIds ?? [],
+      ...(body.alternateIndices ? { alternateIndices: body.alternateIndices } : {}),
+    } as ResumeDecisionData);
   }
 
-  // approve: take the assignee set from the chosen alternate (if any) else primary.
+  // approve: merge full argsPatch from the chosen card option so both staffing
+  // (assigneeUserIds) and PMO (approvedItemKey, mappingOverrides, proceedToNextStep,
+  // report-range date params, plannerStepId, etc.) fields are forwarded.
   const idx = body.alternateIndices?.[0];
   if (idx !== undefined && card?.alternates?.[idx]) {
-    const alt = card.alternates[idx]?.argsPatch as { assigneeUserIds?: unknown };
-    const overrideUserIds = Array.isArray(alt.assigneeUserIds)
-      ? (alt.assigneeUserIds as string[])
+    const altPatch = (card.alternates[idx]?.argsPatch ?? {}) as Record<string, unknown>;
+    const overrideUserIds = Array.isArray(altPatch.assigneeUserIds)
+      ? (altPatch.assigneeUserIds as string[])
       : [];
     return withNote({
+      ...altPatch,
       decision: 'approve',
       overrideUserIds,
       alternateIndices: body.alternateIndices,
-    });
+    } as ResumeDecisionData);
   }
 
-  const primary = (card?.primary?.argsPatch ?? {}) as { assigneeUserIds?: unknown };
-  const overrideUserIds = Array.isArray(primary.assigneeUserIds)
-    ? (primary.assigneeUserIds as string[])
+  const primaryPatch = (card?.primary?.argsPatch ?? {}) as Record<string, unknown>;
+  const overrideUserIds = Array.isArray(primaryPatch.assigneeUserIds)
+    ? (primaryPatch.assigneeUserIds as string[])
     : [];
-  return withNote({ decision: 'approve', overrideUserIds });
+  return withNote({ ...primaryPatch, decision: 'approve', overrideUserIds } as ResumeDecisionData);
 }
 
 /**

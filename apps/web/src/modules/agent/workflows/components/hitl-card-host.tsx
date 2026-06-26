@@ -1,6 +1,7 @@
 import { type EntityRef, HitlCard } from '@seta/shared-ui';
 import { useQueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
+import { notifyApprovalResolved } from '../../hooks/use-approval-events.ts';
 import type { WorkflowApprovalRow } from '../api/schemas.ts';
 import { useSubmitDecision } from '../hooks/use-submit-decision.ts';
 import { workflowsQueryKeys } from '../state/query-keys.ts';
@@ -73,6 +74,9 @@ export function HitlCardHost({ approval, canAct, threadId }: HitlCardHostProps) 
           { approvalId: approval.approvalId, agentic: approval.agentic, ...decision },
           {
             onSuccess: () => {
+              // Signal the chat runtime so it remounts and picks up resumed
+              // history + any new approval card created by the next suspend.
+              notifyApprovalResolved({ threadId });
               if (threadId) {
                 void qc.invalidateQueries({
                   queryKey: workflowsQueryKeys.threadApprovals(threadId),
