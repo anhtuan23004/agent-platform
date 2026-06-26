@@ -86,6 +86,8 @@ export const REQUIRED_FIELDS_BY_TABLE = buildRequiredFieldsByTable(PMO_DOMAIN_CO
 // ── Plan → execution-steps parsing ─────────────────────────────────────────
 
 export function readPlannerStepsFromPlan(plan: unknown): PlannerExecutionStepV2[] {
+  // Only seed the first step. Subsequent steps are added dynamically by the
+  // handler-adapter when the agent actually calls the corresponding tool.
   const defaults: PlannerExecutionStepV2[] = [
     {
       step_no: 1,
@@ -94,33 +96,6 @@ export function readPlannerStepsFromPlan(plan: unknown): PlannerExecutionStepV2[
       review_type: 'profiling',
       step_name: 'Workbook profiling',
       status: 'in_progress',
-      review_status: 'pending',
-    },
-    {
-      step_no: 2,
-      planner_step_id: 'pmo.planner.step.2.column_mapping',
-      action_id: 'column_mapping',
-      review_type: 'mapping',
-      step_name: 'Column mapping',
-      status: 'pending',
-      review_status: 'pending',
-    },
-    {
-      step_no: 3,
-      planner_step_id: 'pmo.planner.step.3.normalize_to_staging',
-      action_id: 'normalize_to_staging',
-      review_type: 'normalization',
-      step_name: 'Normalization to staging',
-      status: 'pending',
-      review_status: 'pending',
-    },
-    {
-      step_no: 4,
-      planner_step_id: 'pmo.planner.step.4.database_change_summary',
-      action_id: 'database_change_summary',
-      review_type: 'publish',
-      step_name: 'Database change summary',
-      status: 'pending',
       review_status: 'pending',
     },
   ];

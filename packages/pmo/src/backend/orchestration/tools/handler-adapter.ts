@@ -7,7 +7,7 @@
  */
 import type { AgentRequestContext, AgentToolContext } from '@seta/agent-sdk';
 import { z } from 'zod';
-import type { PmoPlanActionId } from '../../planning/step-metadata.ts';
+import { type PmoPlanActionId, reviewTypeForPmoAction } from '../../planning/step-metadata.ts';
 import {
   type DynamicRuntimeSessionPatch,
   loadDynamicRuntimeSession,
@@ -221,8 +221,8 @@ export async function runIngestionHandler(opts: {
     throw new Error(`handler_not_found:${actionId}`);
   }
 
-  // ── 6. Find active step matching actionId ──
-  const activeStep =
+  // ── 6. Find active step matching actionId, or create one dynamically ──
+  let activeStep =
     state.steps.find(
       (step) =>
         step.action_id === actionId &&
@@ -232,12 +232,24 @@ export async function runIngestionHandler(opts: {
     ) ?? state.steps.find((step) => step.action_id === actionId);
 
   if (!activeStep) {
-    return {
-      status: 'skipped',
-      actionId,
-      sessionId,
-      summary: `No active step found for action '${actionId}' in this session.`,
+    // The agent called a tool whose step doesn't exist yet. Add it
+    // dynamically so the execution state tracks what the agent actually does
+    // instead of relying on a hardcoded step list.
+    const nextStepNo = Math.max(0, ...state.steps.map((s) => s.step_no)) + 1;
+    const stepName = actionId.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    activeStep = {
+      step_no: nextStepNo,
+      planner_step_id: `pmo.planner.step.${nextStepNo}.${actionId}`,
+      action_id: actionId,
+      review_type: reviewTypeForPmoAction(actionId),
+      step_name: stepName,
+      status: 'in_progress',
+      review_status: 'pending',
     };
+    state.steps.push(activeStep);
+    state.current_step_no = nextStepNo;
+    state.current_planner_step_id = activeStep.planner_step_id;
+    state.current_step_status = 'in_progress';
   }
 
   // ── 7. Build handler input ──
