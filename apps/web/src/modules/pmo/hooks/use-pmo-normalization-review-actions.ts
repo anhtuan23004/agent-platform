@@ -1,5 +1,6 @@
 import { toast } from '@seta/shared-ui';
 import { useCallback, useMemo, useState } from 'react';
+import { notifyApprovalResolved } from '../../agent/hooks/use-approval-events';
 import type { WorkflowApprovalRow } from '../api/workflow-runtime';
 import {
   groupNormalizationRows,
@@ -275,6 +276,7 @@ export function usePmoNormalizationReviewActions(
       },
       {
         onSuccess: async () => {
+          notifyApprovalResolved();
           toast.success('Normalization approved', {
             description: hasMissingMembers
               ? 'Missing member master rows were added to this run before staging.'
@@ -311,6 +313,7 @@ export function usePmoNormalizationReviewActions(
       },
       {
         onSuccess: async () => {
+          notifyApprovalResolved();
           toast.success('Normalization rejected', {
             description: 'The workflow was stopped before staging.',
           });

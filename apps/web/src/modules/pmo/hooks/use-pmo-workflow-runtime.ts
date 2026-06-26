@@ -259,11 +259,16 @@ export function usePmoWorkflowRuntime(
     return null;
   }, [profilingApprovals, selectedSession, selectedWorkflowRun]);
 
+  // Match pending approvals by runId OR by ingestion session id embedded in
+  // the approval payload. Each agent tool suspension creates a new
+  // workflow_runs row (new runId), so the latest pending approval may have a
+  // different runId than the one cached in runtimeRunBySessionId. Matching by
+  // session id ensures approvals are never dropped due to stale runId refs.
   const pendingApprovalsForSelectedSession = useMemo(() => {
     if (!selectedSession) return [] as WorkflowApprovalRow[];
     const rows = pendingApprovals.data ?? [];
     return rows.filter((approval) => {
-      if (selectedWorkflowRun?.runId) return approval.runId === selectedWorkflowRun.runId;
+      if (selectedWorkflowRun?.runId && approval.runId === selectedWorkflowRun.runId) return true;
       const ingestionSessionId = readIngestionSessionIdFromApproval(approval);
       return sessionIdsMatch(ingestionSessionId, selectedSession.ingestion_session_id);
     });

@@ -1,5 +1,6 @@
 import { toast } from '@seta/shared-ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { notifyApprovalResolved } from '../../agent/hooks/use-approval-events';
 import type { WorkflowApprovalRow } from '../api/workflow-runtime';
 import type {
   MappingAlternateOption,
@@ -100,6 +101,7 @@ export function usePmoMappingReviewActions(
       },
       {
         onSuccess: async () => {
+          notifyApprovalResolved();
           toast.success('Mapping item approved', {
             description: 'The next mapping item is now ready for review.',
           });
@@ -140,6 +142,7 @@ export function usePmoMappingReviewActions(
       },
       {
         onSuccess: async () => {
+          notifyApprovalResolved();
           toast.success('Mapping updated', {
             description: 'The selected source column has been applied for this review item.',
           });
@@ -168,6 +171,7 @@ export function usePmoMappingReviewActions(
       },
       {
         onSuccess: async () => {
+          notifyApprovalResolved();
           toast.success('Moved to next step', {
             description: 'Workflow moved to the next step in final plan.',
           });

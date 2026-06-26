@@ -1,5 +1,6 @@
 import { toast } from '@seta/shared-ui';
 import { useCallback } from 'react';
+import { notifyApprovalResolved } from '../../agent/hooks/use-approval-events';
 import type { WorkflowApprovalRow } from '../api/workflow-runtime';
 import { useSubmitWorkflowRuntimeDecision } from './use-workflow-runtime';
 
@@ -51,6 +52,7 @@ export function usePmoReportRangeActions(
         },
         {
           onSuccess: async () => {
+            notifyApprovalResolved();
             await refreshAfterDecision();
             toast.success('Report queued', {
               description: 'PDF generation is running from published PMO data.',
@@ -78,6 +80,7 @@ export function usePmoReportRangeActions(
       },
       {
         onSuccess: async () => {
+          notifyApprovalResolved();
           toast.success('Report skipped', {
             description: 'Published PMO data was kept; only report generation was skipped.',
           });

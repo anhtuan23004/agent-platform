@@ -1,5 +1,6 @@
 import { toast } from '@seta/shared-ui';
 import { useCallback, useMemo, useState } from 'react';
+import { notifyApprovalResolved } from '../../agent/hooks/use-approval-events';
 import type { WorkflowApprovalRow } from '../api/workflow-runtime';
 import { useSubmitWorkflowRuntimeDecision } from './use-workflow-runtime';
 
@@ -47,6 +48,7 @@ export function usePmoPublishReviewActions(
       },
       {
         onSuccess: async () => {
+          notifyApprovalResolved();
           toast.success('Publish approved', {
             description: 'The workflow will continue from the PMO publish decision.',
           });
@@ -78,6 +80,7 @@ export function usePmoPublishReviewActions(
       },
       {
         onSuccess: async () => {
+          notifyApprovalResolved();
           toast.success('Publish rejected', {
             description: 'The workflow was stopped by the PMO publish decision.',
           });
