@@ -234,39 +234,38 @@ export function usePmoSessionActions(
       return;
     }
 
+    if (profilingApproval?.status !== 'pending') {
+      toast.error('No pending approval', {
+        description:
+          'No pending profiling approval found. Please start the workflow from the PMO Agent page first.',
+      });
+      return;
+    }
+
     if (isApprovingProfiling) {
       return;
     }
 
     setIsApprovingProfiling(true);
     try {
-      if (profilingApproval?.status === 'pending') {
-        // Preferred path: resume the agent via the approval row so the agentic
-        // workflow continues to the next step automatically.
-        if (profilingApproval.agentic) {
-          await workflowRuntimeApi.resumeChat({
-            approvalId: profilingApproval.approvalId,
-            decision: 'approve',
-          });
-        } else {
-          await workflowRuntimeApi.decideApproval(profilingApproval.approvalId, {
-            decision: 'approve',
-          });
-        }
-        notifyApprovalResolved();
+      // Resume the agent via the approval row so the agentic workflow
+      // continues to the next step automatically.
+      if (profilingApproval.agentic) {
+        await workflowRuntimeApi.resumeChat({
+          approvalId: profilingApproval.approvalId,
+          decision: 'approve',
+        });
       } else {
-        // Fallback: no agent approval row available — approve directly via the
-        // PMO session API.  This advances the execution state (marks the
-        // profiling step completed, moves current_step to the next step) so
-        // the UI can proceed even when the workflow was not started through
-        // the agent chat.
-        await pmoApi.approveProfilingContinue(selectedSession.ingestion_session_id);
+        await workflowRuntimeApi.decideApproval(profilingApproval.approvalId, {
+          decision: 'approve',
+        });
       }
 
+      notifyApprovalResolved();
       await Promise.all([loadSessions(true), refreshWorkflowRuntime()]);
 
       toast.success('Profiling approved', {
-        description: 'Profiling gate approved. The workflow will continue processing.',
+        description: 'Profiling gate approved. The agent will continue processing.',
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to approve profiling gate.';

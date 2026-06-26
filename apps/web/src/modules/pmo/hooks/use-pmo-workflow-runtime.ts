@@ -37,6 +37,49 @@ function findApprovalByAction(
   return approvals.find((approval) => readActionIdFromApproval(approval) === actionId) ?? null;
 }
 
+/**
+ * Resolve the best matching approval from a filtered list of candidates.
+ *
+ * Priority:
+ *  1. runId match (same workflow run)
+ *  2. ingestion session id embedded in the card payload
+ *  3. surfaceChatThreadId matches session's chat_thread_id
+ *  4. singleton fallback (exactly one candidate)
+ */
+function resolveApproval(
+  candidates: WorkflowApprovalRow[],
+  session: PmoPlanningSession | null,
+  workflowRunId: string | undefined,
+): WorkflowApprovalRow | null {
+  if (!session || candidates.length === 0) return null;
+
+  // 1. runId
+  if (workflowRunId) {
+    const byRun = candidates.find((a) => a.runId === workflowRunId);
+    if (byRun) return byRun;
+  }
+
+  // 2. ingestion session id in payload
+  const bySession = candidates.find((a) => {
+    const id = readIngestionSessionIdFromApproval(a);
+    return sessionIdsMatch(id, session.ingestion_session_id);
+  });
+  if (bySession) return bySession;
+
+  // 3. chat thread id
+  if (session.chat_thread_id) {
+    const byThread = candidates.find(
+      (a) => a.surfaceChatThreadId && a.surfaceChatThreadId === session.chat_thread_id,
+    );
+    if (byThread) return byThread;
+  }
+
+  // 4. singleton fallback
+  if (candidates.length === 1) return candidates[0] ?? null;
+
+  return null;
+}
+
 export interface GroupedMappingItemsBySheet {
   sheetName: string;
   items: MappingProgressItem[];
@@ -142,122 +185,30 @@ export function usePmoWorkflowRuntime(
     [pendingApprovals.data],
   );
 
-  const selectedMappingApproval = useMemo(() => {
-    if (!selectedSession) return null;
+  const selectedMappingApproval = useMemo(
+    () => resolveApproval(mappingApprovals, selectedSession, selectedWorkflowRun?.runId),
+    [mappingApprovals, selectedSession, selectedWorkflowRun],
+  );
 
-    if (selectedWorkflowRun?.runId) {
-      const matchedByRun = mappingApprovals.find(
-        (approval) => approval.runId === selectedWorkflowRun.runId,
-      );
-      if (matchedByRun) return matchedByRun;
-    }
+  const selectedNormalizationApproval = useMemo(
+    () => resolveApproval(normalizationApprovals, selectedSession, selectedWorkflowRun?.runId),
+    [normalizationApprovals, selectedSession, selectedWorkflowRun],
+  );
 
-    const exactMatch = mappingApprovals.find((approval) => {
-      const ingestionSessionId = readIngestionSessionIdFromApproval(approval);
-      return sessionIdsMatch(ingestionSessionId, selectedSession.ingestion_session_id);
-    });
-    if (exactMatch) return exactMatch;
+  const selectedPublishApproval = useMemo(
+    () => resolveApproval(publishApprovals, selectedSession, selectedWorkflowRun?.runId),
+    [publishApprovals, selectedSession, selectedWorkflowRun],
+  );
 
-    // Fallback for cards that do not carry a parseable session id.
-    if (!selectedWorkflowRun?.runId && mappingApprovals.length === 1) {
-      return mappingApprovals[0] ?? null;
-    }
+  const selectedReportApproval = useMemo(
+    () => resolveApproval(reportApprovals, selectedSession, selectedWorkflowRun?.runId),
+    [reportApprovals, selectedSession, selectedWorkflowRun],
+  );
 
-    return null;
-  }, [mappingApprovals, selectedSession, selectedWorkflowRun]);
-
-  const selectedNormalizationApproval = useMemo(() => {
-    if (!selectedSession) return null;
-
-    if (selectedWorkflowRun?.runId) {
-      const matchedByRun = normalizationApprovals.find(
-        (approval) => approval.runId === selectedWorkflowRun.runId,
-      );
-      if (matchedByRun) return matchedByRun;
-    }
-
-    const exactMatch = normalizationApprovals.find((approval) => {
-      const ingestionSessionId = readIngestionSessionIdFromApproval(approval);
-      return sessionIdsMatch(ingestionSessionId, selectedSession.ingestion_session_id);
-    });
-    if (exactMatch) return exactMatch;
-
-    if (!selectedWorkflowRun?.runId && normalizationApprovals.length === 1) {
-      return normalizationApprovals[0] ?? null;
-    }
-
-    return null;
-  }, [normalizationApprovals, selectedSession, selectedWorkflowRun]);
-
-  const selectedPublishApproval = useMemo(() => {
-    if (!selectedSession) return null;
-
-    if (selectedWorkflowRun?.runId) {
-      const matchedByRun = publishApprovals.find(
-        (approval) => approval.runId === selectedWorkflowRun.runId,
-      );
-      if (matchedByRun) return matchedByRun;
-    }
-
-    const exactMatch = publishApprovals.find((approval) => {
-      const ingestionSessionId = readIngestionSessionIdFromApproval(approval);
-      return sessionIdsMatch(ingestionSessionId, selectedSession.ingestion_session_id);
-    });
-    if (exactMatch) return exactMatch;
-
-    // Fallback for cards that do not carry a parseable session id.
-    if (!selectedWorkflowRun?.runId && publishApprovals.length === 1) {
-      return publishApprovals[0] ?? null;
-    }
-
-    return null;
-  }, [publishApprovals, selectedSession, selectedWorkflowRun]);
-
-  const selectedReportApproval = useMemo(() => {
-    if (!selectedSession) return null;
-
-    if (selectedWorkflowRun?.runId) {
-      const matchedByRun = reportApprovals.find(
-        (approval) => approval.runId === selectedWorkflowRun.runId,
-      );
-      if (matchedByRun) return matchedByRun;
-    }
-
-    const exactMatch = reportApprovals.find((approval) => {
-      const ingestionSessionId = readIngestionSessionIdFromApproval(approval);
-      return sessionIdsMatch(ingestionSessionId, selectedSession.ingestion_session_id);
-    });
-    if (exactMatch) return exactMatch;
-
-    if (!selectedWorkflowRun?.runId && reportApprovals.length === 1) {
-      return reportApprovals[0] ?? null;
-    }
-
-    return null;
-  }, [reportApprovals, selectedSession, selectedWorkflowRun]);
-
-  const selectedProfilingApproval = useMemo(() => {
-    if (!selectedSession) return null;
-
-    if (selectedWorkflowRun?.runId) {
-      const matchedByRun = profilingApprovals.find(
-        (approval) => approval.runId === selectedWorkflowRun.runId,
-      );
-      if (matchedByRun) return matchedByRun;
-    }
-
-    const exactMatch = profilingApprovals.find((approval) => {
-      const ingestionSessionId = readIngestionSessionIdFromApproval(approval);
-      return sessionIdsMatch(ingestionSessionId, selectedSession.ingestion_session_id);
-    });
-    if (exactMatch) return exactMatch;
-
-    if (!selectedWorkflowRun?.runId && profilingApprovals.length === 1) {
-      return profilingApprovals[0] ?? null;
-    }
-
-    return null;
-  }, [profilingApprovals, selectedSession, selectedWorkflowRun]);
+  const selectedProfilingApproval = useMemo(
+    () => resolveApproval(profilingApprovals, selectedSession, selectedWorkflowRun?.runId),
+    [profilingApprovals, selectedSession, selectedWorkflowRun],
+  );
 
   // Match pending approvals by runId OR by ingestion session id embedded in
   // the approval payload. Each agent tool suspension creates a new
