@@ -30,10 +30,10 @@ export function AgentComposer({ compact = false }: AgentComposerProps) {
   const staffingAttachments = useChatAttachments(selection.threadId);
   const pmoIngestAttachments = usePmoChatIngestAttachments(selection.threadId);
   const isPmo = chatAgent === 'pmo';
-  const attachments = isPmo ? [] : staffingAttachments.attachments;
-  const attach = isPmo ? undefined : staffingAttachments.attach;
-  const remove = isPmo ? undefined : staffingAttachments.remove;
-  const reset = isPmo ? () => {} : staffingAttachments.reset;
+  const attachments = isPmo ? pmoIngestAttachments.attachments : staffingAttachments.attachments;
+  const attach = isPmo ? pmoIngestAttachments.attach : staffingAttachments.attach;
+  const remove = isPmo ? pmoIngestAttachments.remove : staffingAttachments.remove;
+  const reset = isPmo ? pmoIngestAttachments.reset : staffingAttachments.reset;
   const warning = isPmo ? pmoIngestAttachments.warning : staffingAttachments.warning;
   const uploadSources = isPmo ? pmoIngestAttachments.uploadSources : [];
   const uploadSourcesLoading = isPmo ? pmoIngestAttachments.uploadSourcesLoading : false;
