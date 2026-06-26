@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { AgentComposer } from './chat-experience/agent-composer';
 import { AgentHeader } from './chat-experience/agent-header';
 import {
+  AgentRuntimeBoundary,
   type ChatAgentMode,
   useAgentRuntimeContext,
   useAgentSelection,
@@ -18,7 +19,6 @@ export interface ChatScreenProps {
 
 export function ChatScreen({ threadId, chatAgent = 'staffing' }: ChatScreenProps) {
   const { selection, actions } = useAgentSelection();
-  const { historyLoading } = useAgentRuntimeContext();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   // Sync route param → provider selection. Provider is the source of truth;
@@ -29,6 +29,29 @@ export function ChatScreen({ threadId, chatAgent = 'staffing' }: ChatScreenProps
   useEffect(() => {
     if (threadId && threadId !== selection.threadId) actions.setThreadId(threadId);
   }, [threadId, selection.threadId, actions]);
+
+  return (
+    <AgentRuntimeBoundary>
+      <ChatScreenInner
+        chatAgent={chatAgent}
+        mobileNavOpen={mobileNavOpen}
+        onMobileNavOpenChange={setMobileNavOpen}
+      />
+    </AgentRuntimeBoundary>
+  );
+}
+
+function ChatScreenInner({
+  chatAgent,
+  mobileNavOpen,
+  onMobileNavOpenChange,
+}: {
+  chatAgent: ChatAgentMode;
+  mobileNavOpen: boolean;
+  onMobileNavOpenChange: (next: boolean) => void;
+}) {
+  const { selection } = useAgentSelection();
+  const { historyLoading } = useAgentRuntimeContext();
 
   if (historyLoading) {
     return (
@@ -43,7 +66,7 @@ export function ChatScreen({ threadId, chatAgent = 'staffing' }: ChatScreenProps
       <div className="hidden lg:flex">
         <AgentThreadRail activeThreadId={selection.threadId} chatAgent={chatAgent} />
       </div>
-      <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+      <Sheet open={mobileNavOpen} onOpenChange={onMobileNavOpenChange}>
         <SheetContent
           side="left"
           hideClose
@@ -52,13 +75,13 @@ export function ChatScreen({ threadId, chatAgent = 'staffing' }: ChatScreenProps
           <AgentThreadRail
             activeThreadId={selection.threadId}
             chatAgent={chatAgent}
-            onAfterNavigate={() => setMobileNavOpen(false)}
+            onAfterNavigate={() => onMobileNavOpenChange(false)}
             className="w-full border-r-0 lg:w-full"
           />
         </SheetContent>
       </Sheet>
       <div className="flex min-w-0 flex-1 flex-col">
-        <AgentHeader chatAgent={chatAgent} onOpenMobileNav={() => setMobileNavOpen(true)} />
+        <AgentHeader chatAgent={chatAgent} onOpenMobileNav={() => onMobileNavOpenChange(true)} />
         <AgentTranscript />
         <AgentComposer />
       </div>

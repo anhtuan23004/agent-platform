@@ -280,15 +280,18 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
         <PageContextContext.Provider value={pageCtxValue}>
           <ChatAgentContext.Provider value={chatAgentValue}>
             <PmoIngestSendRefContext.Provider value={pmoIngestSendRef}>
-              <PanelUIContext.Provider value={panelUIValue}>
-                <AgentRuntimeHost pmoIngestSendRef={pmoIngestSendRef}>{children}</AgentRuntimeHost>
-              </PanelUIContext.Provider>
+              <PanelUIContext.Provider value={panelUIValue}>{children}</PanelUIContext.Provider>
             </PmoIngestSendRefContext.Provider>
           </ChatAgentContext.Provider>
         </PageContextContext.Provider>
       </SelectionContext.Provider>
     </DensityProvider>
   );
+}
+
+export function AgentRuntimeBoundary({ children }: { children: React.ReactNode }) {
+  const pmoIngestSendRef = usePmoIngestSendRef();
+  return <AgentRuntimeHost pmoIngestSendRef={pmoIngestSendRef}>{children}</AgentRuntimeHost>;
 }
 
 function AgentRuntimeHost({
