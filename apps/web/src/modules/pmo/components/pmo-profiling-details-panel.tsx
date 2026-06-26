@@ -63,7 +63,7 @@ export function PmoProfilingDetailsPanel(props: PmoProfilingDetailsPanelProps) {
     profilingReviewState,
     profilingSummary,
     profilingDocuments,
-    profilingApproval,
+    profilingApproval: _profilingApproval,
     selectedSessionOverrides,
     profilingAreas,
     isAppendingDocument,
@@ -79,13 +79,11 @@ export function PmoProfilingDetailsPanel(props: PmoProfilingDetailsPanelProps) {
     onToggleSheetIgnore,
   } = props;
 
-  // Approve is only possible when a real pending approval row exists in
-  // agent.workflow_approvals AND the profiling review is still in needs_review.
-  // Without a pending approval row the CTA is hidden — the step shows as a
-  // read-only historical snapshot instead.
-  const hasPendingApprovalRow = profilingApproval?.status === 'pending';
+  // Approve is possible when the profiling review is in needs_review and the
+  // step has not failed/cancelled.  A pending agent approval row is preferred
+  // (agent-driven workflow) but NOT required — the PMO page can approve
+  // directly via /api/pmo/v1/profiling/approve-continue as a fallback.
   const canApproveProfiling =
-    hasPendingApprovalRow &&
     profilingReviewState?.status === 'needs_review' &&
     stepStatus !== 'failed' &&
     stepStatus !== 'cancelled';
@@ -298,15 +296,9 @@ export function PmoProfilingDetailsPanel(props: PmoProfilingDetailsPanelProps) {
         )}
       </div>
 
-      {canShowProfilingActions &&
-      isCurrent &&
-      profilingReviewState?.status === 'needs_review' &&
-      !hasPendingApprovalRow ? (
-        <p className="text-ink-subtle">
-          Waiting for the agent to create a profiling approval. The approve action will appear once
-          the agent suspends with a review card.
-        </p>
-      ) : null}
+      {/* "Waiting for agent" gate removed — the PMO page can approve profiling
+          directly via /api/pmo/v1/profiling/approve-continue when no agent
+          approval row exists. */}
 
       {canShowProfilingActions && isCurrent ? (
         <div className="space-y-2">

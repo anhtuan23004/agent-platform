@@ -43,8 +43,8 @@ export function PmoPage() {
     'Ingest this workbook and prepare data for RA calculation.',
   );
   const [sessions, setSessions] = useState<PmoPlanningSession[]>([]);
-  const { setPanelOpen, setPendingPrompt } = usePanelUI();
-  const { selection, actions: agentActions } = useAgentSelection();
+  const { setPendingPrompt } = usePanelUI();
+  const { selection } = useAgentSelection();
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [agentPollingActive, setAgentPollingActive] = useState(false);
   const [isReviewPanelOpen, setIsReviewPanelOpen] = useState(false);
@@ -502,7 +502,6 @@ export function PmoPage() {
                     const prompt = sessionId
                       ? `${goalDraft.trim()}\n\n[Session: ${sessionId}]`
                       : goalDraft.trim();
-                    setPanelOpen(true);
                     setPendingPrompt({ text: prompt, autoSend: true });
                     setAgentPollingActive(true);
                     void loadSessions(true);
@@ -563,11 +562,6 @@ export function PmoPage() {
             onViewSession={(sessionId) => {
               setSelectedSessionId(sessionId);
               setIsReviewPanelOpen(true);
-              const session = sessions.find((s) => s.ingestion_session_id === sessionId);
-              if (session?.chat_thread_id) {
-                agentActions.setThreadId(session.chat_thread_id);
-                setPanelOpen(true);
-              }
             }}
             onCancelWorkflow={handleCancelWorkflow}
           />

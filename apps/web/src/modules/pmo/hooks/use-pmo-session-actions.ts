@@ -234,39 +234,39 @@ export function usePmoSessionActions(
       return;
     }
 
-    if (profilingApproval?.status !== 'pending') {
-      toast.error('No pending approval', {
-        description:
-          'No pending profiling approval found. The approval may have already been resolved.',
-      });
-      return;
-    }
-
     if (isApprovingProfiling) {
       return;
     }
 
     setIsApprovingProfiling(true);
     try {
-      // Approve profiling through the canonical agent decision path.
-      // The agent handler's resume path updates PMO session state
-      // (profiling_review, step status, step advancement) transactionally.
-      if (profilingApproval.agentic) {
-        await workflowRuntimeApi.resumeChat({
-          approvalId: profilingApproval.approvalId,
-          decision: 'approve',
-        });
+      if (profilingApproval?.status === 'pending') {
+        // Preferred path: resume the agent via the approval row so the agentic
+        // workflow continues to the next step automatically.
+        if (profilingApproval.agentic) {
+          await workflowRuntimeApi.resumeChat({
+            approvalId: profilingApproval.approvalId,
+            decision: 'approve',
+          });
+        } else {
+          await workflowRuntimeApi.decideApproval(profilingApproval.approvalId, {
+            decision: 'approve',
+          });
+        }
+        notifyApprovalResolved();
       } else {
-        await workflowRuntimeApi.decideApproval(profilingApproval.approvalId, {
-          decision: 'approve',
-        });
+        // Fallback: no agent approval row available — approve directly via the
+        // PMO session API.  This advances the execution state (marks the
+        // profiling step completed, moves current_step to the next step) so
+        // the UI can proceed even when the workflow was not started through
+        // the agent chat.
+        await pmoApi.approveProfilingContinue(selectedSession.ingestion_session_id);
       }
 
-      notifyApprovalResolved();
       await Promise.all([loadSessions(true), refreshWorkflowRuntime()]);
 
       toast.success('Profiling approved', {
-        description: 'Profiling gate approved. The agent will continue processing.',
+        description: 'Profiling gate approved. The workflow will continue processing.',
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to approve profiling gate.';
