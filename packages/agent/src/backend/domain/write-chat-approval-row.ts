@@ -64,6 +64,20 @@ function taskIdFromCard(card: ApprovalCard): string | null {
   return typeof taskId === 'string' ? taskId : null;
 }
 
+/** Best-effort extraction of ingestionSessionId from the card's kvTable rows. */
+function ingestionSessionIdFromCard(card: ApprovalCard): string | null {
+  for (const detail of card.details) {
+    if (detail.kind !== 'kvTable' || !Array.isArray(detail.rows)) continue;
+    for (const row of detail.rows) {
+      const key = typeof row.k === 'string' ? row.k.trim().toLowerCase() : '';
+      if (key === 'ingestion session' || key === 'ingestion session id' || key === 'session id') {
+        return typeof row.v === 'string' && row.v.trim() ? row.v.trim() : null;
+      }
+    }
+  }
+  return null;
+}
+
 /**
  * Projects a native-suspend `approval` event into the workflow_runs +
  * workflow_approvals read-model rows. Idempotent per task. Returns the row ids
@@ -135,12 +149,22 @@ export async function writeChatApprovalRow(
 
     // Synthetic agentic-run row — required by the FK on workflow_approvals.
     const effectiveWorkflowId = opts.workflowId ?? STAFFING_ORCHESTRATOR_WORKFLOW_ID;
+    const ingestionSessionId = ingestionSessionIdFromCard(card);
     const runRes = await client.query<{ run_id: string }>(
       `INSERT INTO agent.workflow_runs
          (run_id, workflow_id, tenant_id, started_by, started_via, status, input_summary, started_at)
        VALUES (gen_random_uuid(), $1, $2, $3, 'chat', 'paused', $4::jsonb, now())
        RETURNING run_id`,
-      [effectiveWorkflowId, tenantId, userId, JSON.stringify({ taskId, thread_id: threadId })],
+      [
+        effectiveWorkflowId,
+        tenantId,
+        userId,
+        JSON.stringify({
+          taskId,
+          thread_id: threadId,
+          ...(ingestionSessionId ? { ingestionSessionId } : {}),
+        }),
+      ],
     );
     const runId = runRes.rows[0]?.run_id;
     if (!runId) throw new Error('write-chat-approval-row: workflow_runs INSERT returned no row');
