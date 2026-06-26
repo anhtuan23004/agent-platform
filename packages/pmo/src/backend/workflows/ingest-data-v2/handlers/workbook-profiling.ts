@@ -59,15 +59,71 @@ export function buildProfilingStateFromDetection(params: {
     ...new Set(params.result.tables.map((table) => profilingAreaFromTableId(table.tableId))),
   ];
 
+  const fileName = params.input.fileName ?? params.input.fileKey?.split('/').at(-1) ?? 'Workbook';
+  const fileSizeBytes = params.input.fileSizeBytes ?? null;
+  const mimeType =
+    params.input.mimeType ?? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const uploadedAt = params.input.uploadedAt ?? params.nowIso;
+
   const document: SessionDocumentProfileRecord = {
     document_id: params.input.ingestionSessionId,
     source_file_key: params.input.fileKey ?? '',
-    file_name: params.input.fileName ?? params.input.fileKey?.split('/').at(-1) ?? 'Workbook',
-    file_size_bytes: params.input.fileSizeBytes ?? null,
-    mime_type:
-      params.input.mimeType ?? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    uploaded_at: params.input.uploadedAt ?? params.nowIso,
+    file_name: fileName,
+    file_size_bytes: fileSizeBytes,
+    mime_type: mimeType,
+    uploaded_at: uploadedAt,
     status: 'profiled',
+    profile_result: {
+      workbook_summary: {
+        file_name: fileName,
+        file_size_bytes: fileSizeBytes,
+        mime_type: mimeType,
+        uploaded_at: uploadedAt,
+        sheet_count: params.result.workbookMeta.sheetCount,
+        total_rows: params.result.workbookMeta.totalRows,
+        total_columns: params.result.tables.reduce((sum, t) => sum + t.mappings.length, 0),
+        excluded_sheets: params.result.workbookMeta.excludedSheets,
+        parse_errors: [],
+      },
+      sheets: params.result.tables.map((table) => ({
+        sheet_name: table.sourceSheet,
+        row_count: 0,
+        column_count: table.mappings.length,
+        header_row: table.headerRow,
+        candidate_business_area: profilingAreaFromTableId(table.tableId),
+        confidence: table.tableConfidence,
+        likely_purpose: table.tableId,
+        key_columns: table.mappings
+          .filter((m) => m.status === 'auto_accept')
+          .map((m) => m.sourceColumn),
+        sample_value_patterns: [],
+        deterministic_detection: {
+          candidate_area: profilingAreaFromTableId(table.tableId),
+          confidence: table.tableConfidence,
+          evidence: [],
+        },
+        final_decision: {
+          area: profilingAreaFromTableId(table.tableId),
+          confidence:
+            table.tableConfidence >= 0.8
+              ? ('high' as const)
+              : table.tableConfidence >= 0.5
+                ? ('medium' as const)
+                : ('low' as const),
+          source: 'deterministic_only' as const,
+          requires_user_review: table.tableConfidence < 0.8,
+        },
+      })),
+      detected_data_areas: detectedAreas,
+      recommendations: {
+        missing_recommended_data_areas: [],
+        missing_recommended_data_areas_details: [],
+        likely_ignorable_sheets: params.result.workbookMeta.excludedSheets,
+        suggested_next_step:
+          'Workbook profiling complete. Confirm sheet roles, then continue to validation.',
+      },
+      generated_at: params.nowIso,
+    },
   };
 
   return {

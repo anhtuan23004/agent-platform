@@ -1,5 +1,6 @@
 import { toast } from '@seta/shared-ui';
 import { useCallback, useState } from 'react';
+import { notifyApprovalResolved } from '../../agent/hooks/use-approval-events';
 import {
   type PmoPlanningSession,
   type PmoProfilingArea,
@@ -7,7 +8,7 @@ import {
   type PmoSessionDocumentProfileRecord,
   pmoApi,
 } from '../api/client';
-import { workflowRuntimeApi } from '../api/workflow-runtime';
+import { type WorkflowApprovalRow, workflowRuntimeApi } from '../api/workflow-runtime';
 import { isPmoSessionCancelable } from './pmo-session-cancel';
 
 export interface UploadedWorkbookInfo {
@@ -33,6 +34,8 @@ interface UsePmoSessionActionsOptions {
   setUploadedInfo: React.Dispatch<React.SetStateAction<UploadedWorkbookInfo | null>>;
   refreshWorkflowRuntime: () => Promise<void>;
   runtimeRunBySessionId: Map<string, { runId: string; status: string }>;
+  /** Pending agentic profiling approval — used to resume the agent on approve. */
+  profilingApproval: WorkflowApprovalRow | null;
 }
 
 interface UsePmoSessionActionsResult {
@@ -64,6 +67,7 @@ export function usePmoSessionActions(
     setUploadedInfo,
     refreshWorkflowRuntime,
     runtimeRunBySessionId,
+    profilingApproval,
   } = options;
 
   const [isUploading, setIsUploading] = useState(false);
@@ -238,6 +242,19 @@ export function usePmoSessionActions(
     try {
       await pmoApi.approveProfilingContinue(selectedSession.ingestion_session_id);
 
+      // Resume the agent if there is a pending agentic profiling approval.
+      if (profilingApproval?.agentic) {
+        try {
+          await workflowRuntimeApi.resumeChat({
+            approvalId: profilingApproval.approvalId,
+            decision: 'approve',
+          });
+          notifyApprovalResolved();
+        } catch {
+          // Best-effort: the approval may already have been resolved.
+        }
+      }
+
       await Promise.all([loadSessions(true), refreshWorkflowRuntime()]);
 
       toast.success('Profiling approved', {
@@ -249,7 +266,13 @@ export function usePmoSessionActions(
     } finally {
       setIsApprovingProfiling(false);
     }
-  }, [isApprovingProfiling, loadSessions, refreshWorkflowRuntime, selectedSession]);
+  }, [
+    isApprovingProfiling,
+    loadSessions,
+    profilingApproval,
+    refreshWorkflowRuntime,
+    selectedSession,
+  ]);
 
   const isRuntimeRunCancelable = useCallback((status: string | null | undefined): boolean => {
     return status === 'pending' || status === 'running' || status === 'paused';

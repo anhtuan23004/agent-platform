@@ -199,6 +199,7 @@ export function PmoPage() {
     setUploadedInfo,
     refreshWorkflowRuntime,
     runtimeRunBySessionId,
+    profilingApproval: approvalByActionId.workbook_profiling ?? null,
   });
 
   const {
