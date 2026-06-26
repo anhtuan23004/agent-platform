@@ -86,19 +86,9 @@ export const REQUIRED_FIELDS_BY_TABLE = buildRequiredFieldsByTable(PMO_DOMAIN_CO
 // ── Plan → execution-steps parsing ─────────────────────────────────────────
 
 export function readPlannerStepsFromPlan(plan: unknown): PlannerExecutionStepV2[] {
-  // Only seed the first step. Subsequent steps are added dynamically by the
-  // handler-adapter when the agent actually calls the corresponding tool.
-  const defaults: PlannerExecutionStepV2[] = [
-    {
-      step_no: 1,
-      planner_step_id: 'pmo.planner.step.1.workbook_profiling',
-      action_id: 'workbook_profiling',
-      review_type: 'profiling',
-      step_name: 'Workbook profiling',
-      status: 'in_progress',
-      review_status: 'pending',
-    },
-  ];
+  // No hardcoded defaults. Steps are added dynamically by the handler-adapter
+  // when the agent actually calls each tool, reflecting the truly agentic flow.
+  const defaults: PlannerExecutionStepV2[] = [];
 
   if (!isObject(plan) || !Array.isArray(plan.proposed_workflow)) {
     return defaults;
@@ -147,16 +137,13 @@ export function readExecutionStateV2(raw: unknown, planningPlan: unknown): Plann
   const nowIso = new Date().toISOString();
   if (!isObject(raw) || raw.state_version !== 2 || !Array.isArray(raw.steps)) {
     const steps = readPlannerStepsFromPlan(planningPlan);
-    const first = steps[0] ?? {
-      step_no: 1,
-      planner_step_id: 'pmo.planner.step.1.workbook_profiling',
-    };
+    const first = steps[0];
     return {
       state_version: 2,
       started_at: nowIso,
       updated_at: nowIso,
-      current_step_no: first.step_no,
-      current_planner_step_id: first.planner_step_id,
+      current_step_no: first?.step_no ?? 0,
+      current_planner_step_id: first?.planner_step_id ?? '',
       current_step_status: 'in_progress',
       steps,
       documents: [],
