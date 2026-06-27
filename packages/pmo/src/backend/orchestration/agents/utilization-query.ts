@@ -7,6 +7,7 @@ import {
 } from '../../agent-tools/resolve-analytics-scope.ts';
 import { loadFactsAndContext } from '../../analytics/findings-context.ts';
 import {
+  enrichMemberUtilizationRows,
   listFlaggedMembersFromDetectors,
   listMemberUtilization,
   loadMemberUtilizationDetail,
@@ -73,7 +74,11 @@ export async function runUtilizationQuery(
       ...(scope.ingestionSessionId ? { ingestionSessionId: scope.ingestionSessionId } : {}),
       ...(loadDateRange ? { dateRange: loadDateRange } : {}),
     });
-    const members = listFlaggedMembersFromDetectors(facts, findingsCtx, input.flaggedTypes);
+    const members = await enrichMemberUtilizationRows(
+      tenantId,
+      listFlaggedMembersFromDetectors(facts, findingsCtx, input.flaggedTypes),
+      scope.ingestionSessionId,
+    );
     return {
       intent: input.intent,
       memberCount: members.length,

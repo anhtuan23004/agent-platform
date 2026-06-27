@@ -75,8 +75,7 @@ export function PmoStepReviewDrawer({
   const stepLabel = TOOL_LABELS[toolId] ?? 'Review';
   const stepDescription = TOOL_DESCRIPTIONS[toolId] ?? 'Review the details and approve or reject.';
 
-  const invalidateAfterDecision = useCallback(async () => {
-    notifyApprovalResolved({ threadId });
+  const invalidateApprovalQueries = useCallback(async () => {
     if (threadId) {
       await qc.invalidateQueries({ queryKey: workflowsQueryKeys.threadApprovals(threadId) });
     }
@@ -85,14 +84,16 @@ export function PmoStepReviewDrawer({
     if (moduleNs) void qc.invalidateQueries({ queryKey: [moduleNs] });
   }, [threadId, qc, toolId]);
 
+  /** Per-item mapping decisions: refresh approval data only — do not remount chat. */
   const handlePartialRefresh = useCallback(async () => {
-    await invalidateAfterDecision();
-  }, [invalidateAfterDecision]);
+    await invalidateApprovalQueries();
+  }, [invalidateApprovalQueries]);
 
   const handleDecisionComplete = useCallback(async () => {
-    await invalidateAfterDecision();
+    await invalidateApprovalQueries();
+    notifyApprovalResolved({ threadId });
     onOpenChange(false);
-  }, [invalidateAfterDecision, onOpenChange]);
+  }, [invalidateApprovalQueries, onOpenChange, threadId]);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>

@@ -121,7 +121,6 @@ export function usePmoMappingReviewActions(
       },
       {
         onSuccess: async () => {
-          notifyApprovalResolved();
           toast.success('Mapping item approved', {
             description: 'The next mapping item is now ready for review.',
           });
@@ -162,7 +161,6 @@ export function usePmoMappingReviewActions(
       },
       {
         onSuccess: async () => {
-          notifyApprovalResolved();
           toast.success('Mapping updated', {
             description: 'The selected source column has been applied for this review item.',
           });
@@ -196,7 +194,9 @@ export function usePmoMappingReviewActions(
       },
       {
         onSuccess: async () => {
-          notifyApprovalResolved();
+          if (!onDecisionComplete) {
+            notifyApprovalResolved();
+          }
           toast.success('Moved to next step', {
             description: 'Workflow moved to the next step in final plan.',
           });
@@ -209,7 +209,13 @@ export function usePmoMappingReviewActions(
         },
       },
     );
-  }, [refreshAfterFinalDecision, selectedMappingApproval, selectedMappingView, submitDecision]);
+  }, [
+    refreshAfterFinalDecision,
+    onDecisionComplete,
+    selectedMappingApproval,
+    selectedMappingView,
+    submitDecision,
+  ]);
 
   const selectMappingAlternate = useCallback((alternateIndex: number) => {
     setSelectedMappingAlternate(alternateIndex);

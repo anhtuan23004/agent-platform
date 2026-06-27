@@ -50,7 +50,7 @@ export function makePmoOrchestratorTools(deps: PmoOrchestratorToolDeps) {
       '',
       'intent values:',
       '- count_members_by_busy_rate: count/list members with busyRateGt and/or busyRateLt (e.g. 1.0 for >100%).',
-      '- list_flagged_members: SOP overbook/idle/mismatch findings only.',
+      '- list_flagged_members: SOP overbook/idle/mismatch findings only. Each member includes fullName, detail, and explanation.summary — cite these in your reply.',
       '- member_detail: one member week breakdown; pass memberId or sourceMemberId.',
       '- report_summary: idle+overbook report for dateRange (defaults from chat scope).',
       '- rebalance_candidates: rebalance suggestions for overbooked members.',
@@ -103,7 +103,7 @@ export function makePmoOrchestratorTools(deps: PmoOrchestratorToolDeps) {
             ? {
                 recentMembers: result.members.slice(0, 10).map((member) => ({
                   memberId: member.memberId,
-                  label: member.memberId,
+                  label: member.fullName ?? member.memberId,
                 })),
               }
             : {}),
