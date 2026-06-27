@@ -2,6 +2,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'csv-parse/sync';
+import {
+  DEMO_EMBEDDING_MODEL_ID,
+  deterministicEmbeddingFromHash,
+} from '../../demo/demo-embeddings.ts';
 import { syncMemberSkillProjection, syncTaskHistoryProjection } from './sync-projections.ts';
 
 function findAncestorWith(startDir: string, markerPath: string): string | null {
@@ -115,6 +119,8 @@ export async function syncRecommendationProjectionsFromDemoCsv(input: {
 
   for (const row of historyRows) {
     try {
+      const embeddingHash = row.embedding_source_hash?.trim() || '';
+      const embeddingVector = embeddingHash ? deterministicEmbeddingFromHash(embeddingHash) : null;
       await syncTaskHistoryProjection({
         tenantId: input.tenantId,
         historyId: row.history_id,
@@ -126,11 +132,13 @@ export async function syncRecommendationProjectionsFromDemoCsv(input: {
         skillTags: row.skill_tags ? row.skill_tags.split('|').filter(Boolean) : [],
         completedAt: requiredDate('task_history.completed_at', row.completed_at),
         evidenceConfidence: optionalNumber(row.evidence_confidence) ?? 1,
+        embedding: embeddingVector,
+        embeddingModelId: embeddingVector ? DEMO_EMBEDDING_MODEL_ID : null,
+        embeddingSourceHash: embeddingHash || null,
         source: row.source || 'derived_pmo02',
         sourceVersion: row.source_version || 'pmo02-recommendation-mock-v1',
         idempotencyKey: `pmo02:history:${row.history_id}`,
         syncedAt: parseDate(row.synced_at) ?? undefined,
-        embeddingSourceHash: row.embedding_source_hash || null,
       });
       taskHistory++;
     } catch (error) {

@@ -9,6 +9,11 @@ import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parse } from 'csv-parse/sync';
+import {
+  type RebalanceSwapRow,
+  type RecommendationHistoryRow,
+  tuneRecommendationHistoryRows,
+} from '../src/backend/demo/tune-recommendation-history.ts';
 
 const DATA_DIR = resolve(import.meta.dirname, '../../../hackathon/data');
 const TENANT_ID = '00000000-0000-0000-0000-000000000001';
@@ -133,22 +138,31 @@ writeCsv(
   skills,
 );
 
-const history = readCsv('pmo_02_member_task_history.csv').map((row) => {
-  const completedAt = dateForHistory(row.history_id ?? '');
+const historyBase = readCsv('pmo_02_member_task_history.csv') as RecommendationHistoryRow[];
+const swaps = readCsv('pmo_02_rebalance_swaps.csv') as RebalanceSwapRow[];
+const tunedHistory = tuneRecommendationHistoryRows({
+  rows: historyBase,
+  swaps,
+  fallbackCompletedAt: dateForHistory,
+});
+
+const history = tunedHistory.map((row) => {
   const evidenceConfidence = Number(row.total_logged_hours ?? 0) >= 20 ? '0.9' : '0.75';
-  const embeddingText = [row.task_title, row.task_summary, row.skill_tags]
-    .filter(Boolean)
-    .join(' | ');
+  const embeddingText =
+    row.embedding_text ??
+    [row.task_title, row.task_summary, row.skill_tags].filter(Boolean).join(' | ');
+  const embeddingSourceHash =
+    row.embedding_source_hash ?? (embeddingText ? hash(embeddingText) : '');
   return {
     tenant_id: TENANT_ID,
     ...row,
-    completed_at: `${completedAt}T17:00:00.000Z`,
+    completed_at: row.completed_at ?? `${dateForHistory(row.history_id ?? '')}T17:00:00.000Z`,
     evidence_confidence: evidenceConfidence,
     source: 'derived_pmo02',
     synced_at: `${RANGE_END}T23:59:59.000Z`,
     source_version: SOURCE_VERSION,
     embedding_text: embeddingText,
-    embedding_source_hash: hash(embeddingText),
+    embedding_source_hash: embeddingSourceHash,
   };
 });
 

@@ -64,6 +64,12 @@ describe('recommendation fixture minimum scenarios', () => {
     expect(emp119History.length).toBeGreaterThan(0);
     expect(emp119History.every((row) => row.embedding_text === '')).toBe(true);
     expect(emp119History.every((row) => row.embedding_source_hash === '')).toBe(true);
+
+    const emp103Orion = history.filter(
+      (row) => row.member_id === 'EMP-103' && row.project_id === 'PRJ-001',
+    );
+    expect(emp103Orion.length).toBeGreaterThan(0);
+    expect(emp103Orion.every((row) => row.embedding_source_hash !== '')).toBe(true);
   });
 
   it('includes a design-aligned recommendation path for EMP-118', () => {
