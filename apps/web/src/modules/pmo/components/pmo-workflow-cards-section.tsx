@@ -94,11 +94,25 @@ function findCurrentExecutionIndex(cards: ExecutionCard[], runtime: PmoExecution
   return cards.findIndex((step) => step.status === 'pending');
 }
 
-function buildWorkflowCards(params: {
+export function buildWorkflowCards(params: {
   executionCards: ExecutionCard[];
   runtime: PmoExecutionStepRuntimeProps;
+  readOnly?: boolean;
 }): WorkflowCardModel[] {
-  const { executionCards, runtime } = params;
+  const { executionCards, runtime, readOnly } = params;
+
+  if (readOnly) {
+    return executionCards.map((step, index) => ({
+      id: `execution-${step.step_no}`,
+      ordinal: index + 1,
+      kind: 'execution',
+      label: step.step_name,
+      statusLabel: workflowStepTone(step.status).label,
+      access: 'history_view_only',
+      step,
+    }));
+  }
+
   const cards: WorkflowCardModel[] = [];
   const currentIndex = findCurrentExecutionIndex(executionCards, runtime);
 
@@ -161,8 +175,8 @@ export function PmoWorkflowCardsSection(props: PmoWorkflowCardsSectionProps) {
   } = props;
 
   const cards = useMemo(
-    () => buildWorkflowCards({ executionCards, runtime }),
-    [executionCards, runtime],
+    () => buildWorkflowCards({ executionCards, runtime, readOnly }),
+    [executionCards, runtime, readOnly],
   );
   const defaultCard = useMemo(() => pickDefaultWorkflowCard(cards, readOnly), [cards, readOnly]);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(
@@ -173,9 +187,9 @@ export function PmoWorkflowCardsSection(props: PmoWorkflowCardsSectionProps) {
     setSelectedCardId(initialSelectedCardId ?? defaultCard?.id ?? null);
   }, [defaultCard?.id, initialSelectedCardId]);
 
-  const selectedCard = cards.find(
-    (card) => card.id === selectedCardId && card.access !== 'future_locked',
-  );
+  const selectedCard = readOnly
+    ? cards.find((card) => card.id === selectedCardId)
+    : cards.find((card) => card.id === selectedCardId && card.access !== 'future_locked');
   const activeCard = selectedCard ?? defaultCard;
 
   return (

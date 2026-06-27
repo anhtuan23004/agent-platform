@@ -1,3 +1,4 @@
+import { useAuiState } from '@assistant-ui/react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo, useState } from 'react';
 import type { WorkflowApprovalRow } from '../api/schemas.ts';
@@ -17,6 +18,8 @@ import { HitlCardHost } from './hitl-card-host.tsx';
 import { resolveLiveDrawerApproval } from './pmo-chat-hitl-card.logic.ts';
 import { isPmoIngestApproval, PmoChatHitlCard } from './pmo-chat-hitl-card.tsx';
 import { PmoStepReviewDrawer } from './pmo-step-review-drawer.tsx';
+import { resolvePmoStepTransition } from './pmo-step-transition.logic.ts';
+import { PmoStepTransitionCard } from './pmo-step-transition-card.tsx';
 
 export interface ChatEmbeddedHitlProps {
   threadId: string | undefined;
@@ -24,6 +27,7 @@ export interface ChatEmbeddedHitlProps {
 
 export function ChatEmbeddedHitl({ threadId }: ChatEmbeddedHitlProps) {
   const approvalsQuery = useThreadApprovals(threadId);
+  const threadIsRunning = useAuiState((state) => state.thread.isRunning);
   const queryClient = useQueryClient();
   const [statusOverrides, setStatusOverrides] = useState<Map<string, ApprovalStatusOverride>>(
     () => new Map(),
@@ -100,11 +104,24 @@ export function ChatEmbeddedHitl({ threadId }: ChatEmbeddedHitlProps) {
     [approvals, statusOverrides],
   );
 
-  if ((!approvals || approvals.length === 0) && !stepReview) return null;
+  const stepTransition = useMemo(
+    () =>
+      resolvePmoStepTransition({
+        pmoDecided,
+        pending,
+        threadIsRunning,
+        isFetchingApprovals: approvalsQuery.isFetching,
+      }),
+    [approvalsQuery.isFetching, pending, pmoDecided, threadIsRunning],
+  );
+
+  if ((!approvals || approvals.length === 0) && !stepReview && !stepTransition) return null;
 
   return (
     <section className="space-y-3" aria-label="In-thread approvals">
       {pmoDecided.length > 0 ? <DecidedApprovalHistoryGroup approvals={pmoDecided} /> : null}
+
+      {stepTransition ? <PmoStepTransitionCard transition={stepTransition} /> : null}
 
       {pending.map((approval) => {
         if (isDedupApprovalPayload(approval.proposedPayload)) {

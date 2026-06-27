@@ -6,6 +6,10 @@ import type { WorkflowApprovalRow } from '@/modules/agent/workflows/api/schemas.
 import { workflowsApi } from '@/modules/agent/workflows/api/workflows.ts';
 import { ChatEmbeddedHitl } from '@/modules/agent/workflows/components/chat-embedded-hitl.tsx';
 
+vi.mock('@assistant-ui/react', () => ({
+  useAuiState: vi.fn(() => false),
+}));
+
 const PENDING_APPROVAL: WorkflowApprovalRow = {
   approvalId: 'a1',
   runId: 'r1',
@@ -80,7 +84,7 @@ describe('ChatEmbeddedHitl', () => {
 
     render(withQuery(<ChatEmbeddedHitl threadId="thread-x" />));
 
-    await waitFor(() => expect(screen.getByText('Approved.')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Approved')).toBeInTheDocument());
     expect(screen.getByText('Task assigned to Jane.')).toBeInTheDocument();
     // No interactive card for a decided approval.
     expect(
@@ -132,5 +136,36 @@ describe('ChatEmbeddedHitl', () => {
     expect(
       screen.queryByRole('region', { name: /assign task to a teammate/i }),
     ).not.toBeInTheDocument();
+  });
+
+  it('shows a processing card between completed and next PMO steps', async () => {
+    const { useAuiState } = await import('@assistant-ui/react');
+    vi.mocked(useAuiState).mockReturnValue(true);
+
+    vi.spyOn(workflowsApi, 'listThreadApprovals').mockResolvedValue([
+      {
+        approvalId: 'pmo-1',
+        runId: 'run-1',
+        stepId: 'pmo.ingest.profileWorkbook',
+        proposedPayload: {
+          meta: { toolId: 'pmo_profileWorkbook' },
+          summary: 'Profiling complete.',
+        },
+        approverUserId: 'user-1',
+        surfaceCanvas: true,
+        surfaceChatThreadId: 'thread-x',
+        agentic: true,
+        status: 'approved',
+        decisionPayload: { decision: 'approve' },
+        decidedAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        createdAt: new Date().toISOString(),
+      } satisfies WorkflowApprovalRow,
+    ]);
+
+    render(withQuery(<ChatEmbeddedHitl threadId="thread-x" />));
+
+    await waitFor(() => expect(screen.getByText('Preparing Column Mapping')).toBeInTheDocument());
+    expect(screen.getByText(/Workbook Profiling is done/i)).toBeInTheDocument();
   });
 });

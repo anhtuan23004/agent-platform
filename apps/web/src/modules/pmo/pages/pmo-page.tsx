@@ -1,6 +1,6 @@
 import { Button, PageChrome, toast } from '@seta/shared-ui';
 import { RefreshCw } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   type PmoPlan,
   type PmoPlanningSession,
@@ -40,6 +40,7 @@ export function PmoPage() {
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [isReviewPanelOpen, setIsReviewPanelOpen] = useState(false);
   const [historyViewSessionId, setHistoryViewSessionId] = useState<string | null>(null);
+  const reviewPanelRef = useRef<HTMLElement | null>(null);
 
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
   const [profilingOverridesBySessionId, setProfilingOverridesBySessionId] = useState<
@@ -51,16 +52,23 @@ export function PmoPage() {
     return sessions.find((row) => row.ingestion_session_id === selectedSessionId) ?? null;
   }, [sessions, selectedSessionId]);
 
-  const executionCards = buildExecutionCards(selectedSession);
-  const executionState = selectedSession?.execution_state ?? null;
-  const profilingDocuments = selectedSession?.profiling_documents.length
-    ? selectedSession.profiling_documents
+  const reviewSession = useMemo(() => {
+    if (!historyViewSessionId) return null;
+    return sessions.find((row) => row.ingestion_session_id === historyViewSessionId) ?? null;
+  }, [historyViewSessionId, sessions]);
+
+  const workflowSession = isReviewPanelOpen ? reviewSession : selectedSession;
+
+  const executionCards = buildExecutionCards(workflowSession);
+  const executionState = workflowSession?.execution_state ?? null;
+  const profilingDocuments = workflowSession?.profiling_documents.length
+    ? workflowSession.profiling_documents
     : (executionState?.documents ?? []);
-  const profilingSummary = selectedSession?.profiling_summary ?? executionState?.profiling_summary;
+  const profilingSummary = workflowSession?.profiling_summary ?? executionState?.profiling_summary;
   const profilingReviewState =
-    selectedSession?.profiling_review ?? executionState?.profiling_review;
-  const selectedSessionOverrides = selectedSession
-    ? (profilingOverridesBySessionId[selectedSession.ingestion_session_id] ?? {})
+    workflowSession?.profiling_review ?? executionState?.profiling_review;
+  const selectedSessionOverrides = workflowSession
+    ? (profilingOverridesBySessionId[workflowSession.ingestion_session_id] ?? {})
     : {};
 
   const {
@@ -84,13 +92,13 @@ export function PmoPage() {
     runtimeActiveStepId,
     hasRuntimeCurrentStepMatch,
   } = usePmoWorkflowRuntime({
-    selectedSession,
+    selectedSession: workflowSession,
     executionCards,
     executionCurrentStepNo: executionState?.current_step_no ?? null,
   });
 
-  const selectedRuntimeRun = selectedSession
-    ? (runtimeRunBySessionId.get(selectedSession.ingestion_session_id) ?? null)
+  const selectedRuntimeRun = workflowSession
+    ? (runtimeRunBySessionId.get(workflowSession.ingestion_session_id) ?? null)
     : null;
   const runtimeCancelled = selectedRuntimeRun?.status === 'canceled';
 
@@ -130,12 +138,10 @@ export function PmoPage() {
   const firstExecutionStepNo = executionCardsForDisplay[0]?.step_no ?? null;
 
   const historyInitialCardId = useMemo(() => {
-    if (!selectedSession || historyViewSessionId !== selectedSession.ingestion_session_id) {
-      return null;
-    }
+    if (!reviewSession) return null;
     const firstStep = executionCardsForDisplay[0];
     return firstStep ? workflowCardId(firstStep.step_no) : null;
-  }, [executionCardsForDisplay, historyViewSessionId, selectedSession]);
+  }, [executionCardsForDisplay, reviewSession]);
 
   const loadSessions = useCallback(async (keepSelection = true) => {
     setIsLoadingSessions(true);
@@ -251,7 +257,7 @@ export function PmoPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      void loadSessions(false);
+      void loadSessions(true);
     }, 0);
 
     return () => {
@@ -320,7 +326,7 @@ export function PmoPage() {
     [selectedSession],
   );
 
-  const plan: PmoPlan | null = selectedSession?.plan ?? null;
+  const plan: PmoPlan | null = workflowSession?.plan ?? null;
   const executionRuntime = {
     executionCurrentStepNo: executionState?.current_step_no ?? null,
     executionCurrentStepStatus: runtimeCancelled
@@ -434,24 +440,34 @@ export function PmoPage() {
               setSelectedSessionId(sessionId);
               setHistoryViewSessionId(sessionId);
               setIsReviewPanelOpen(true);
+              requestAnimationFrame(() => {
+                reviewPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              });
             }}
             onCancelWorkflow={handleCancelWorkflow}
           />
 
-          <section className="rounded-xl border border-hairline bg-canvas p-4 shadow-sm">
+          <section
+            ref={reviewPanelRef}
+            className="rounded-xl border border-hairline bg-canvas p-4 shadow-sm scroll-mt-4"
+          >
             {!isReviewPanelOpen ? (
               <section className="rounded-lg border border-hairline bg-surface-1 p-4 text-body-sm text-ink-subtle">
                 Select one run and click View to inspect its workflow steps.
               </section>
-            ) : !selectedSession ? (
+            ) : isLoadingSessions && !reviewSession ? (
+              <section className="rounded-lg border border-hairline bg-surface-1 p-4 text-body-sm text-ink-subtle">
+                Loading session details…
+              </section>
+            ) : !reviewSession ? (
               <section className="rounded-lg border border-hairline bg-surface-1 p-4 text-body-sm text-ink-subtle">
                 Selected run was not found. Refresh the page and try again.
               </section>
             ) : (
               <div className="space-y-3">
                 <PmoWorkflowCardsSection
-                  key={selectedSession.ingestion_session_id}
-                  selectedSession={selectedSession}
+                  key={reviewSession.ingestion_session_id}
+                  selectedSession={reviewSession}
                   executionCards={executionCardsForDisplay}
                   isAgentRunning={false}
                   readOnly
