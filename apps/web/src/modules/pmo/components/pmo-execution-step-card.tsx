@@ -222,6 +222,8 @@ export interface PmoExecutionStepPlanProps {
 interface PmoExecutionStepCardProps {
   selectedSession: PmoPlanningSession;
   step: ExecutionCard;
+  /** When true, all panels render in read-only mode (no approve/reject/edit). */
+  readOnly?: boolean;
   runtime: PmoExecutionStepRuntimeProps;
   mapping: PmoExecutionStepMappingProps;
   normalization: PmoExecutionStepNormalizationProps;
@@ -629,6 +631,7 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
   const {
     selectedSession,
     step,
+    readOnly: forceReadOnly,
     runtime,
     mapping,
     normalization,
@@ -789,6 +792,7 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
   // 1. The step is the current actionable step (pending approval), OR
   // 2. The step has a decided approval (historical read-only view).
   const isMappingReadOnly =
+    forceReadOnly ||
     Boolean(
       selectedMappingApprovalForStep?.status && selectedMappingApprovalForStep.status !== 'pending',
     ) ||
@@ -796,6 +800,7 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
   const shouldRenderMappingDetails =
     isLikelyMappingStep && (isCurrent || Boolean(selectedMappingApprovalForStep));
   const isNormalizationReadOnly =
+    forceReadOnly ||
     Boolean(
       selectedNormalizationApprovalForStep?.status &&
         selectedNormalizationApprovalForStep.status !== 'pending',
@@ -805,6 +810,7 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
     isLikelyNormalizationStep &&
     (isCurrent || Boolean(selectedNormalizationApprovalForStep) || Boolean(step.output_summary));
   const isPublishReadOnly =
+    forceReadOnly ||
     Boolean(
       selectedPublishApprovalForStep?.status && selectedPublishApprovalForStep.status !== 'pending',
     ) ||
@@ -815,8 +821,9 @@ export function PmoExecutionStepCard(props: PmoExecutionStepCardProps) {
     isWorkbookProfilingStep &&
     selectedSession.planning_state === 'approved_plan' &&
     profilingReviewState?.status === 'needs_review';
-  const isProfilingPanelCurrent = isCurrent || hasOpenProfilingReview;
-  const isProfilingStepReadOnly = isWorkbookProfilingStep && !isProfilingPanelCurrent;
+  const isProfilingPanelCurrent = !forceReadOnly && (isCurrent || hasOpenProfilingReview);
+  const isProfilingStepReadOnly =
+    forceReadOnly || (isWorkbookProfilingStep && !isProfilingPanelCurrent);
   const isApprovedReadOnly = isProfilingStepReadOnly && profilingReviewState?.status === 'approved';
 
   // Agent note and clarification rendering is handled by CardClarificationPanel

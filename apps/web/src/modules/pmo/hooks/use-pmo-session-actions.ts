@@ -5,33 +5,18 @@ import {
   type PmoPlanningSession,
   type PmoProfilingArea,
   type PmoProfilingSheetReviewOverride,
-  type PmoSessionDocumentProfileRecord,
   pmoApi,
 } from '../api/client';
 import { type WorkflowApprovalRow, workflowRuntimeApi } from '../api/workflow-runtime';
 import { isPmoSessionCancelable } from './pmo-session-cancel';
 
-export interface UploadedWorkbookInfo {
-  ingestionSessionId: string;
-  fileName: string;
-  fileSizeBytes: number;
-  uploadedAtIso: string;
-  fileType: string;
-}
-
 interface UsePmoSessionActionsOptions {
-  reportingPeriodKey: string;
-  chatThreadId: string;
   selectedSession: PmoPlanningSession | null;
-  profilingDocuments: PmoSessionDocumentProfileRecord[];
   profilingOverridesBySessionId: Record<
     string,
     Record<string, { finalArea: PmoProfilingArea; markIgnore: boolean }>
   >;
   loadSessions: (keepSelection?: boolean) => Promise<void>;
-  setSelectedSessionId: React.Dispatch<React.SetStateAction<string | null>>;
-  setIsReviewPanelOpen: React.Dispatch<React.SetStateAction<boolean>>;
-  setUploadedInfo: React.Dispatch<React.SetStateAction<UploadedWorkbookInfo | null>>;
   refreshWorkflowRuntime: () => Promise<unknown>;
   runtimeRunBySessionId: Map<string, { runId: string; status: string }>;
   /** Pending agentic profiling approval — used to resume the agent on approve. */
@@ -39,13 +24,11 @@ interface UsePmoSessionActionsOptions {
 }
 
 interface UsePmoSessionActionsResult {
-  isUploading: boolean;
   isAppendingDocument: boolean;
   isSavingProfilingReview: boolean;
   isApprovingProfiling: boolean;
   isCancellingWorkflowBySessionId: Record<string, boolean>;
   refreshPage: () => void;
-  onFile: (file: File) => Promise<void>;
   handleAppendDocument: (file: File) => Promise<void>;
   handleSaveProfilingReview: () => Promise<void>;
   handleApproveProfilingContinue: () => Promise<void>;
@@ -57,20 +40,14 @@ export function usePmoSessionActions(
   options: UsePmoSessionActionsOptions,
 ): UsePmoSessionActionsResult {
   const {
-    reportingPeriodKey,
-    chatThreadId,
     selectedSession,
     profilingOverridesBySessionId,
     loadSessions,
-    setSelectedSessionId,
-    setIsReviewPanelOpen,
-    setUploadedInfo,
     refreshWorkflowRuntime,
     runtimeRunBySessionId,
     profilingApproval,
   } = options;
 
-  const [isUploading, setIsUploading] = useState(false);
   const [isAppendingDocument, setIsAppendingDocument] = useState(false);
   const [isSavingProfilingReview, setIsSavingProfilingReview] = useState(false);
   const [isApprovingProfiling, setIsApprovingProfiling] = useState(false);
@@ -81,50 +58,6 @@ export function usePmoSessionActions(
   const refreshPage = useCallback(() => {
     void loadSessions(true);
   }, [loadSessions]);
-
-  const onFile = useCallback(
-    async (file: File) => {
-      setIsUploading(true);
-      try {
-        const uploaded = await pmoApi.uploadWorkbook(file, {
-          reportingPeriodKey: reportingPeriodKey || undefined,
-          chatThreadId,
-        });
-        const nowIso = new Date().toISOString();
-        const sessionId = uploaded.ingestion_session_id;
-
-        setUploadedInfo({
-          ingestionSessionId: sessionId,
-          fileName: file.name,
-          fileSizeBytes: file.size,
-          uploadedAtIso: nowIso,
-          fileType:
-            file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        });
-        setSelectedSessionId(sessionId);
-        setIsReviewPanelOpen(false);
-
-        await loadSessions(true);
-
-        toast.success('Workbook uploaded', {
-          description: 'Session created. Select the session to view workflow cards.',
-        });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Upload failed.';
-        toast.error('Upload failed', { description: message });
-      } finally {
-        setIsUploading(false);
-      }
-    },
-    [
-      chatThreadId,
-      loadSessions,
-      reportingPeriodKey,
-      setIsReviewPanelOpen,
-      setSelectedSessionId,
-      setUploadedInfo,
-    ],
-  );
 
   const handleAppendDocument = useCallback(
     async (file: File) => {
@@ -381,13 +314,11 @@ export function usePmoSessionActions(
   );
 
   return {
-    isUploading,
     isAppendingDocument,
     isSavingProfilingReview,
     isApprovingProfiling,
     isCancellingWorkflowBySessionId,
     refreshPage,
-    onFile,
     handleAppendDocument,
     handleSaveProfilingReview,
     handleApproveProfilingContinue,

@@ -31,6 +31,8 @@ interface PmoWorkflowCardsSectionProps {
   selectedSession: PmoPlanningSession;
   executionCards: ExecutionCard[];
   isAgentRunning?: boolean;
+  /** When true, all panels render in read-only mode (no approve/reject/edit). */
+  readOnly?: boolean;
   runtime: PmoExecutionStepRuntimeProps;
   mapping: PmoExecutionStepMappingProps;
   normalization: PmoExecutionStepNormalizationProps;
@@ -129,6 +131,7 @@ export function PmoWorkflowCardsSection(props: PmoWorkflowCardsSectionProps) {
     selectedSession,
     executionCards,
     isAgentRunning,
+    readOnly,
     runtime,
     mapping,
     normalization,
@@ -225,6 +228,7 @@ export function PmoWorkflowCardsSection(props: PmoWorkflowCardsSectionProps) {
             <PmoExecutionStepCard
               selectedSession={selectedSession}
               step={activeCard.step}
+              readOnly={readOnly}
               runtime={runtime}
               mapping={mapping}
               normalization={normalization}

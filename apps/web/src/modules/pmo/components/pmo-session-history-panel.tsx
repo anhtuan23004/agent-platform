@@ -1,5 +1,6 @@
 import { Button } from '@seta/shared-ui';
-import { Loader2 } from 'lucide-react';
+import { Link } from '@tanstack/react-router';
+import { Loader2, MessageSquare } from 'lucide-react';
 import type { PmoPlanningSession } from '../api/client';
 import { formatLocalDate, statusTone } from '../pages/pmo-page.logic';
 
@@ -45,7 +46,7 @@ export function PmoSessionHistoryPanel(props: PmoSessionHistoryPanelProps) {
 
       {sessions.length === 0 ? (
         <section className="rounded-lg border border-hairline bg-surface-1 p-4 text-body-sm text-ink-subtle">
-          No runs yet. Upload a workbook to create a session.
+          No sessions yet. Go to PMO Agent to upload a workbook and start ingestion.
         </section>
       ) : (
         <div className="overflow-x-auto">
@@ -117,6 +118,18 @@ export function PmoSessionHistoryPanel(props: PmoSessionHistoryPanelProps) {
                         >
                           View
                         </Button>
+                        {run.chat_thread_id ? (
+                          <Button asChild type="button" size="sm" variant="secondary">
+                            <Link
+                              to="/pmo/agent"
+                              search={{ thread: run.chat_thread_id }}
+                              onClick={(event: React.MouseEvent) => event.stopPropagation()}
+                            >
+                              <MessageSquare className="size-3.5" />
+                              Chat
+                            </Link>
+                          </Button>
+                        ) : null}
                         <Button
                           type="button"
                           size="sm"

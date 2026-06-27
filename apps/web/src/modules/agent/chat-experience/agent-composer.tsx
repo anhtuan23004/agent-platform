@@ -117,14 +117,15 @@ export function AgentComposer({ compact = false }: AgentComposerProps) {
         pending={isRunning}
         placeholder={
           isPmo
-            ? 'Ask about published PMO utilization data…'
+            ? 'Upload a workbook and describe your goal, or ask about PMO data…'
             : CHAT_AGENT_COPY[chatAgent].placeholder
         }
         permissionHint={
           isPmo ? (
             <div className="flex w-full min-w-0 flex-col gap-1.5">
               <span className={warning ? 'text-warning-ink' : undefined}>
-                {warning ?? 'Published PMO data only.'}
+                {warning ??
+                  'Attach an Excel workbook to ingest, or select a published source for analytics.'}
               </span>
               {uploadSourcesLoading ? (
                 <span>Loading uploads…</span>

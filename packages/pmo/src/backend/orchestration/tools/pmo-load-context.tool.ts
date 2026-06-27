@@ -39,6 +39,13 @@ const recentSessionSchema = z.object({
   rowsPublished: z.number().nullable(),
 });
 
+const threadSessionSchema = z.object({
+  sessionId: z.string(),
+  status: z.string(),
+  fileName: z.string().nullable(),
+  createdAt: z.string(),
+});
+
 const outputSchema = z.object({
   hasState: z.boolean(),
   goal: z.string().nullable(),
@@ -50,6 +57,8 @@ const outputSchema = z.object({
   sessionStatus: z.string().nullable(),
   sessionPlanSteps: z.number().nullable(),
   recentSessions: z.array(recentSessionSchema).nullable(),
+  /** Sessions linked to this chat thread via chat_thread_id (uploaded via composer). */
+  threadSessions: z.array(threadSessionSchema).nullable().optional(),
 });
 
 export function makePmoLoadContextTool() {
@@ -77,11 +86,33 @@ export function makePmoLoadContextTool() {
           sessionStatus: null,
           sessionPlanSteps: null,
           recentSessions: null,
+          threadSessions: null,
         };
       }
 
       const state = await loadAgentTaskState(tenantId, threadId);
       if (!state) {
+        // No persisted task state yet. Check if any ingestion sessions are
+        // linked to this chat thread (e.g. a workbook was uploaded via the
+        // chat composer before the agent received its first message).
+        const db0 = pmoDb();
+        const threadSessions = await db0
+          .select({
+            id: ingestionSessions.id,
+            status: ingestionSessions.status,
+            source_file_name: ingestionSessions.source_file_name,
+            created_at: ingestionSessions.created_at,
+          })
+          .from(ingestionSessions)
+          .where(
+            and(
+              eq(ingestionSessions.tenant_id, tenantId),
+              eq(ingestionSessions.chat_thread_id, threadId),
+            ),
+          )
+          .orderBy(desc(ingestionSessions.created_at))
+          .limit(5);
+
         return {
           hasState: false,
           goal: null,
@@ -93,6 +124,15 @@ export function makePmoLoadContextTool() {
           sessionStatus: null,
           sessionPlanSteps: null,
           recentSessions: null,
+          threadSessions:
+            threadSessions.length > 0
+              ? threadSessions.map((s) => ({
+                  sessionId: s.id,
+                  status: s.status,
+                  fileName: s.source_file_name,
+                  createdAt: s.created_at.toISOString(),
+                }))
+              : null,
         };
       }
 
@@ -148,6 +188,26 @@ export function makePmoLoadContextTool() {
         rowsPublished: null,
       }));
 
+      // Also include sessions linked to this thread via chat_thread_id
+      // (uploaded via chat composer) that may not be in agent_task_state yet.
+      const db3 = pmoDb();
+      const threadRows = await db3
+        .select({
+          id: ingestionSessions.id,
+          status: ingestionSessions.status,
+          source_file_name: ingestionSessions.source_file_name,
+          created_at: ingestionSessions.created_at,
+        })
+        .from(ingestionSessions)
+        .where(
+          and(
+            eq(ingestionSessions.tenant_id, tenantId),
+            eq(ingestionSessions.chat_thread_id, threadId),
+          ),
+        )
+        .orderBy(desc(ingestionSessions.created_at))
+        .limit(5);
+
       return {
         hasState: true,
         goal: state.originalGoal,
@@ -159,6 +219,15 @@ export function makePmoLoadContextTool() {
         sessionStatus,
         sessionPlanSteps,
         recentSessions: recentSessions.length > 0 ? recentSessions : null,
+        threadSessions:
+          threadRows.length > 0
+            ? threadRows.map((s) => ({
+                sessionId: s.id,
+                status: s.status,
+                fileName: s.source_file_name,
+                createdAt: s.created_at.toISOString(),
+              }))
+            : null,
       };
     },
   });

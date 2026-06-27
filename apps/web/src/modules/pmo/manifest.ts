@@ -1,5 +1,5 @@
 import { type NavManifest, noNavExtensions } from '@seta/module-sdk';
-import { Box, Calculator, MessageSquare } from 'lucide-react';
+import { Box, Calculator, History, MessageSquare } from 'lucide-react';
 
 export const pmoNavManifest: NavManifest = {
   id: 'pmo',
@@ -11,14 +11,14 @@ export const pmoNavManifest: NavManifest = {
     {
       label: 'Pmo',
       items: [
-        { id: 'pmo.home', icon: Box, label: 'Overview', to: '/pmo' },
+        { id: 'pmo.agent', icon: MessageSquare, label: 'PMO Agent', to: '/pmo/agent' },
+        { id: 'pmo.home', icon: History, label: 'History', to: '/pmo' },
         {
           id: 'pmo.demo-calculation',
           icon: Calculator,
           label: 'Utilization',
           to: '/pmo/demo-calculation',
         },
-        { id: 'pmo.agent', icon: MessageSquare, label: 'PMO Agent', to: '/pmo/agent' },
       ],
     },
   ],

@@ -1,8 +1,6 @@
-import { Button, Dropzone, Input, Label, PageChrome, Textarea, toast } from '@seta/shared-ui';
-import { Bot, Loader2, RefreshCw, Workflow } from 'lucide-react';
+import { Button, PageChrome, toast } from '@seta/shared-ui';
+import { RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useAgentSelection } from '../../agent/chat-experience/agent-provider';
-import { markThreadFresh } from '../../agent/lib/fresh-thread-store';
 import {
   type PmoPlan,
   type PmoPlanningSession,
@@ -15,15 +13,9 @@ import { usePmoMappingReviewActions } from '../hooks/use-pmo-mapping-review-acti
 import { usePmoNormalizationReviewActions } from '../hooks/use-pmo-normalization-review-actions';
 import { usePmoPublishReviewActions } from '../hooks/use-pmo-publish-review-actions';
 import { usePmoReportRangeActions } from '../hooks/use-pmo-report-range-actions';
-import { type UploadedWorkbookInfo, usePmoSessionActions } from '../hooks/use-pmo-session-actions';
+import { usePmoSessionActions } from '../hooks/use-pmo-session-actions';
 import { usePmoWorkflowRuntime } from '../hooks/use-pmo-workflow-runtime';
-import {
-  buildExecutionCards,
-  formatBytes,
-  formatLocalDate,
-  profilingSheetKey,
-  readIngestionSessionIdFromApproval,
-} from './pmo-page.logic';
+import { buildExecutionCards, profilingSheetKey } from './pmo-page.logic';
 
 const ACCEPT = '.xlsx,.xlsm';
 const MAX_BYTES = 50 * 1024 * 1024;
@@ -40,23 +32,14 @@ const PROFILING_AREAS: PmoProfilingArea[] = [
 ];
 
 export function PmoPage() {
-  const [reportingPeriodKey, setReportingPeriodKey] = useState('');
-  const [goalDraft, setGoalDraft] = useState(
-    'Ingest this workbook and prepare data for RA calculation.',
-  );
   const [sessions, setSessions] = useState<PmoPlanningSession[]>([]);
-  const { selection } = useAgentSelection();
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
-  const [agentPollingActive, setAgentPollingActive] = useState(false);
-  const [isAgentRunning, setIsAgentRunning] = useState(false);
   const [isReviewPanelOpen, setIsReviewPanelOpen] = useState(false);
 
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
   const [profilingOverridesBySessionId, setProfilingOverridesBySessionId] = useState<
     Record<string, Record<string, { finalArea: PmoProfilingArea; markIgnore: boolean }>>
   >({});
-
-  const [uploadedInfo, setUploadedInfo] = useState<UploadedWorkbookInfo | null>(null);
 
   const selectedSession = useMemo(
     () =>
@@ -180,28 +163,20 @@ export function PmoPage() {
   }, [refreshMappingApprovals, workflowRuns]);
 
   const {
-    isUploading,
     isAppendingDocument,
     isSavingProfilingReview,
     isApprovingProfiling,
     isCancellingWorkflowBySessionId,
     refreshPage,
-    onFile,
     handleAppendDocument,
     handleSaveProfilingReview,
     handleApproveProfilingContinue,
     isWorkflowCancelable,
     handleCancelWorkflow,
   } = usePmoSessionActions({
-    reportingPeriodKey,
-    chatThreadId: selection.threadId,
     selectedSession,
-    profilingDocuments,
     profilingOverridesBySessionId,
     loadSessions,
-    setSelectedSessionId,
-    setIsReviewPanelOpen,
-    setUploadedInfo,
     refreshWorkflowRuntime,
     runtimeRunBySessionId,
     profilingApproval: selectedProfilingApproval,
@@ -272,15 +247,13 @@ export function PmoPage() {
     };
   }, [loadSessions]);
 
-  // Poll for session updates while agent is running or any session is in a non-terminal state.
-  const hasActiveSession =
-    agentPollingActive ||
-    sessions.some(
-      (s) =>
-        s.workflow_step_status === 'in_progress' ||
-        s.workflow_step_status === 'needs_review' ||
-        s.status === 'approved_plan',
-    );
+  // Poll for session updates while any session is in a non-terminal state.
+  const hasActiveSession = sessions.some(
+    (s) =>
+      s.workflow_step_status === 'in_progress' ||
+      s.workflow_step_status === 'needs_review' ||
+      s.status === 'approved_plan',
+  );
   useEffect(() => {
     if (!hasActiveSession) return;
     const timer = window.setInterval(() => {
@@ -424,14 +397,14 @@ export function PmoPage() {
 
   const executionPlan = {
     plan,
-    goalDraft,
+    goalDraft: '',
   };
 
   return (
     <PageChrome
       breadcrumb={['Work']}
-      title="PMO Ingestion"
-      subtitle="Persisted state workflow: upload workbook, then execute profiling, mapping, normalization, and publish steps."
+      title="PMO Ingestion History"
+      subtitle="View past ingestion sessions, workflow status, and audit trail. Start new ingestion from PMO Agent chat."
       actions={
         <div className="flex items-center gap-2">
           <Button type="button" size="sm" variant="secondary" onClick={refreshPage}>
@@ -443,202 +416,6 @@ export function PmoPage() {
     >
       <div className="min-h-full bg-surface-1 px-4 py-5 pb-8 sm:px-6">
         <div className="mx-auto flex max-w-[1240px] flex-col gap-3">
-          <section className="rounded-xl border border-hairline bg-canvas p-4 shadow-sm">
-            <div className="flex items-start gap-3">
-              <span className="mt-0.5 rounded-md bg-primary-tint p-2 text-primary">
-                <Workflow className="size-5" />
-              </span>
-              <div>
-                <h2 className="text-body-sm font-semibold text-ink">Workflow path</h2>
-                <p className="mt-0.5 text-body-sm text-ink-subtle">
-                  Upload workbook, then execute profiling, mapping, normalization, and publish
-                  steps.
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-              <section className="space-y-3">
-                <div className="space-y-2">
-                  <Label htmlFor="reporting-period-key">Reporting period key (optional)</Label>
-                  <Input
-                    id="reporting-period-key"
-                    value={reportingPeriodKey}
-                    onChange={(e) => setReportingPeriodKey(e.target.value)}
-                    placeholder="e.g. 2025-W35"
-                    disabled={isUploading}
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="pmo-goal-input">Goal</Label>
-                    <span className="text-caption text-ink-subtle">{goalDraft.length} / 500</span>
-                  </div>
-                  <Textarea
-                    id="pmo-goal-input"
-                    rows={3}
-                    maxLength={500}
-                    value={goalDraft}
-                    onChange={(e) => setGoalDraft(e.target.value)}
-                    className="resize-none"
-                    placeholder="Describe what to do with the uploaded workbook."
-                  />
-                </div>
-
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="primary"
-                  disabled={
-                    isAgentRunning || !goalDraft.trim() || (!uploadedInfo && !selectedSession)
-                  }
-                  onClick={async () => {
-                    const sessionId =
-                      uploadedInfo?.ingestionSessionId ??
-                      selectedSession?.ingestion_session_id ??
-                      '';
-                    // Mint a fresh thread so the Mastra row is created with
-                    // a client-owned id (same contract as /pmo/agent route).
-                    const threadId = crypto.randomUUID();
-                    markThreadFresh(threadId);
-                    // Link the session to the new thread.
-                    if (sessionId) {
-                      try {
-                        await pmoApi.linkSessionToThread(sessionId, threadId);
-                      } catch {
-                        // Best-effort: the session may already be linked.
-                      }
-                    }
-                    const prompt = sessionId
-                      ? `${goalDraft.trim()}\n\n[Session: ${sessionId}]`
-                      : goalDraft.trim();
-                    // Send directly to the PMO agent chat API.  The response
-                    // is SSE; we fire-and-forget — the pending-approvals poll
-                    // will surface the profiling card when the agent suspends.
-                    setIsAgentRunning(true);
-                    setAgentPollingActive(true);
-                    try {
-                      const res = await fetch('/api/agent/v1/chat', {
-                        method: 'POST',
-                        credentials: 'include',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          id: threadId,
-                          messages: [
-                            {
-                              id: crypto.randomUUID(),
-                              role: 'user',
-                              content: [{ type: 'text', text: prompt }],
-                            },
-                          ],
-                          agent: 'pmo',
-                          ...(sessionId ? { ingestionSessionId: sessionId } : {}),
-                        }),
-                      });
-                      if (!res.ok) {
-                        const body = await res.json().catch(() => ({}));
-                        throw new Error(
-                          (body as { message?: string }).message ?? `HTTP ${res.status}`,
-                        );
-                      }
-                      // Drain the SSE stream in background so the server
-                      // completes the turn (writes approval row on suspend).
-                      // Once done, refresh everything so the profiling card
-                      // appears immediately.
-                      void res.text().then(async () => {
-                        setIsAgentRunning(false);
-                        await loadSessions(false);
-                        // Select the session that was just processed and open
-                        // the review panel so the user sees the profiling step.
-                        if (sessionId) {
-                          setSelectedSessionId(sessionId);
-                          setIsReviewPanelOpen(true);
-                        }
-                        // Refresh pending approvals so the approve button
-                        // picks up the profiling approval row the agent wrote.
-                        const approvalsRes = await refreshWorkflowRuntime();
-
-                        const hasApproval = approvalsRes?.data?.some(
-                          (a) => readIngestionSessionIdFromApproval(a) === sessionId,
-                        );
-
-                        if (hasApproval) {
-                          toast.success('Agent ready for review', {
-                            description:
-                              'Agent suspended successfully. Review the results and approve to continue.',
-                          });
-                        } else {
-                          toast.success('Agent finished processing', {
-                            description:
-                              'Agent responded. Open PMO Agent chat tab if you need to clarify further.',
-                          });
-                        }
-                      });
-                    } catch (err) {
-                      setIsAgentRunning(false);
-                      toast.error('Failed to start agent', {
-                        description:
-                          err instanceof Error ? err.message : 'Could not reach the agent.',
-                      });
-                    }
-                    void loadSessions(true);
-                  }}
-                >
-                  {isAgentRunning ? (
-                    <>
-                      <Loader2 className="size-4 animate-spin" />
-                      Agent is processing...
-                    </>
-                  ) : (
-                    <>
-                      <Bot className="size-4" />
-                      Start with Agent
-                    </>
-                  )}
-                </Button>
-              </section>
-
-              <Dropzone
-                accept={ACCEPT}
-                maxBytes={MAX_BYTES}
-                label="Drop PMO workbook here, or click to choose"
-                hint="XLSX / XLSM · up to 50 MB"
-                pendingLabel="Uploading workbook..."
-                tooLargeMessage="That file is over 50 MB. Try a smaller workbook."
-                isPending={isUploading}
-                onFile={onFile}
-              />
-            </div>
-
-            {uploadedInfo ? (
-              <section className="mt-3 rounded-lg border border-hairline bg-surface-1 p-3 text-caption">
-                <h3 className="text-body-sm font-semibold text-ink">Uploaded workbook</h3>
-                <div className="mt-2 grid gap-2 sm:grid-cols-4">
-                  <p className="text-ink-subtle">
-                    Session:{' '}
-                    <span className="font-medium text-ink">{uploadedInfo.ingestionSessionId}</span>
-                  </p>
-                  <p className="text-ink-subtle">
-                    Name: <span className="font-medium text-ink">{uploadedInfo.fileName}</span>
-                  </p>
-                  <p className="text-ink-subtle">
-                    Size:{' '}
-                    <span className="font-medium text-ink">
-                      {formatBytes(uploadedInfo.fileSizeBytes)}
-                    </span>
-                  </p>
-                  <p className="text-ink-subtle">
-                    Uploaded at:{' '}
-                    <span className="font-medium text-ink">
-                      {formatLocalDate(uploadedInfo.uploadedAtIso)}
-                    </span>
-                  </p>
-                </div>
-              </section>
-            ) : null}
-          </section>
-
           <PmoSessionHistoryPanel
             sessions={sessionsForHistory}
             selectedSessionId={selectedSession?.ingestion_session_id ?? null}
@@ -667,7 +444,8 @@ export function PmoPage() {
                 <PmoWorkflowCardsSection
                   selectedSession={selectedSession}
                   executionCards={executionCardsForDisplay}
-                  isAgentRunning={isAgentRunning}
+                  isAgentRunning={false}
+                  readOnly
                   runtime={executionRuntime}
                   mapping={executionMapping}
                   normalization={executionNormalization}

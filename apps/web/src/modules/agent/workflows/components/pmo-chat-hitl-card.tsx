@@ -8,12 +8,14 @@
  */
 import { Button } from '@seta/shared-ui';
 import { useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, Loader2, Sparkles, XCircle } from 'lucide-react';
+import { CheckCircle2, ExternalLink, Loader2, Sparkles, XCircle } from 'lucide-react';
+import { useState } from 'react';
 import { notifyApprovalResolved } from '../../hooks/use-approval-events.ts';
 import type { WorkflowApprovalRow } from '../api/schemas.ts';
 import { useSubmitDecision } from '../hooks/use-submit-decision.ts';
 import { workflowsQueryKeys } from '../state/query-keys.ts';
 import { cardToolId } from './decided-approval.ts';
+import { PmoStepReviewDrawer } from './pmo-step-review-drawer.tsx';
 
 // ---------------------------------------------------------------------------
 // Payload parsing helpers
@@ -173,6 +175,7 @@ export interface PmoChatHitlCardProps {
 export function PmoChatHitlCard({ approval, canAct, threadId }: PmoChatHitlCardProps) {
   const qc = useQueryClient();
   const submit = useSubmitDecision();
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const card = parsePayload(approval.proposedPayload);
   if (!card) return null;
 
@@ -334,6 +337,16 @@ export function PmoChatHitlCard({ approval, canAct, threadId }: PmoChatHitlCardP
         <Button
           type="button"
           size="sm"
+          variant="secondary"
+          disabled={!canAct || submit.isPending}
+          onClick={() => setDrawerOpen(true)}
+        >
+          <ExternalLink className="size-4" />
+          Review details
+        </Button>
+        <Button
+          type="button"
+          size="sm"
           variant="ghost"
           disabled={!canAct || submit.isPending}
           onClick={() => handleDecision('reject')}
@@ -342,6 +355,15 @@ export function PmoChatHitlCard({ approval, canAct, threadId }: PmoChatHitlCardP
           {card.decline?.label ?? 'Reject'}
         </Button>
       </div>
+
+      {/* Drawer for detailed review */}
+      <PmoStepReviewDrawer
+        open={drawerOpen}
+        onOpenChange={setDrawerOpen}
+        approval={approval}
+        stepType={toolId}
+        threadId={threadId}
+      />
     </div>
   );
 }
