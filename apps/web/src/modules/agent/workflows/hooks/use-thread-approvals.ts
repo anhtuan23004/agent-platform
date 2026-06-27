@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { workflowsApi } from '../api/workflows.ts';
 import { workflowsQueryKeys } from '../state/query-keys.ts';
+import { threadApprovalsRefetchInterval } from './approvals-polling.ts';
 
 /**
  * All approvals (pending + decided) of one chat thread. Decided rows are kept
@@ -17,6 +18,6 @@ export function useThreadApprovals(threadId: string | undefined) {
     queryKey: workflowsQueryKeys.threadApprovals(threadId ?? ''),
     queryFn: () => workflowsApi.listThreadApprovals(threadId as string),
     enabled: Boolean(threadId),
-    refetchInterval: 4_000,
+    refetchInterval: (query) => threadApprovalsRefetchInterval(query.state.data),
   });
 }

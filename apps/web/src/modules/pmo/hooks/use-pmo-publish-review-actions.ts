@@ -1,4 +1,5 @@
 import { toast } from '@seta/shared-ui';
+import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo, useState } from 'react';
 import { notifyApprovalResolved } from '../../agent/hooks/use-approval-events';
 import type { WorkflowApprovalRow } from '../api/workflow-runtime';
@@ -26,6 +27,7 @@ export function usePmoPublishReviewActions(
   const { selectedPublishApproval, loadSessions, refreshWorkflowRuntime, onDecisionComplete } =
     options;
   const submitDecision = useSubmitWorkflowRuntimeDecision();
+  const qc = useQueryClient();
   const [lockedApprovalIds, setLockedApprovalIds] = useState<Set<string>>(() => new Set());
   const selectedApprovalId = selectedPublishApproval?.approvalId ?? null;
   const selectedApprovalLocked = selectedApprovalId
@@ -58,6 +60,7 @@ export function usePmoPublishReviewActions(
       {
         onSuccess: async () => {
           notifyApprovalResolved();
+          void qc.invalidateQueries({ queryKey: ['pmo', 'demo-analytics'] });
           toast.success('Publish approved', {
             description: 'The workflow will continue from the PMO publish decision.',
           });
@@ -75,7 +78,7 @@ export function usePmoPublishReviewActions(
         },
       },
     );
-  }, [refreshAfterDecision, selectedPublishApproval, submitDecision]);
+  }, [qc, refreshAfterDecision, selectedPublishApproval, submitDecision]);
 
   const rejectPublish = useCallback(() => {
     if (selectedPublishApproval?.status !== 'pending') return;

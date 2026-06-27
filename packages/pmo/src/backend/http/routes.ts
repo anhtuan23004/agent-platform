@@ -698,6 +698,134 @@ function readProfilingReviewState(raw: unknown): ProfilingReviewState | null {
   };
 }
 
+const ingestionSessionListColumns = {
+  id: ingestionSessions.id,
+  chat_thread_id: ingestionSessions.chat_thread_id,
+  source_kind: ingestionSessions.source_kind,
+  source_file_name: ingestionSessions.source_file_name,
+  source_file_size_bytes: ingestionSessions.source_file_size_bytes,
+  mime_type: ingestionSessions.mime_type,
+  status: ingestionSessions.status,
+  publish_decision: ingestionSessions.publish_decision,
+  reporting_period_key: ingestionSessions.reporting_period_key,
+  reporting_period_start: ingestionSessions.reporting_period_start,
+  reporting_period_end: ingestionSessions.reporting_period_end,
+  planning_goal: ingestionSessions.planning_goal,
+  planning_intent: ingestionSessions.planning_intent,
+  planning_plan: ingestionSessions.planning_plan,
+  planning_plan_version: ingestionSessions.planning_plan_version,
+  planning_feedback_history: ingestionSessions.planning_feedback_history,
+  planning_generation_error: ingestionSessions.planning_generation_error,
+  planning_generation_started_at: ingestionSessions.planning_generation_started_at,
+  workflow_execution_state: ingestionSessions.workflow_execution_state,
+  profiling_documents: ingestionSessions.profiling_documents,
+  profiling_summary: ingestionSessions.profiling_summary,
+  profiling_review: ingestionSessions.workflow_execution_state,
+  workflow_current_step: ingestionSessions.workflow_current_step,
+  workflow_step_status: ingestionSessions.workflow_step_status,
+  workflow_started_at: ingestionSessions.workflow_started_at,
+  workflow_updated_at: ingestionSessions.workflow_updated_at,
+  created_by: ingestionSessions.created_by,
+  created_at: ingestionSessions.created_at,
+  planning_last_generated_at: ingestionSessions.planning_last_generated_at,
+  planning_approved_at: ingestionSessions.planning_approved_at,
+};
+
+type IngestionSessionListRow = {
+  id: string;
+  chat_thread_id: string | null;
+  source_kind: string;
+  source_file_name: string | null;
+  source_file_size_bytes: number | null;
+  mime_type: string | null;
+  status: string;
+  publish_decision: string | null;
+  reporting_period_key: string | null;
+  reporting_period_start: Date | string | null;
+  reporting_period_end: Date | string | null;
+  planning_goal: string | null;
+  planning_intent: unknown;
+  planning_plan: unknown;
+  planning_plan_version: number | null;
+  planning_feedback_history: unknown;
+  planning_generation_error: string | null;
+  planning_generation_started_at: Date | string | null;
+  workflow_execution_state: unknown;
+  profiling_documents: unknown;
+  profiling_summary: unknown;
+  profiling_review: unknown;
+  workflow_current_step: string | null;
+  workflow_step_status: string | null;
+  workflow_started_at: Date | string | null;
+  workflow_updated_at: Date | string | null;
+  created_by: string;
+  created_at: Date | string;
+  planning_last_generated_at: Date | string | null;
+  planning_approved_at: Date | string | null;
+};
+
+function mapIngestionSessionListRow(
+  row: IngestionSessionListRow,
+  inferredDateBounds: { min: string; max: string } | undefined,
+) {
+  const executionState = readExecutionState(row.workflow_execution_state);
+  const planningState = readPlanningState(row.status);
+  const history = mapExecutionHistoryStatus(executionState) ?? mapHistoryStatus(planningState);
+  const isPublished = isPublishedIngestionSession(row);
+  const reportingPeriodStart =
+    asIsoOrNull(row.reporting_period_start) ?? inferredDateBounds?.min ?? null;
+  const reportingPeriodEnd =
+    asIsoOrNull(row.reporting_period_end) ?? inferredDateBounds?.max ?? null;
+
+  return {
+    ingestion_session_id: row.id,
+    chat_thread_id: row.chat_thread_id,
+    source_kind: row.source_kind,
+    workbook_name: row.source_file_name,
+    workbook_size_bytes: row.source_file_size_bytes ?? 0,
+    workbook_size: formatFileSize(row.source_file_size_bytes ?? 0),
+    file_type: row.mime_type,
+    uploaded_at: asIso(row.created_at),
+    operator: row.created_by,
+    status: row.status,
+    is_published: isPublished,
+    is_selectable: isPublished,
+    reporting_period_key: row.reporting_period_key,
+    reporting_period_start: reportingPeriodStart,
+    reporting_period_end: reportingPeriodEnd,
+    planning_state: planningState,
+    status_label: history.label,
+    active_gate: history.active_gate,
+    progress_text: history.progress_text,
+    progress_pct: history.progress_pct,
+    goal: row.planning_goal ?? '',
+    intent: row.planning_intent,
+    plan: row.planning_plan,
+    plan_version: row.planning_plan_version ?? 0,
+    feedback_history: Array.isArray(row.planning_feedback_history)
+      ? row.planning_feedback_history
+      : [],
+    planning_generation_error: row.planning_generation_error,
+    execution_state: executionState,
+    profiling_documents: readDocuments(row.profiling_documents),
+    profiling_summary:
+      executionState?.profiling_summary ?? normalizeProfilingSummary(row.profiling_summary),
+    profiling_review: readProfilingReviewState(executionState?.profiling_review),
+    workflow_current_step:
+      row.workflow_current_step ??
+      executionState?.steps.find((step) => step.step_no === executionState.current_step_no)
+        ?.step_name ??
+      null,
+    workflow_step_status: row.workflow_step_status ?? executionState?.current_step_status ?? null,
+    workflow_started_at: asIsoOrNull(row.workflow_started_at) ?? executionState?.started_at ?? null,
+    workflow_updated_at: asIsoOrNull(row.workflow_updated_at) ?? executionState?.updated_at ?? null,
+    plan_generated_at: row.planning_last_generated_at
+      ? asIso(row.planning_last_generated_at)
+      : null,
+    plan_approved_at: row.planning_approved_at ? asIso(row.planning_approved_at) : null,
+  };
+}
+
 // ── Routes ───────────────────────────────────────────────────────────────────
 
 export function buildPmoRoutes(deps: RouteBuildDeps): Hono<SessionEnv> {
@@ -896,38 +1024,7 @@ export function buildPmoRoutes(deps: RouteBuildDeps): Hono<SessionEnv> {
         : undefined;
 
     const rows = await db
-      .select({
-        id: ingestionSessions.id,
-        chat_thread_id: ingestionSessions.chat_thread_id,
-        source_kind: ingestionSessions.source_kind,
-        source_file_name: ingestionSessions.source_file_name,
-        source_file_size_bytes: ingestionSessions.source_file_size_bytes,
-        mime_type: ingestionSessions.mime_type,
-        status: ingestionSessions.status,
-        publish_decision: ingestionSessions.publish_decision,
-        reporting_period_key: ingestionSessions.reporting_period_key,
-        reporting_period_start: ingestionSessions.reporting_period_start,
-        reporting_period_end: ingestionSessions.reporting_period_end,
-        planning_goal: ingestionSessions.planning_goal,
-        planning_intent: ingestionSessions.planning_intent,
-        planning_plan: ingestionSessions.planning_plan,
-        planning_plan_version: ingestionSessions.planning_plan_version,
-        planning_feedback_history: ingestionSessions.planning_feedback_history,
-        planning_generation_error: ingestionSessions.planning_generation_error,
-        planning_generation_started_at: ingestionSessions.planning_generation_started_at,
-        workflow_execution_state: ingestionSessions.workflow_execution_state,
-        profiling_documents: ingestionSessions.profiling_documents,
-        profiling_summary: ingestionSessions.profiling_summary,
-        profiling_review: ingestionSessions.workflow_execution_state,
-        workflow_current_step: ingestionSessions.workflow_current_step,
-        workflow_step_status: ingestionSessions.workflow_step_status,
-        workflow_started_at: ingestionSessions.workflow_started_at,
-        workflow_updated_at: ingestionSessions.workflow_updated_at,
-        created_by: ingestionSessions.created_by,
-        created_at: ingestionSessions.created_at,
-        planning_last_generated_at: ingestionSessions.planning_last_generated_at,
-        planning_approved_at: ingestionSessions.planning_approved_at,
-      })
+      .select(ingestionSessionListColumns)
       .from(ingestionSessions)
       .where(
         and(
@@ -945,71 +1042,43 @@ export function buildPmoRoutes(deps: RouteBuildDeps): Hono<SessionEnv> {
     const mapped = rows
       .slice()
       .reverse()
-      .map((row) => {
-        const executionState = readExecutionState(row.workflow_execution_state);
-        const planningState = readPlanningState(row.status);
-        const history =
-          mapExecutionHistoryStatus(executionState) ?? mapHistoryStatus(planningState);
-        const isPublished = isPublishedIngestionSession(row);
-        const inferredDateBounds = inferredDateBoundsBySession.get(row.id);
-        const reportingPeriodStart =
-          asIsoOrNull(row.reporting_period_start) ?? inferredDateBounds?.min ?? null;
-        const reportingPeriodEnd =
-          asIsoOrNull(row.reporting_period_end) ?? inferredDateBounds?.max ?? null;
-
-        return {
-          ingestion_session_id: row.id,
-          chat_thread_id: row.chat_thread_id,
-          source_kind: row.source_kind,
-          workbook_name: row.source_file_name,
-          workbook_size_bytes: row.source_file_size_bytes ?? 0,
-          workbook_size: formatFileSize(row.source_file_size_bytes ?? 0),
-          file_type: row.mime_type,
-          uploaded_at: asIso(row.created_at),
-          operator: row.created_by,
-          status: row.status,
-          is_published: isPublished,
-          is_selectable: isPublished,
-          reporting_period_key: row.reporting_period_key,
-          reporting_period_start: reportingPeriodStart,
-          reporting_period_end: reportingPeriodEnd,
-          planning_state: planningState,
-          status_label: history.label,
-          active_gate: history.active_gate,
-          progress_text: history.progress_text,
-          progress_pct: history.progress_pct,
-          goal: row.planning_goal ?? '',
-          intent: row.planning_intent,
-          plan: row.planning_plan,
-          plan_version: row.planning_plan_version ?? 0,
-          feedback_history: Array.isArray(row.planning_feedback_history)
-            ? row.planning_feedback_history
-            : [],
-          planning_generation_error: row.planning_generation_error,
-          execution_state: executionState,
-          profiling_documents: readDocuments(row.profiling_documents),
-          profiling_summary:
-            executionState?.profiling_summary ?? normalizeProfilingSummary(row.profiling_summary),
-          profiling_review: readProfilingReviewState(executionState?.profiling_review),
-          workflow_current_step:
-            row.workflow_current_step ??
-            executionState?.steps.find((step) => step.step_no === executionState.current_step_no)
-              ?.step_name ??
-            null,
-          workflow_step_status:
-            row.workflow_step_status ?? executionState?.current_step_status ?? null,
-          workflow_started_at:
-            asIsoOrNull(row.workflow_started_at) ?? executionState?.started_at ?? null,
-          workflow_updated_at:
-            asIsoOrNull(row.workflow_updated_at) ?? executionState?.updated_at ?? null,
-          plan_generated_at: row.planning_last_generated_at
-            ? asIso(row.planning_last_generated_at)
-            : null,
-          plan_approved_at: row.planning_approved_at ? asIso(row.planning_approved_at) : null,
-        };
-      });
+      .map((row) => mapIngestionSessionListRow(row, inferredDateBoundsBySession.get(row.id)));
 
     return c.json({ items: mapped });
+  });
+
+  // GET /api/pmo/v1/ingestion-sessions/:id
+  // Returns one session by id (same shape as list items) for drawer/detail views.
+  app.get('/api/pmo/v1/ingestion-sessions/:id', async (c) => {
+    const session = c.get('user');
+    const sessionId = c.req.param('id');
+    if (!z.string().uuid().safeParse(sessionId).success) {
+      return c.json({ error: 'invalid_session_id' }, 400);
+    }
+
+    const db = pmoDb();
+    const rows = await db
+      .select(ingestionSessionListColumns)
+      .from(ingestionSessions)
+      .where(
+        and(
+          eq(ingestionSessions.id, sessionId),
+          eq(ingestionSessions.tenant_id, session.tenant_id),
+        ),
+      )
+      .limit(1);
+
+    const row = rows[0];
+    if (!row) {
+      return c.json({ error: 'session_not_found' }, 404);
+    }
+
+    const inferredDateBoundsBySession = await getPmoReportDateBoundsByIngestionSession(
+      session.tenant_id,
+      [row.id],
+    );
+
+    return c.json(mapIngestionSessionListRow(row, inferredDateBoundsBySession.get(row.id)));
   });
 
   // PATCH /api/pmo/v1/ingestion-sessions/:id/thread

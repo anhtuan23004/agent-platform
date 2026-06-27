@@ -9,9 +9,48 @@ interface CandidateItem {
 }
 interface CardShape {
   intent?: string;
+  summary?: string;
   details?: Array<{ kind: string; items?: CandidateItem[] }>;
   primary?: { argsPatch?: Record<string, unknown> };
   meta?: { toolId?: unknown };
+}
+
+const PMO_INGEST_TOOL_IDS = new Set([
+  'pmo_profileWorkbook',
+  'pmo_confirmMapping',
+  'pmo_reviewNormalization',
+  'pmo_confirmPublish',
+  'pmo_confirmReportRange',
+]);
+
+const PMO_STEP_LABELS: Record<string, string> = {
+  pmo_profileWorkbook: 'Workbook Profiling',
+  pmo_confirmMapping: 'Column Mapping',
+  pmo_reviewNormalization: 'Normalization Review',
+  pmo_confirmPublish: 'Publish Review',
+  pmo_confirmReportRange: 'Report Configuration',
+};
+
+export function isPmoIngestApproval(approval: WorkflowApprovalRow): boolean {
+  const id = cardToolId(approval.proposedPayload);
+  return id !== null && PMO_INGEST_TOOL_IDS.has(id);
+}
+
+function isPmoToolId(toolId: string | null): boolean {
+  return toolId !== null && toolId.startsWith('pmo_');
+}
+
+export function decidedStepTitle(payload: unknown): string | null {
+  const toolId = cardToolId(payload);
+  if (toolId && PMO_STEP_LABELS[toolId]) {
+    return PMO_STEP_LABELS[toolId];
+  }
+  return cardIntent(payload);
+}
+
+export function cardSummary(payload: unknown): string | null {
+  const summary = asCard(payload)?.summary;
+  return typeof summary === 'string' && summary.trim().length > 0 ? summary.trim() : null;
 }
 
 export const STATUS_LABELS: Record<string, string> = {
@@ -79,6 +118,18 @@ export function assignedNames(approval: WorkflowApprovalRow): string {
 
 /** One-line outcome rendered under the decided-row heading. */
 export function outcomeText(approval: WorkflowApprovalRow): string {
+  const toolId = cardToolId(approval.proposedPayload);
+  if (isPmoToolId(toolId)) {
+    const summary = cardSummary(approval.proposedPayload);
+    if (approval.status === 'approved' || approval.status === 'modified') {
+      return summary ?? 'Step approved. Workflow continues.';
+    }
+    if (approval.status === 'rejected') {
+      return summary ? `Declined — ${summary}` : 'Step declined. No changes applied.';
+    }
+    return 'No action taken.';
+  }
+
   if (approval.status === 'approved' || approval.status === 'modified') {
     const names = assignedNames(approval);
     return names ? `Task assigned to ${names}.` : 'Assignment confirmed.';

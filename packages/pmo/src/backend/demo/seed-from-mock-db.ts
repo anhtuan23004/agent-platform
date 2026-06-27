@@ -7,6 +7,7 @@ import { parse } from 'csv-parse/sync';
 import { sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
+import { ensureFactsComputed } from '../analytics/ensure-facts-computed.ts';
 import { pmoDb } from '../db/client.ts';
 import type * as schema from '../db/schema.ts';
 import {
@@ -639,6 +640,7 @@ export async function seedPmo02FromMockDbForTenant(
     }
   });
   const projectionCounts = await syncRecommendationProjectionsFromDemoCsv({ tenantId });
+  await ensureFactsComputed(tenantId, { sessionId: ingestionSessionId, force: true });
 
   return {
     ok: true,

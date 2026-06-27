@@ -56,12 +56,10 @@ export function DrawerProfiling({
 
   // Fetch the session to get profiling documents, summary, review state
   const sessionQuery = useQuery({
-    queryKey: ['pmo', 'drawer-profiling-session', sessionId],
+    queryKey: ['pmo', 'planning-session', sessionId],
     enabled: Boolean(sessionId),
-    queryFn: async () => {
-      const res = await pmoApi.listPlanningSessions();
-      return res.items.find((s) => s.ingestion_session_id === sessionId) ?? null;
-    },
+    queryFn: () => pmoApi.getPlanningSession(sessionId as string),
+    staleTime: 30_000,
   });
 
   const session = sessionQuery.data ?? null;

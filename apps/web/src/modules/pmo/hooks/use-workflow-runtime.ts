@@ -1,5 +1,6 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo } from 'react';
+import { pendingApprovalsRefetchInterval } from '../../agent/workflows/hooks/approvals-polling.ts';
 import { type WorkflowRunScope, workflowRuntimeApi } from '../api/workflow-runtime';
 
 const PAGE_SIZE = 25;
@@ -81,7 +82,7 @@ export function useWorkflowRuntimePendingApprovals() {
   return useQuery({
     queryKey: workflowRuntimeQueryKeys.pendingApprovals(),
     queryFn: () => workflowRuntimeApi.listMyPendingApprovals(),
-    refetchInterval: 5000,
+    refetchInterval: (query) => pendingApprovalsRefetchInterval(query.state.data),
   });
 }
 

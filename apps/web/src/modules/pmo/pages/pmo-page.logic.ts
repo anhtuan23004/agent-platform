@@ -243,6 +243,16 @@ export function profilingSheetKey(documentId: string, sheetName: string): string
   return `${documentId}::${sheetName}`;
 }
 
+/** True while any session may still be advancing and needs list/runtime refresh. */
+export function hasActiveIngestionSessionForPolling(sessions: PmoPlanningSession[]): boolean {
+  return sessions.some(
+    (session) =>
+      session.workflow_step_status === 'in_progress' ||
+      session.workflow_step_status === 'needs_review' ||
+      session.status === 'approved_plan',
+  );
+}
+
 export function shortId(value: string): string {
   return value.slice(0, 8);
 }

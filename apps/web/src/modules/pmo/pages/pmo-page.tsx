@@ -15,7 +15,11 @@ import { usePmoPublishReviewActions } from '../hooks/use-pmo-publish-review-acti
 import { usePmoReportRangeActions } from '../hooks/use-pmo-report-range-actions';
 import { usePmoSessionActions } from '../hooks/use-pmo-session-actions';
 import { usePmoWorkflowRuntime } from '../hooks/use-pmo-workflow-runtime';
-import { buildExecutionCards, profilingSheetKey } from './pmo-page.logic';
+import {
+  buildExecutionCards,
+  hasActiveIngestionSessionForPolling,
+  profilingSheetKey,
+} from './pmo-page.logic';
 
 const ACCEPT = '.xlsx,.xlsm';
 const MAX_BYTES = 50 * 1024 * 1024;
@@ -248,12 +252,7 @@ export function PmoPage() {
   }, [loadSessions]);
 
   // Poll for session updates while any session is in a non-terminal state.
-  const hasActiveSession = sessions.some(
-    (s) =>
-      s.workflow_step_status === 'in_progress' ||
-      s.workflow_step_status === 'needs_review' ||
-      s.status === 'approved_plan',
-  );
+  const hasActiveSession = hasActiveIngestionSessionForPolling(sessions);
   useEffect(() => {
     if (!hasActiveSession) return;
     const timer = window.setInterval(() => {

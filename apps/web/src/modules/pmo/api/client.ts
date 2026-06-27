@@ -563,6 +563,14 @@ export const pmoApi = {
     return jsonOrThrow<ListPlanningSessionsResponse>(res);
   },
 
+  async getPlanningSession(sessionId: string): Promise<PmoPlanningSession> {
+    const res = await fetch(`/api/pmo/v1/ingestion-sessions/${encodeURIComponent(sessionId)}`, {
+      method: 'GET',
+      credentials: 'include',
+    });
+    return jsonOrThrow<PmoPlanningSession>(res);
+  },
+
   async appendSessionDocument(
     ingestionSessionId: string,
     file: File,

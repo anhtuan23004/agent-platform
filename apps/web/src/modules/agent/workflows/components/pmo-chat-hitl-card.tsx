@@ -8,13 +8,14 @@
  */
 import { Button } from '@seta/shared-ui';
 import { useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, ExternalLink, Loader2, Sparkles, XCircle } from 'lucide-react';
+import { CheckCircle2, Loader2, PanelRightOpen, Sparkles, XCircle } from 'lucide-react';
 import { useState } from 'react';
 import { notifyApprovalResolved } from '../../hooks/use-approval-events.ts';
 import type { WorkflowApprovalRow } from '../api/schemas.ts';
 import { useSubmitDecision } from '../hooks/use-submit-decision.ts';
 import { workflowsQueryKeys } from '../state/query-keys.ts';
-import { cardToolId } from './decided-approval.ts';
+import { cardToolId, isPmoIngestApproval } from './decided-approval.ts';
+import { canQuickApprovePmoHitlCard, pmoReviewDetailsLabel } from './pmo-chat-hitl-card.logic.ts';
 import { PmoStepReviewDrawer } from './pmo-step-review-drawer.tsx';
 
 // ---------------------------------------------------------------------------
@@ -96,9 +97,10 @@ export interface PmoChatHitlCardProps {
   approval: WorkflowApprovalRow;
   canAct: boolean;
   threadId: string | undefined;
+  onDecided?: (approvalId: string, status: 'approved' | 'rejected') => void;
 }
 
-export function PmoChatHitlCard({ approval, canAct, threadId }: PmoChatHitlCardProps) {
+export function PmoChatHitlCard({ approval, canAct, threadId, onDecided }: PmoChatHitlCardProps) {
   const qc = useQueryClient();
   const submit = useSubmitDecision();
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -112,6 +114,12 @@ export function PmoChatHitlCard({ approval, canAct, threadId }: PmoChatHitlCardP
   const infoTable = kvTables(card)[0];
   const confidence = infoTable ? kvGet(infoTable.rows, 'Workbook confidence') : undefined;
   const validationStatus = infoTable ? kvGet(infoTable.rows, 'Validation status') : undefined;
+  const quickApprove = canQuickApprovePmoHitlCard({
+    toolId,
+    approval,
+    validationStatus,
+  });
+  const reviewLabel = pmoReviewDetailsLabel(toolId);
 
   const handleDecision = (decision: 'approve' | 'reject') => {
     const alternateIndices = decision === 'approve' ? undefined : undefined;
@@ -124,6 +132,7 @@ export function PmoChatHitlCard({ approval, canAct, threadId }: PmoChatHitlCardP
       },
       {
         onSuccess: () => {
+          onDecided?.(approval.approvalId, decision === 'approve' ? 'approved' : 'rejected');
           notifyApprovalResolved({ threadId });
           if (threadId) {
             void qc.invalidateQueries({
@@ -183,13 +192,20 @@ export function PmoChatHitlCard({ approval, canAct, threadId }: PmoChatHitlCardP
         ) : null}
       </div>
 
+      {!quickApprove.allowed && quickApprove.hint ? (
+        <p className="border-t border-hairline px-4 py-2 text-caption text-ink-subtle">
+          {quickApprove.hint}
+        </p>
+      ) : null}
+
       {/* Action buttons */}
-      <div className="flex items-center gap-2 border-t border-hairline px-4 py-3">
+      <div className="flex flex-wrap items-center gap-2 border-t border-hairline px-4 py-3">
         <Button
           type="button"
           size="sm"
           variant="primary"
-          disabled={!canAct || submit.isPending}
+          disabled={!canAct || submit.isPending || !quickApprove.allowed}
+          title={quickApprove.hint}
           onClick={() => handleDecision('approve')}
         >
           {submit.isPending ? (
@@ -202,12 +218,12 @@ export function PmoChatHitlCard({ approval, canAct, threadId }: PmoChatHitlCardP
         <Button
           type="button"
           size="sm"
-          variant="secondary"
+          variant={quickApprove.allowed ? 'secondary' : 'primary'}
           disabled={!canAct || submit.isPending}
           onClick={() => setDrawerOpen(true)}
         >
-          <ExternalLink className="size-4" />
-          Review details
+          <PanelRightOpen className="size-4" />
+          {reviewLabel}
         </Button>
         <Button
           type="button"
@@ -237,15 +253,4 @@ export function PmoChatHitlCard({ approval, canAct, threadId }: PmoChatHitlCardP
 // Detector: does this approval belong to a PMO ingest tool?
 // ---------------------------------------------------------------------------
 
-const PMO_INGEST_TOOL_IDS = new Set([
-  'pmo_profileWorkbook',
-  'pmo_confirmMapping',
-  'pmo_reviewNormalization',
-  'pmo_confirmPublish',
-  'pmo_confirmReportRange',
-]);
-
-export function isPmoIngestApproval(approval: WorkflowApprovalRow): boolean {
-  const id = cardToolId(approval.proposedPayload);
-  return id !== null && PMO_INGEST_TOOL_IDS.has(id);
-}
+export { isPmoIngestApproval };

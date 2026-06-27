@@ -14,6 +14,7 @@ import { notifyApprovalResolved } from '../../hooks/use-approval-events.ts';
 import type { WorkflowApprovalRow } from '../api/schemas.ts';
 import { workflowsQueryKeys } from '../state/query-keys.ts';
 import { cardToolId } from './decided-approval.ts';
+import { pmoReviewDrawerClassName } from './pmo-chat-hitl-card.logic.ts';
 import {
   DrawerMapping,
   DrawerNormalization,
@@ -83,19 +84,21 @@ export function PmoStepReviewDrawer({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-2xl">
-        <SheetHeader>
+      <SheetContent side="right" className={pmoReviewDrawerClassName()}>
+        <SheetHeader className="sticky top-0 z-10 -mx-6 border-b border-hairline bg-canvas px-6 pb-4">
           <SheetTitle>{stepLabel}</SheetTitle>
           <SheetDescription>{stepDescription}</SheetDescription>
         </SheetHeader>
 
-        <div className="mt-6 min-h-[200px]">
-          <DrawerStepContent
-            approval={approval}
-            toolId={toolId}
-            threadId={threadId}
-            onDecisionComplete={handleDecisionComplete}
-          />
+        <div className="mt-6 min-h-[200px] pb-8">
+          {open ? (
+            <DrawerStepContent
+              approval={approval}
+              toolId={toolId}
+              threadId={threadId}
+              onDecisionComplete={handleDecisionComplete}
+            />
+          ) : null}
         </div>
       </SheetContent>
     </Sheet>
