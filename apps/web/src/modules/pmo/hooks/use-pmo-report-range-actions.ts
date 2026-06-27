@@ -16,8 +16,10 @@ interface ReportDateRangePayload {
 
 interface UsePmoReportRangeActionsOptions {
   selectedReportApproval: WorkflowApprovalRow | null;
-  loadSessions: (keepSelection?: boolean) => Promise<void>;
-  refreshWorkflowRuntime: () => Promise<unknown>;
+  loadSessions?: (keepSelection?: boolean) => Promise<void>;
+  refreshWorkflowRuntime?: () => Promise<unknown>;
+  /** Drawer-context callback: called after a decision instead of loadSessions/refreshWorkflowRuntime. */
+  onDecisionComplete?: () => Promise<void> | void;
 }
 
 interface UsePmoReportRangeActionsResult {
@@ -32,12 +34,17 @@ interface UsePmoReportRangeActionsResult {
 export function usePmoReportRangeActions(
   options: UsePmoReportRangeActionsOptions,
 ): UsePmoReportRangeActionsResult {
-  const { selectedReportApproval, loadSessions, refreshWorkflowRuntime } = options;
+  const { selectedReportApproval, loadSessions, refreshWorkflowRuntime, onDecisionComplete } =
+    options;
   const submitDecision = useSubmitWorkflowRuntimeDecision();
 
   const refreshAfterDecision = useCallback(async () => {
-    await Promise.all([refreshWorkflowRuntime(), loadSessions(true)]);
-  }, [loadSessions, refreshWorkflowRuntime]);
+    if (onDecisionComplete) {
+      await onDecisionComplete();
+    } else if (loadSessions && refreshWorkflowRuntime) {
+      await Promise.all([refreshWorkflowRuntime(), loadSessions(true)]);
+    }
+  }, [onDecisionComplete, loadSessions, refreshWorkflowRuntime]);
 
   const confirmReportRange = useCallback(
     (ranges: ReportDateRangePayload, dateRangeStrategy = 'manual_database') => {

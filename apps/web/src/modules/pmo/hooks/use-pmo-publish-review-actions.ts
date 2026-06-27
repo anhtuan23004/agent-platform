@@ -6,8 +6,12 @@ import { useSubmitWorkflowRuntimeDecision } from './use-workflow-runtime';
 
 interface UsePmoPublishReviewActionsOptions {
   selectedPublishApproval: WorkflowApprovalRow | null;
-  loadSessions: (keepSelection?: boolean) => Promise<void>;
-  refreshWorkflowRuntime: () => Promise<unknown>;
+  /** Page-context refresh: reload the session list after a decision. */
+  loadSessions?: (keepSelection?: boolean) => Promise<void>;
+  /** Page-context refresh: refetch workflow runtime after a decision. */
+  refreshWorkflowRuntime?: () => Promise<unknown>;
+  /** Drawer-context callback: called after a decision instead of loadSessions/refreshWorkflowRuntime. */
+  onDecisionComplete?: () => Promise<void> | void;
 }
 
 interface UsePmoPublishReviewActionsResult {
@@ -19,7 +23,8 @@ interface UsePmoPublishReviewActionsResult {
 export function usePmoPublishReviewActions(
   options: UsePmoPublishReviewActionsOptions,
 ): UsePmoPublishReviewActionsResult {
-  const { selectedPublishApproval, loadSessions, refreshWorkflowRuntime } = options;
+  const { selectedPublishApproval, loadSessions, refreshWorkflowRuntime, onDecisionComplete } =
+    options;
   const submitDecision = useSubmitWorkflowRuntimeDecision();
   const [lockedApprovalIds, setLockedApprovalIds] = useState<Set<string>>(() => new Set());
   const selectedApprovalId = selectedPublishApproval?.approvalId ?? null;
@@ -33,8 +38,12 @@ export function usePmoPublishReviewActions(
   );
 
   const refreshAfterDecision = useCallback(async () => {
-    await Promise.all([refreshWorkflowRuntime(), loadSessions(true)]);
-  }, [loadSessions, refreshWorkflowRuntime]);
+    if (onDecisionComplete) {
+      await onDecisionComplete();
+    } else if (loadSessions && refreshWorkflowRuntime) {
+      await Promise.all([refreshWorkflowRuntime(), loadSessions(true)]);
+    }
+  }, [onDecisionComplete, loadSessions, refreshWorkflowRuntime]);
 
   const approvePublish = useCallback(() => {
     if (selectedPublishApproval?.status !== 'pending') return;

@@ -19,8 +19,12 @@ export interface MemberMasterAdditionDraft {
 interface UsePmoNormalizationReviewActionsOptions {
   selectedNormalizationApproval: WorkflowApprovalRow | null;
   selectedNormalizationView: NormalizationReviewViewModel | null;
-  loadSessions: (keepSelection?: boolean) => Promise<void>;
-  refreshWorkflowRuntime: () => Promise<unknown>;
+  /** Page-context refresh: reload the session list after a decision. */
+  loadSessions?: (keepSelection?: boolean) => Promise<void>;
+  /** Page-context refresh: refetch workflow runtime after a decision. */
+  refreshWorkflowRuntime?: () => Promise<unknown>;
+  /** Drawer-context callback: called after a decision instead of loadSessions/refreshWorkflowRuntime. */
+  onDecisionComplete?: () => Promise<void> | void;
 }
 
 interface UsePmoNormalizationReviewActionsResult {
@@ -88,6 +92,7 @@ export function usePmoNormalizationReviewActions(
     selectedNormalizationView,
     loadSessions,
     refreshWorkflowRuntime,
+    onDecisionComplete,
   } = options;
   const submitDecision = useSubmitWorkflowRuntimeDecision();
 
@@ -130,8 +135,12 @@ export function usePmoNormalizationReviewActions(
   );
 
   const refreshAfterDecision = useCallback(async () => {
-    await Promise.all([refreshWorkflowRuntime(), loadSessions(true)]);
-  }, [loadSessions, refreshWorkflowRuntime]);
+    if (onDecisionComplete) {
+      await onDecisionComplete();
+    } else if (loadSessions && refreshWorkflowRuntime) {
+      await Promise.all([refreshWorkflowRuntime(), loadSessions(true)]);
+    }
+  }, [onDecisionComplete, loadSessions, refreshWorkflowRuntime]);
 
   const hasMissingMembers = (selectedNormalizationView?.missingMembers.length ?? 0) > 0;
   const normalizationReviewView = useMemo(() => {

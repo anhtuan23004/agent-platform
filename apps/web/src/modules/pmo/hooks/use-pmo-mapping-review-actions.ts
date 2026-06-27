@@ -13,8 +13,12 @@ interface UsePmoMappingReviewActionsOptions {
   selectedSessionId: string | null;
   selectedMappingApproval: WorkflowApprovalRow | null;
   selectedMappingView: MappingViewModel | null;
-  loadSessions: (keepSelection?: boolean) => Promise<void>;
-  refreshMappingApprovals: () => Promise<unknown>;
+  /** Page-context refresh: reload the session list after a decision. */
+  loadSessions?: (keepSelection?: boolean) => Promise<void>;
+  /** Page-context refresh: refetch pending approvals after a decision. */
+  refreshMappingApprovals?: () => Promise<unknown>;
+  /** Drawer-context callback: called after a decision instead of loadSessions/refreshMappingApprovals. */
+  onDecisionComplete?: () => Promise<void> | void;
 }
 
 interface UsePmoMappingReviewActionsResult {
@@ -42,6 +46,7 @@ export function usePmoMappingReviewActions(
     selectedMappingView,
     loadSessions,
     refreshMappingApprovals,
+    onDecisionComplete,
   } = options;
 
   const submitDecision = useSubmitWorkflowRuntimeDecision();
@@ -87,8 +92,12 @@ export function usePmoMappingReviewActions(
     !submitDecision.isPending;
 
   const refreshAfterDecision = useCallback(async () => {
-    await Promise.all([refreshMappingApprovals(), loadSessions(true)]);
-  }, [loadSessions, refreshMappingApprovals]);
+    if (onDecisionComplete) {
+      await onDecisionComplete();
+    } else if (loadSessions && refreshMappingApprovals) {
+      await Promise.all([refreshMappingApprovals(), loadSessions(true)]);
+    }
+  }, [onDecisionComplete, loadSessions, refreshMappingApprovals]);
 
   const approveCurrentMappingItem = useCallback(() => {
     if (!selectedMappingApproval) return;
