@@ -1,4 +1,4 @@
-import { and, eq, gte, lte } from 'drizzle-orm';
+import { and, asc, eq, gte, lte } from 'drizzle-orm';
 import { pmoDb } from '../../db/client.ts';
 import { projectDemandPlan } from '../../db/schema.ts';
 
@@ -48,7 +48,8 @@ export async function loadProjectDemandPlan(input: {
         gte(projectDemandPlan.demand_end, input.from),
         lte(projectDemandPlan.demand_start, input.to),
       ),
-    );
+    )
+    .orderBy(asc(projectDemandPlan.demand_id));
 
   return rows.map((row) => ({
     ...row,
