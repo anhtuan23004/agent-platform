@@ -36,12 +36,10 @@ function groupMappingItems(
 
 export function DrawerMapping({
   approval,
-  threadId: _threadId,
   onPartialRefresh,
   onDecisionComplete,
 }: {
   approval: WorkflowApprovalRow;
-  threadId: string | undefined;
   onPartialRefresh: () => Promise<void> | void;
   onDecisionComplete: () => Promise<void> | void;
 }) {

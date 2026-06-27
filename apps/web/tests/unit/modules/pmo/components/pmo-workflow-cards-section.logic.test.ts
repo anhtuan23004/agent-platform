@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildWorkflowCards,
   pickDefaultWorkflowCard,
-} from '../../../../../src/modules/pmo/components/pmo-workflow-cards-section';
+} from '../../../../../src/modules/pmo/components/pmo-workflow-cards-section.logic';
 import type { ExecutionCard } from '../../../../../src/modules/pmo/pages/pmo-page.logic';
 
 describe('pickDefaultWorkflowCard', () => {

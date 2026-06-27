@@ -8,7 +8,8 @@ import {
   pmoApi,
 } from '../api/client';
 import { PmoSessionHistoryPanel } from '../components/pmo-session-history-panel';
-import { PmoWorkflowCardsSection, workflowCardId } from '../components/pmo-workflow-cards-section';
+import { PmoWorkflowCardsSection } from '../components/pmo-workflow-cards-section';
+import { workflowCardId } from '../components/pmo-workflow-cards-section.logic';
 import { usePmoMappingReviewActions } from '../hooks/use-pmo-mapping-review-actions';
 import { usePmoNormalizationReviewActions } from '../hooks/use-pmo-normalization-review-actions';
 import { usePmoPublishReviewActions } from '../hooks/use-pmo-publish-review-actions';

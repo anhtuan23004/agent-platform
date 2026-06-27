@@ -1,6 +1,5 @@
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
-import { workflowsApi } from '../../agent/workflows/api/workflows.ts';
 import type { PmoPlanningSession } from '../api/client';
 import {
   type WorkflowApprovalRow,
@@ -280,7 +279,8 @@ export function usePmoWorkflowRuntime(
 
   const threadApprovalsQuery = useQuery({
     queryKey: ['pmo', 'session-thread-approvals', selectedSession?.chat_thread_id],
-    queryFn: () => workflowsApi.listThreadApprovals(selectedSession?.chat_thread_id as string),
+    queryFn: () =>
+      workflowRuntimeApi.listThreadApprovals(selectedSession?.chat_thread_id as string),
     enabled: Boolean(selectedSession?.chat_thread_id),
     staleTime: 30_000,
   });

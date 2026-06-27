@@ -1,8 +1,8 @@
 import { CheckCircle2, Loader2, LockKeyhole } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { PmoPlanningSession } from '../api/client';
 import type { ExecutionCard } from '../pages/pmo-page.logic';
-import { statusTone, workflowStepTone } from '../pages/pmo-page.logic';
+import { statusTone } from '../pages/pmo-page.logic';
 import {
   PmoExecutionStepCard,
   type PmoExecutionStepMappingProps,
@@ -13,19 +13,11 @@ import {
   type PmoExecutionStepReportProps,
   type PmoExecutionStepRuntimeProps,
 } from './pmo-execution-step-card';
-
-type WorkflowCardKind = 'execution';
-type WorkflowCardAccess = 'history_view_only' | 'current_actionable' | 'future_locked';
-
-interface WorkflowCardModel {
-  id: string;
-  ordinal: number;
-  kind: WorkflowCardKind;
-  label: string;
-  statusLabel: string;
-  access: WorkflowCardAccess;
-  step?: ExecutionCard;
-}
+import {
+  buildWorkflowCards,
+  pickDefaultWorkflowCard,
+  resolveWorkflowSelectedCardId,
+} from './pmo-workflow-cards-section.logic';
 
 interface PmoWorkflowCardsSectionProps {
   selectedSession: PmoPlanningSession;
@@ -44,7 +36,7 @@ interface PmoWorkflowCardsSectionProps {
   planContext: PmoExecutionStepPlanProps;
 }
 
-function accessTone(access: WorkflowCardAccess): {
+function accessTone(access: 'history_view_only' | 'current_actionable' | 'future_locked'): {
   card: string;
   marker: string;
   text: string;
@@ -76,88 +68,6 @@ function accessTone(access: WorkflowCardAccess): {
   };
 }
 
-function findCurrentExecutionIndex(cards: ExecutionCard[], runtime: PmoExecutionStepRuntimeProps) {
-  if (cards.length === 0) return -1;
-
-  const currentByNo =
-    typeof runtime.executionCurrentStepNo === 'number'
-      ? cards.findIndex((step) => step.step_no === runtime.executionCurrentStepNo)
-      : -1;
-  if (currentByNo >= 0) return currentByNo;
-
-  const statusIndex = cards.findIndex(
-    (step) =>
-      step.status === 'in_progress' || step.status === 'needs_review' || step.status === 'failed',
-  );
-  if (statusIndex >= 0) return statusIndex;
-
-  return cards.findIndex((step) => step.status === 'pending');
-}
-
-export function buildWorkflowCards(params: {
-  executionCards: ExecutionCard[];
-  runtime: PmoExecutionStepRuntimeProps;
-  readOnly?: boolean;
-}): WorkflowCardModel[] {
-  const { executionCards, runtime, readOnly } = params;
-
-  if (readOnly) {
-    return executionCards.map((step, index) => ({
-      id: `execution-${step.step_no}`,
-      ordinal: index + 1,
-      kind: 'execution',
-      label: step.step_name,
-      statusLabel: workflowStepTone(step.status).label,
-      access: 'history_view_only',
-      step,
-    }));
-  }
-
-  const cards: WorkflowCardModel[] = [];
-  const currentIndex = findCurrentExecutionIndex(executionCards, runtime);
-
-  for (const [index, step] of executionCards.entries()) {
-    const access: WorkflowCardAccess =
-      currentIndex >= 0
-        ? index < currentIndex
-          ? 'history_view_only'
-          : index === currentIndex
-            ? 'current_actionable'
-            : 'future_locked'
-        : step.status === 'completed'
-          ? 'history_view_only'
-          : 'future_locked';
-
-    cards.push({
-      id: `execution-${step.step_no}`,
-      ordinal: index + 1,
-      kind: 'execution',
-      label: step.step_name,
-      statusLabel: workflowStepTone(step.status).label,
-      access,
-      step,
-    });
-  }
-
-  return cards;
-}
-
-export function workflowCardId(stepNo: number): string {
-  return `execution-${stepNo}`;
-}
-
-export function pickDefaultWorkflowCard(
-  cards: WorkflowCardModel[],
-  readOnly: boolean | undefined,
-): WorkflowCardModel | null {
-  const current = cards.find((card) => card.access === 'current_actionable');
-  if (current) return current;
-  if (readOnly) {
-    return cards.find((card) => card.access === 'history_view_only') ?? null;
-  }
-  return cards.at(-1) ?? null;
-}
-
 export function PmoWorkflowCardsSection(props: PmoWorkflowCardsSectionProps) {
   const {
     selectedSession,
@@ -179,13 +89,12 @@ export function PmoWorkflowCardsSection(props: PmoWorkflowCardsSectionProps) {
     [executionCards, runtime, readOnly],
   );
   const defaultCard = useMemo(() => pickDefaultWorkflowCard(cards, readOnly), [cards, readOnly]);
-  const [selectedCardId, setSelectedCardId] = useState<string | null>(
-    initialSelectedCardId ?? defaultCard?.id ?? null,
-  );
-
-  useEffect(() => {
-    setSelectedCardId(initialSelectedCardId ?? defaultCard?.id ?? null);
-  }, [defaultCard?.id, initialSelectedCardId]);
+  const [userSelectedCardId, setUserSelectedCardId] = useState<string | null>(null);
+  const selectedCardId = resolveWorkflowSelectedCardId({
+    userSelectedCardId,
+    initialSelectedCardId,
+    defaultCardId: defaultCard?.id ?? null,
+  });
 
   const selectedCard = readOnly
     ? cards.find((card) => card.id === selectedCardId)
@@ -228,7 +137,7 @@ export function PmoWorkflowCardsSection(props: PmoWorkflowCardsSectionProps) {
                 <button
                   type="button"
                   disabled={disabled}
-                  onClick={() => setSelectedCardId(card.id)}
+                  onClick={() => setUserSelectedCardId(card.id)}
                   className={`h-full w-full rounded-lg border px-2.5 py-2 text-left transition-colors ${tone.card} ${
                     isActive ? 'ring-2 ring-primary/30' : ''
                   } ${disabled ? 'cursor-not-allowed' : 'hover:bg-surface-1'}`}

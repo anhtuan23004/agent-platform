@@ -151,7 +151,6 @@ function DrawerStepContent({
       return (
         <DrawerMapping
           approval={approval}
-          threadId={threadId}
           onPartialRefresh={onPartialRefresh}
           onDecisionComplete={onDecisionComplete}
         />

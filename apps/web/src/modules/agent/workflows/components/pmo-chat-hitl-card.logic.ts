@@ -1,4 +1,3 @@
-import { parsePublishReviewView } from '../../../pmo/pages/pmo-page.logic.ts';
 import type { WorkflowApprovalRow } from '../api/schemas.ts';
 import { cardToolId } from './decided-approval.ts';
 
@@ -79,16 +78,6 @@ export function canQuickApprovePmoHitlCard(params: {
       allowed: false,
       hint: 'Approval is blocked until issues are resolved in review.',
     };
-  }
-
-  if (toolId === 'pmo_confirmPublish') {
-    const view = parsePublishReviewView(approval);
-    if (!view?.canApprove) {
-      return {
-        allowed: false,
-        hint: 'Open publish review to resolve blocking issues.',
-      };
-    }
   }
 
   return { allowed: true };

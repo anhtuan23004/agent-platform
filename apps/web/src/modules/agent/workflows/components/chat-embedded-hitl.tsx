@@ -6,7 +6,7 @@ import { type DecideApprovalBody, workflowsApi } from '../api/workflows.ts';
 import { useThreadApprovals } from '../hooks/use-thread-approvals.ts';
 import { workflowsQueryKeys } from '../state/query-keys.ts';
 import { isDedupApprovalPayload } from './approval-card-shape.ts';
-import { cardToolId } from './decided-approval.ts';
+import { cardToolId, isPmoIngestApproval } from './decided-approval.ts';
 import {
   type ApprovalStatusOverride,
   partitionThreadApprovals,
@@ -16,7 +16,7 @@ import { DecidedApprovalRow } from './decided-approval-row.tsx';
 import { HitlApprovalCard } from './hitl-approval-card.tsx';
 import { HitlCardHost } from './hitl-card-host.tsx';
 import { resolveLiveDrawerApproval } from './pmo-chat-hitl-card.logic.ts';
-import { isPmoIngestApproval, PmoChatHitlCard } from './pmo-chat-hitl-card.tsx';
+import { PmoChatHitlCard } from './pmo-chat-hitl-card.tsx';
 import { PmoStepReviewDrawer } from './pmo-step-review-drawer.tsx';
 import { resolvePmoStepTransition } from './pmo-step-transition.logic.ts';
 import { PmoStepTransitionCard } from './pmo-step-transition-card.tsx';

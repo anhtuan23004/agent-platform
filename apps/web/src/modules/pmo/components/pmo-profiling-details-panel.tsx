@@ -63,7 +63,6 @@ export function PmoProfilingDetailsPanel(props: PmoProfilingDetailsPanelProps) {
     profilingReviewState,
     profilingSummary,
     profilingDocuments,
-    profilingApproval: _profilingApproval,
     selectedSessionOverrides,
     profilingAreas,
     isAppendingDocument,

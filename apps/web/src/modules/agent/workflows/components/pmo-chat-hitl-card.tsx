@@ -13,7 +13,7 @@ import { notifyApprovalResolved } from '../../hooks/use-approval-events.ts';
 import type { WorkflowApprovalRow } from '../api/schemas.ts';
 import { useSubmitDecision } from '../hooks/use-submit-decision.ts';
 import { workflowsQueryKeys } from '../state/query-keys.ts';
-import { cardToolId, isPmoIngestApproval } from './decided-approval.ts';
+import { cardToolId } from './decided-approval.ts';
 import { canQuickApprovePmoHitlCard, pmoReviewDetailsLabel } from './pmo-chat-hitl-card.logic.ts';
 
 // ---------------------------------------------------------------------------
@@ -243,9 +243,3 @@ export function PmoChatHitlCard({
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Detector: does this approval belong to a PMO ingest tool?
-// ---------------------------------------------------------------------------
-
-export { isPmoIngestApproval };
