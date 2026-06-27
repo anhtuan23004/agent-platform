@@ -64,7 +64,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@6.1.3
+        uses: aws-actions/configure-aws-credentials@v6.1.3
         with:
           aws-access-key-id:     ${{ secrets.AWS_ECR_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_ECR_SECRET_ACCESS_KEY }}
@@ -106,7 +106,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@6.1.3
+        uses: aws-actions/configure-aws-credentials@v6.1.3
         with:
           aws-access-key-id:     ${{ secrets.AWS_ECR_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_ECR_SECRET_ACCESS_KEY }}
@@ -129,7 +129,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@6.1.3
+        uses: aws-actions/configure-aws-credentials@v6.1.3
         with:
           aws-access-key-id:     ${{ secrets.AWS_ECR_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_ECR_SECRET_ACCESS_KEY }}
@@ -176,7 +176,7 @@ jobs:
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@6.1.3
+        uses: aws-actions/configure-aws-credentials@v6.1.3
         with:
           aws-access-key-id:     ${{ secrets.AWS_ECR_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_ECR_SECRET_ACCESS_KEY }}
