@@ -14,7 +14,9 @@ import { DecidedApprovalHistoryGroup } from './decided-approval-history-group.ts
 import { DecidedApprovalRow } from './decided-approval-row.tsx';
 import { HitlApprovalCard } from './hitl-approval-card.tsx';
 import { HitlCardHost } from './hitl-card-host.tsx';
+import { resolveLiveDrawerApproval } from './pmo-chat-hitl-card.logic.ts';
 import { isPmoIngestApproval, PmoChatHitlCard } from './pmo-chat-hitl-card.tsx';
+import { PmoStepReviewDrawer } from './pmo-step-review-drawer.tsx';
 
 export interface ChatEmbeddedHitlProps {
   threadId: string | undefined;
@@ -26,6 +28,10 @@ export function ChatEmbeddedHitl({ threadId }: ChatEmbeddedHitlProps) {
   const [statusOverrides, setStatusOverrides] = useState<Map<string, ApprovalStatusOverride>>(
     () => new Map(),
   );
+  const [stepReview, setStepReview] = useState<{
+    approvalId: string;
+    stepType: string;
+  } | null>(null);
 
   const rememberDecision = useCallback(
     (approvalId: string, status: WorkflowApprovalRow['status'], decision: string) => {
@@ -77,13 +83,24 @@ export function ChatEmbeddedHitl({ threadId }: ChatEmbeddedHitlProps) {
     [rememberDecision],
   );
 
+  const handleOpenStepReview = useCallback((approval: WorkflowApprovalRow) => {
+    const toolId = cardToolId(approval.proposedPayload) ?? '';
+    setStepReview({ approvalId: approval.approvalId, stepType: toolId });
+  }, []);
+
   const approvals = approvalsQuery.data;
+
+  const drawerApproval = useMemo(() => {
+    if (!stepReview || !approvals) return null;
+    return resolveLiveDrawerApproval(approvals, stepReview);
+  }, [stepReview, approvals]);
+
   const { pmoDecided, pending, otherDecided } = useMemo(
     () => partitionThreadApprovals(approvals ?? [], statusOverrides),
     [approvals, statusOverrides],
   );
 
-  if (!approvals || approvals.length === 0) return null;
+  if ((!approvals || approvals.length === 0) && !stepReview) return null;
 
   return (
     <section className="space-y-3" aria-label="In-thread approvals">
@@ -115,6 +132,7 @@ export function ChatEmbeddedHitl({ threadId }: ChatEmbeddedHitlProps) {
               canAct
               threadId={threadId}
               onDecided={handlePmoDecided}
+              onOpenStepReview={handleOpenStepReview}
             />
           );
         }
@@ -126,6 +144,18 @@ export function ChatEmbeddedHitl({ threadId }: ChatEmbeddedHitlProps) {
       {otherDecided.map((approval) => (
         <DecidedApprovalRow key={approval.approvalId} approval={approval} />
       ))}
+
+      {stepReview ? (
+        <PmoStepReviewDrawer
+          open
+          onOpenChange={(open) => {
+            if (!open) setStepReview(null);
+          }}
+          approval={drawerApproval}
+          stepType={stepReview.stepType}
+          threadId={threadId}
+        />
+      ) : null}
     </section>
   );
 }

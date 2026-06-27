@@ -33,7 +33,7 @@ export function PmoSessionHistoryPanel(props: PmoSessionHistoryPanelProps) {
         <div>
           <h3 className="text-body-sm font-semibold text-ink">Upload history</h3>
           <p className="text-caption text-ink-subtle">
-            Persisted sessions. View opens Plan tab first.
+            Persisted sessions. View opens the first workflow step.
           </p>
         </div>
         {isLoadingSessions ? (

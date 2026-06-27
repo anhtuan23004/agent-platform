@@ -1,9 +1,16 @@
+import { useQueries, useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
+import { workflowsApi } from '../../agent/workflows/api/workflows.ts';
 import type { PmoPlanningSession } from '../api/client';
-import type { WorkflowApprovalRow, WorkflowRunRow } from '../api/workflow-runtime';
+import {
+  type WorkflowApprovalRow,
+  type WorkflowRunRow,
+  workflowRuntimeApi,
+} from '../api/workflow-runtime';
 import {
   type ExecutionCard,
   executionStepMatchesRuntimeStep,
+  findLatestApprovalByAction,
   isMappingApprovalRow,
   isNormalizationApprovalRow,
   isProfilingApprovalRow,
@@ -11,6 +18,7 @@ import {
   isReportApprovalRow,
   type MappingProgressItem,
   type MappingViewModel,
+  mergeSessionApprovals,
   type NormalizationReviewViewModel,
   type PmoPlanActionId,
   type PublishReviewViewModel,
@@ -25,9 +33,9 @@ import {
 } from '../pages/pmo-page.logic';
 import {
   useWorkflowRuntimePendingApprovals,
-  useWorkflowRuntimeRunApprovals,
   useWorkflowRuntimeRunSnapshot,
   useWorkflowRuntimeRuns,
+  workflowRuntimeQueryKeys,
 } from './use-workflow-runtime';
 
 function findApprovalByAction(
@@ -140,16 +148,28 @@ export function usePmoWorkflowRuntime(
   }, [workflowRuns.data]);
 
   const runtimeRunBySessionId = useMemo(() => {
-    const map = new Map<string, { runId: string; status: WorkflowRunRow['status'] }>();
+    const map = new Map<
+      string,
+      { runId: string; status: WorkflowRunRow['status']; startedAt: string }
+    >();
     for (const run of pmoIngestRuns) {
       const ingestionSessionId = readIngestionSessionIdFromRunInput(run.inputSummary);
-      if (!ingestionSessionId || map.has(ingestionSessionId)) continue;
-      map.set(ingestionSessionId, {
-        runId: run.runId,
-        status: run.status,
-      });
+      if (!ingestionSessionId) continue;
+      const existing = map.get(ingestionSessionId);
+      if (!existing || run.startedAt > existing.startedAt) {
+        map.set(ingestionSessionId, {
+          runId: run.runId,
+          status: run.status,
+          startedAt: run.startedAt,
+        });
+      }
     }
-    return map;
+    return new Map(
+      [...map.entries()].map(([sessionId, value]) => [
+        sessionId,
+        { runId: value.runId, status: value.status },
+      ]),
+    );
   }, [pmoIngestRuns]);
 
   const selectedWorkflowRun = useMemo(() => {
@@ -160,10 +180,12 @@ export function usePmoWorkflowRuntime(
       return pmoIngestRuns.find((run) => run.runId === directMatch.runId) ?? null;
     }
 
-    const matchedBySession = pmoIngestRuns.find((run) => {
-      const ingestionSessionId = readIngestionSessionIdFromRunInput(run.inputSummary);
-      return sessionIdsMatch(ingestionSessionId, selectedSession.ingestion_session_id);
-    });
+    const matchedBySession = pmoIngestRuns
+      .filter((run) => {
+        const ingestionSessionId = readIngestionSessionIdFromRunInput(run.inputSummary);
+        return sessionIdsMatch(ingestionSessionId, selectedSession.ingestion_session_id);
+      })
+      .sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0];
     if (matchedBySession) return matchedBySession;
 
     return null;
@@ -244,54 +266,75 @@ export function usePmoWorkflowRuntime(
     '';
   const selectedWorkflowRunSnapshot = useWorkflowRuntimeRunSnapshot(selectedWorkflowRunId);
 
-  // Fetch ALL approvals (pending + decided) for the selected run so completed
-  // steps can render their historical approval data in read-only mode.
-  const runApprovals = useWorkflowRuntimeRunApprovals(selectedWorkflowRunId);
+  const sessionRunIds = useMemo(() => {
+    if (!selectedSession) return [] as string[];
+    return pmoIngestRuns
+      .filter((run) =>
+        sessionIdsMatch(
+          readIngestionSessionIdFromRunInput(run.inputSummary),
+          selectedSession.ingestion_session_id,
+        ),
+      )
+      .map((run) => run.runId);
+  }, [pmoIngestRuns, selectedSession]);
 
-  const historicalMappingApproval = useMemo(() => {
-    if (!selectedWorkflowRunId) return null;
-    return (
-      (runApprovals.data ?? []).find(
-        (a) => a.runId === selectedWorkflowRunId && isMappingApprovalRow(a),
-      ) ?? null
-    );
-  }, [runApprovals.data, selectedWorkflowRunId]);
+  const threadApprovalsQuery = useQuery({
+    queryKey: ['pmo', 'session-thread-approvals', selectedSession?.chat_thread_id],
+    queryFn: () => workflowsApi.listThreadApprovals(selectedSession?.chat_thread_id as string),
+    enabled: Boolean(selectedSession?.chat_thread_id),
+    staleTime: 30_000,
+  });
 
-  const historicalNormalizationApproval = useMemo(() => {
-    if (!selectedWorkflowRunId) return null;
-    return (
-      (runApprovals.data ?? []).find(
-        (a) => a.runId === selectedWorkflowRunId && isNormalizationApprovalRow(a),
-      ) ?? null
-    );
-  }, [runApprovals.data, selectedWorkflowRunId]);
+  const runApprovalsQueries = useQueries({
+    queries: sessionRunIds.map((runId) => ({
+      queryKey: workflowRuntimeQueryKeys.runApprovals(runId),
+      queryFn: () => workflowRuntimeApi.listRunApprovals(runId),
+      enabled: Boolean(runId) && !selectedSession?.chat_thread_id,
+      staleTime: 60_000,
+    })),
+  });
 
-  const historicalPublishApproval = useMemo(() => {
-    if (!selectedWorkflowRunId) return null;
-    return (
-      (runApprovals.data ?? []).find(
-        (a) => a.runId === selectedWorkflowRunId && isPublishApprovalRow(a),
-      ) ?? null
-    );
-  }, [runApprovals.data, selectedWorkflowRunId]);
+  // Each agentic HITL suspend writes a new workflow_runs row (new runId). History
+  // must merge approvals across every run — or the whole chat thread — for one session.
+  const sessionHistoricalApprovals = useMemo(() => {
+    if (!selectedSession) return [] as WorkflowApprovalRow[];
 
-  const historicalReportApproval = useMemo(() => {
-    if (!selectedWorkflowRunId) return null;
-    return (
-      (runApprovals.data ?? []).find(
-        (a) => a.runId === selectedWorkflowRunId && isReportApprovalRow(a),
-      ) ?? null
-    );
-  }, [runApprovals.data, selectedWorkflowRunId]);
+    if (selectedSession.chat_thread_id && threadApprovalsQuery.data) {
+      return mergeSessionApprovals(
+        threadApprovalsQuery.data as WorkflowApprovalRow[],
+        selectedSession.ingestion_session_id,
+        sessionRunIds,
+      );
+    }
 
-  const historicalProfilingApproval = useMemo(() => {
-    if (!selectedWorkflowRunId) return null;
-    return (
-      (runApprovals.data ?? []).find(
-        (a) => a.runId === selectedWorkflowRunId && isProfilingApprovalRow(a),
-      ) ?? null
-    );
-  }, [runApprovals.data, selectedWorkflowRunId]);
+    const merged: WorkflowApprovalRow[] = [];
+    for (const query of runApprovalsQueries) {
+      if (query.data) merged.push(...query.data);
+    }
+    return mergeSessionApprovals(merged, selectedSession.ingestion_session_id, sessionRunIds);
+  }, [runApprovalsQueries, selectedSession, sessionRunIds, threadApprovalsQuery.data]);
+
+  const historicalProfilingApproval = useMemo(
+    () => sessionHistoricalApprovals.find((approval) => isProfilingApprovalRow(approval)) ?? null,
+    [sessionHistoricalApprovals],
+  );
+  const historicalMappingApproval = useMemo(
+    () => sessionHistoricalApprovals.find((approval) => isMappingApprovalRow(approval)) ?? null,
+    [sessionHistoricalApprovals],
+  );
+  const historicalNormalizationApproval = useMemo(
+    () =>
+      sessionHistoricalApprovals.find((approval) => isNormalizationApprovalRow(approval)) ?? null,
+    [sessionHistoricalApprovals],
+  );
+  const historicalPublishApproval = useMemo(
+    () => sessionHistoricalApprovals.find((approval) => isPublishApprovalRow(approval)) ?? null,
+    [sessionHistoricalApprovals],
+  );
+  const historicalReportApproval = useMemo(
+    () => sessionHistoricalApprovals.find((approval) => isReportApprovalRow(approval)) ?? null,
+    [sessionHistoricalApprovals],
+  );
 
   // Use pending approval when available (actionable), fall back to decided
   // approval from the run history (read-only).
@@ -306,7 +349,6 @@ export function usePmoWorkflowRuntime(
   // row: pending first, then historical. No synthetic fallback from step view
   // state — step_views.approval_payload is a cached display snapshot only.
   const approvalByActionId = useMemo(() => {
-    const historicalApprovals = runApprovals.data ?? [];
     const actionIds: PmoPlanActionId[] = [
       'workbook_profiling',
       'column_mapping',
@@ -319,12 +361,12 @@ export function usePmoWorkflowRuntime(
     const out: Partial<Record<PmoPlanActionId, WorkflowApprovalRow>> = {};
     for (const actionId of actionIds) {
       const pending = findApprovalByAction(pendingApprovalsForSelectedSession, actionId);
-      const historical = findApprovalByAction(historicalApprovals, actionId);
+      const historical = findLatestApprovalByAction(sessionHistoricalApprovals, actionId);
       const approval = pending ?? historical;
       if (approval) out[actionId] = approval;
     }
     return out;
-  }, [pendingApprovalsForSelectedSession, runApprovals.data]);
+  }, [pendingApprovalsForSelectedSession, sessionHistoricalApprovals]);
 
   const selectedMappingApprovalForDisplay = useMemo(() => {
     const approval = effectiveMappingApproval;

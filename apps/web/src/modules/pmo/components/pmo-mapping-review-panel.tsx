@@ -12,6 +12,7 @@ import {
 
 interface PmoMappingReviewPanelProps {
   readOnly?: boolean;
+  density?: 'compact' | 'comfortable';
   selectedMappingApproval: WorkflowApprovalRow | null;
   mappingApprovalsCount: number;
   groupedMappingItems: GroupedMappingItemsBySheet[];
@@ -34,6 +35,7 @@ interface PmoMappingReviewPanelProps {
 export function PmoMappingReviewPanel(props: PmoMappingReviewPanelProps) {
   const {
     readOnly = false,
+    density = 'compact',
     selectedMappingApproval,
     mappingApprovalsCount,
     groupedMappingItems,
@@ -52,6 +54,9 @@ export function PmoMappingReviewPanel(props: PmoMappingReviewPanelProps) {
     selectMappingAlternate,
     cancelMappingModify,
   } = props;
+
+  const tableTextClass = density === 'comfortable' ? 'text-body-sm' : 'text-caption';
+  const cellPadClass = density === 'comfortable' ? 'px-3 py-2' : 'px-2 py-1.5';
 
   if (!selectedMappingApproval) {
     return (
@@ -84,16 +89,16 @@ export function PmoMappingReviewPanel(props: PmoMappingReviewPanelProps) {
         </p>
 
         <div className="mt-3 overflow-x-auto">
-          <table className="min-w-full text-left text-caption">
+          <table className={`min-w-full text-left ${tableTextClass}`}>
             <thead className="border-b border-hairline text-ink-subtle">
               <tr>
-                <th className="px-2 py-1.5">Source column</th>
-                <th className="px-2 py-1.5">Target DB column</th>
-                <th className="px-2 py-1.5">Issue type</th>
-                <th className="px-2 py-1.5">Status</th>
-                <th className="px-2 py-1.5">Approved by</th>
-                <th className="px-2 py-1.5">Confidence score</th>
-                <th className="px-2 py-1.5">Actions</th>
+                <th className={cellPadClass}>Source column</th>
+                <th className={cellPadClass}>Target DB column</th>
+                <th className={cellPadClass}>Issue type</th>
+                <th className={cellPadClass}>Status</th>
+                <th className={cellPadClass}>Approved by</th>
+                <th className={cellPadClass}>Confidence score</th>
+                <th className={cellPadClass}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -102,7 +107,7 @@ export function PmoMappingReviewPanel(props: PmoMappingReviewPanelProps) {
                   <Fragment key={group.sheetName}>
                     <tr className="border-b border-hairline bg-surface-2/60">
                       <td
-                        className="px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-subtle"
+                        className={`${cellPadClass} text-[11px] font-semibold uppercase tracking-wide text-ink-subtle`}
                         colSpan={7}
                       >
                         Sheet: {group.sheetName}
@@ -122,14 +127,16 @@ export function PmoMappingReviewPanel(props: PmoMappingReviewPanelProps) {
                       return (
                         <Fragment key={item.key}>
                           <tr className="border-b border-hairline last:border-b-0">
-                            <td className="px-2 py-1.5 font-medium text-ink">
+                            <td className={`${cellPadClass} font-medium text-ink`}>
                               {item.sourceColumn ?? item.key}
                             </td>
-                            <td className="px-2 py-1.5 text-primary-ink">
+                            <td className={`${cellPadClass} text-primary-ink`}>
                               dim_{item.table}.{item.field}
                             </td>
-                            <td className="px-2 py-1.5 text-ink-subtle">{item.issueType || '-'}</td>
-                            <td className="px-2 py-1.5">
+                            <td className={`${cellPadClass} text-ink-subtle`}>
+                              {item.issueType || '-'}
+                            </td>
+                            <td className={cellPadClass}>
                               {item.state === 'approved' ? (
                                 <span className="rounded-full bg-success-tint px-2 py-0.5 text-[11px] font-medium text-success-ink">
                                   Approved
@@ -140,13 +147,13 @@ export function PmoMappingReviewPanel(props: PmoMappingReviewPanelProps) {
                                 </span>
                               )}
                             </td>
-                            <td className="px-2 py-1.5 text-ink-subtle">
+                            <td className={`${cellPadClass} text-ink-subtle`}>
                               {item.approvedBy ? shortId(item.approvedBy) : '-'}
                             </td>
-                            <td className="px-2 py-1.5 text-ink-subtle">
+                            <td className={`${cellPadClass} text-ink-subtle`}>
                               {item.confidence ?? '-'}
                             </td>
-                            <td className="px-2 py-1.5">
+                            <td className={cellPadClass}>
                               {readOnly ? (
                                 <span className="text-ink-subtle">-</span>
                               ) : (
@@ -295,7 +302,7 @@ export function PmoMappingReviewPanel(props: PmoMappingReviewPanelProps) {
                 ))
               ) : (
                 <tr>
-                  <td className="px-2 py-2 text-ink-subtle" colSpan={7}>
+                  <td className={`${cellPadClass} text-ink-subtle`} colSpan={7}>
                     No mapping review item for this session.
                   </td>
                 </tr>

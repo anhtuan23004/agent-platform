@@ -1,5 +1,5 @@
 import { CheckCircle2, Loader2, LockKeyhole } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { PmoPlanningSession } from '../api/client';
 import type { ExecutionCard } from '../pages/pmo-page.logic';
 import { statusTone, workflowStepTone } from '../pages/pmo-page.logic';
@@ -33,6 +33,8 @@ interface PmoWorkflowCardsSectionProps {
   isAgentRunning?: boolean;
   /** When true, all panels render in read-only mode (no approve/reject/edit). */
   readOnly?: boolean;
+  /** When set, opens this workflow card on mount/session change (e.g. history View). */
+  initialSelectedCardId?: string | null;
   runtime: PmoExecutionStepRuntimeProps;
   mapping: PmoExecutionStepMappingProps;
   normalization: PmoExecutionStepNormalizationProps;
@@ -126,12 +128,29 @@ function buildWorkflowCards(params: {
   return cards;
 }
 
+export function workflowCardId(stepNo: number): string {
+  return `execution-${stepNo}`;
+}
+
+export function pickDefaultWorkflowCard(
+  cards: WorkflowCardModel[],
+  readOnly: boolean | undefined,
+): WorkflowCardModel | null {
+  const current = cards.find((card) => card.access === 'current_actionable');
+  if (current) return current;
+  if (readOnly) {
+    return cards.find((card) => card.access === 'history_view_only') ?? null;
+  }
+  return cards.at(-1) ?? null;
+}
+
 export function PmoWorkflowCardsSection(props: PmoWorkflowCardsSectionProps) {
   const {
     selectedSession,
     executionCards,
     isAgentRunning,
     readOnly,
+    initialSelectedCardId,
     runtime,
     mapping,
     normalization,
@@ -145,13 +164,19 @@ export function PmoWorkflowCardsSection(props: PmoWorkflowCardsSectionProps) {
     () => buildWorkflowCards({ executionCards, runtime }),
     [executionCards, runtime],
   );
-  const currentCard =
-    cards.find((card) => card.access === 'current_actionable') ?? cards.at(-1) ?? null;
-  const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+  const defaultCard = useMemo(() => pickDefaultWorkflowCard(cards, readOnly), [cards, readOnly]);
+  const [selectedCardId, setSelectedCardId] = useState<string | null>(
+    initialSelectedCardId ?? defaultCard?.id ?? null,
+  );
+
+  useEffect(() => {
+    setSelectedCardId(initialSelectedCardId ?? defaultCard?.id ?? null);
+  }, [defaultCard?.id, initialSelectedCardId]);
+
   const selectedCard = cards.find(
     (card) => card.id === selectedCardId && card.access !== 'future_locked',
   );
-  const activeCard = selectedCard ?? currentCard;
+  const activeCard = selectedCard ?? defaultCard;
 
   return (
     <section className="rounded-lg border border-hairline bg-surface-1 p-4 text-caption text-ink-subtle">
@@ -238,7 +263,16 @@ export function PmoWorkflowCardsSection(props: PmoWorkflowCardsSectionProps) {
               plan={planContext}
             />
           </ol>
-        ) : null}
+        ) : cards.length === 0 ? (
+          <p className="text-body-sm text-ink-subtle">
+            No workflow steps recorded for this session yet. Start or resume ingestion from PMO
+            Agent chat.
+          </p>
+        ) : (
+          <p className="text-body-sm text-ink-subtle">
+            Select a workflow step above to inspect it.
+          </p>
+        )}
       </div>
     </section>
   );

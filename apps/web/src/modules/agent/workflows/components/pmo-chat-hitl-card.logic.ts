@@ -1,5 +1,6 @@
 import { parsePublishReviewView } from '../../../pmo/pages/pmo-page.logic.ts';
 import type { WorkflowApprovalRow } from '../api/schemas.ts';
+import { cardToolId } from './decided-approval.ts';
 
 /** Steps that require the review drawer for inspect/edit before approval. */
 export const PMO_DRAWER_REQUIRED_TOOL_IDS = new Set([
@@ -19,7 +20,33 @@ function payloadPrimaryApproves(payload: unknown): boolean {
 }
 
 export function pmoReviewDrawerClassName(): string {
-  return 'w-full max-w-none overflow-y-auto sm:w-[min(96vw,1200px)]';
+  return 'flex h-[100dvh] w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-none sm:w-[min(94vw,1440px)]';
+}
+
+export function pmoReviewDrawerOverlayClassName(): string {
+  return 'bg-semantic-overlay/75 backdrop-blur-sm';
+}
+
+/** Keeps the review drawer on the same step while agentic mapping emits a new pending approval per item. */
+export function resolveLiveDrawerApproval(
+  approvals: WorkflowApprovalRow[],
+  anchor: { approvalId: string; stepType: string },
+): WorkflowApprovalRow | null {
+  const toolId =
+    anchor.stepType ||
+    cardToolId(approvals.find((a) => a.approvalId === anchor.approvalId)?.proposedPayload) ||
+    null;
+
+  if (toolId) {
+    const pendingSameStep = approvals
+      .filter((a) => a.status === 'pending' && cardToolId(a.proposedPayload) === toolId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    if (pendingSameStep.length > 0) {
+      return pendingSameStep[0] ?? null;
+    }
+  }
+
+  return approvals.find((a) => a.approvalId === anchor.approvalId) ?? null;
 }
 
 export function pmoReviewDetailsLabel(toolId: string): string {

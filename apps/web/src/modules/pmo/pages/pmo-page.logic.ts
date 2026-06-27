@@ -390,6 +390,39 @@ export function readActionIdFromApproval(approval: WorkflowApprovalRow): string 
   return toolId ? (TOOL_ID_TO_ACTION_ID[toolId] ?? null) : null;
 }
 
+/** Agentic chat HITL creates one workflow run per suspend; keep the newest row per action. */
+export function findLatestApprovalByAction(
+  approvals: WorkflowApprovalRow[],
+  actionId: PmoPlanActionId,
+): WorkflowApprovalRow | null {
+  const matches = approvals.filter((approval) => readActionIdFromApproval(approval) === actionId);
+  if (matches.length === 0) return null;
+  return (
+    [...matches].sort(
+      (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
+    )[0] ?? null
+  );
+}
+
+export function mergeSessionApprovals(
+  approvals: WorkflowApprovalRow[],
+  sessionId: string,
+  sessionRunIds: readonly string[],
+): WorkflowApprovalRow[] {
+  const byId = new Map<string, WorkflowApprovalRow>();
+  for (const approval of approvals) {
+    const fromPayload = readIngestionSessionIdFromApproval(approval);
+    const belongsToSession =
+      (fromPayload && sessionIdsMatch(fromPayload, sessionId)) ||
+      sessionRunIds.includes(approval.runId);
+    if (!belongsToSession) continue;
+    byId.set(approval.approvalId, approval);
+  }
+  return [...byId.values()].sort(
+    (left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime(),
+  );
+}
+
 export function readReviewTypeFromApproval(approval: WorkflowApprovalRow): string | null {
   return cardMetaStringFromPayload(approval.proposedPayload, 'reviewType');
 }

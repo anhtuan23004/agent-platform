@@ -3,6 +3,7 @@ import { WorkflowApprovalRow } from '../../../../../src/modules/agent/workflows/
 import {
   canQuickApprovePmoHitlCard,
   pmoReviewDetailsLabel,
+  resolveLiveDrawerApproval,
 } from '../../../../../src/modules/agent/workflows/components/pmo-chat-hitl-card.logic';
 
 function approval(proposedPayload: WorkflowApprovalRow['proposedPayload']): WorkflowApprovalRow {
@@ -97,5 +98,46 @@ describe('canQuickApprovePmoHitlCard', () => {
     });
 
     expect(result.allowed).toBe(false);
+  });
+});
+
+describe('resolveLiveDrawerApproval', () => {
+  it('follows the latest pending mapping approval after the anchor item is decided', () => {
+    const decided = approval({
+      meta: { toolId: 'pmo_confirmMapping' },
+      primary: { label: 'Approve item 1/3', argsPatch: { decision: 'approve' } },
+    });
+    decided.approvalId = 'approval-1';
+    decided.status = 'approved';
+    decided.createdAt = '2026-06-21T00:00:00.000Z';
+
+    const nextPending = approval({
+      meta: { toolId: 'pmo_confirmMapping' },
+      primary: { label: 'Approve item 2/3', argsPatch: { decision: 'approve' } },
+    });
+    nextPending.approvalId = 'approval-2';
+    nextPending.createdAt = '2026-06-21T00:01:00.000Z';
+
+    const resolved = resolveLiveDrawerApproval([decided, nextPending], {
+      approvalId: 'approval-1',
+      stepType: 'pmo_confirmMapping',
+    });
+
+    expect(resolved?.approvalId).toBe('approval-2');
+  });
+
+  it('falls back to the anchor approval while waiting for the next suspend', () => {
+    const anchor = approval({
+      meta: { toolId: 'pmo_confirmMapping' },
+      primary: { label: 'Approve item 1/3', argsPatch: { decision: 'approve' } },
+    });
+    anchor.approvalId = 'approval-1';
+
+    const resolved = resolveLiveDrawerApproval([anchor], {
+      approvalId: 'approval-1',
+      stepType: 'pmo_confirmMapping',
+    });
+
+    expect(resolved?.approvalId).toBe('approval-1');
   });
 });

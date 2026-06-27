@@ -9,14 +9,12 @@
 import { Button } from '@seta/shared-ui';
 import { useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, Loader2, PanelRightOpen, Sparkles, XCircle } from 'lucide-react';
-import { useState } from 'react';
 import { notifyApprovalResolved } from '../../hooks/use-approval-events.ts';
 import type { WorkflowApprovalRow } from '../api/schemas.ts';
 import { useSubmitDecision } from '../hooks/use-submit-decision.ts';
 import { workflowsQueryKeys } from '../state/query-keys.ts';
 import { cardToolId, isPmoIngestApproval } from './decided-approval.ts';
 import { canQuickApprovePmoHitlCard, pmoReviewDetailsLabel } from './pmo-chat-hitl-card.logic.ts';
-import { PmoStepReviewDrawer } from './pmo-step-review-drawer.tsx';
 
 // ---------------------------------------------------------------------------
 // Payload parsing helpers
@@ -98,12 +96,18 @@ export interface PmoChatHitlCardProps {
   canAct: boolean;
   threadId: string | undefined;
   onDecided?: (approvalId: string, status: 'approved' | 'rejected') => void;
+  onOpenStepReview?: (approval: WorkflowApprovalRow) => void;
 }
 
-export function PmoChatHitlCard({ approval, canAct, threadId, onDecided }: PmoChatHitlCardProps) {
+export function PmoChatHitlCard({
+  approval,
+  canAct,
+  threadId,
+  onDecided,
+  onOpenStepReview,
+}: PmoChatHitlCardProps) {
   const qc = useQueryClient();
   const submit = useSubmitDecision();
-  const [drawerOpen, setDrawerOpen] = useState(false);
   const card = parsePayload(approval.proposedPayload);
   if (!card) return null;
 
@@ -220,7 +224,7 @@ export function PmoChatHitlCard({ approval, canAct, threadId, onDecided }: PmoCh
           size="sm"
           variant={quickApprove.allowed ? 'secondary' : 'primary'}
           disabled={!canAct || submit.isPending}
-          onClick={() => setDrawerOpen(true)}
+          onClick={() => onOpenStepReview?.(approval)}
         >
           <PanelRightOpen className="size-4" />
           {reviewLabel}
@@ -236,15 +240,6 @@ export function PmoChatHitlCard({ approval, canAct, threadId, onDecided }: PmoCh
           {card.decline?.label ?? 'Reject'}
         </Button>
       </div>
-
-      {/* Drawer for detailed review */}
-      <PmoStepReviewDrawer
-        open={drawerOpen}
-        onOpenChange={setDrawerOpen}
-        approval={approval}
-        stepType={toolId}
-        threadId={threadId}
-      />
     </div>
   );
 }

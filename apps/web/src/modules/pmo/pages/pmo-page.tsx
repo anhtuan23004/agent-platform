@@ -8,7 +8,7 @@ import {
   pmoApi,
 } from '../api/client';
 import { PmoSessionHistoryPanel } from '../components/pmo-session-history-panel';
-import { PmoWorkflowCardsSection } from '../components/pmo-workflow-cards-section';
+import { PmoWorkflowCardsSection, workflowCardId } from '../components/pmo-workflow-cards-section';
 import { usePmoMappingReviewActions } from '../hooks/use-pmo-mapping-review-actions';
 import { usePmoNormalizationReviewActions } from '../hooks/use-pmo-normalization-review-actions';
 import { usePmoPublishReviewActions } from '../hooks/use-pmo-publish-review-actions';
@@ -39,17 +39,17 @@ export function PmoPage() {
   const [sessions, setSessions] = useState<PmoPlanningSession[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [isReviewPanelOpen, setIsReviewPanelOpen] = useState(false);
+  const [historyViewSessionId, setHistoryViewSessionId] = useState<string | null>(null);
 
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
   const [profilingOverridesBySessionId, setProfilingOverridesBySessionId] = useState<
     Record<string, Record<string, { finalArea: PmoProfilingArea; markIgnore: boolean }>>
   >({});
 
-  const selectedSession = useMemo(
-    () =>
-      sessions.find((row) => row.ingestion_session_id === selectedSessionId) ?? sessions[0] ?? null,
-    [sessions, selectedSessionId],
-  );
+  const selectedSession = useMemo(() => {
+    if (!selectedSessionId) return null;
+    return sessions.find((row) => row.ingestion_session_id === selectedSessionId) ?? null;
+  }, [sessions, selectedSessionId]);
 
   const executionCards = buildExecutionCards(selectedSession);
   const executionState = selectedSession?.execution_state ?? null;
@@ -128,6 +128,14 @@ export function PmoPage() {
   }, [sessions, runtimeRunBySessionId]);
 
   const firstExecutionStepNo = executionCardsForDisplay[0]?.step_no ?? null;
+
+  const historyInitialCardId = useMemo(() => {
+    if (!selectedSession || historyViewSessionId !== selectedSession.ingestion_session_id) {
+      return null;
+    }
+    const firstStep = executionCardsForDisplay[0];
+    return firstStep ? workflowCardId(firstStep.step_no) : null;
+  }, [executionCardsForDisplay, historyViewSessionId, selectedSession]);
 
   const loadSessions = useCallback(async (keepSelection = true) => {
     setIsLoadingSessions(true);
@@ -424,6 +432,7 @@ export function PmoPage() {
             onSelectSession={setSelectedSessionId}
             onViewSession={(sessionId) => {
               setSelectedSessionId(sessionId);
+              setHistoryViewSessionId(sessionId);
               setIsReviewPanelOpen(true);
             }}
             onCancelWorkflow={handleCancelWorkflow}
@@ -432,19 +441,21 @@ export function PmoPage() {
           <section className="rounded-xl border border-hairline bg-canvas p-4 shadow-sm">
             {!isReviewPanelOpen ? (
               <section className="rounded-lg border border-hairline bg-surface-1 p-4 text-body-sm text-ink-subtle">
-                Select one run and click View to open Plan tab.
+                Select one run and click View to inspect its workflow steps.
               </section>
             ) : !selectedSession ? (
               <section className="rounded-lg border border-hairline bg-surface-1 p-4 text-body-sm text-ink-subtle">
-                Selected run was not found.
+                Selected run was not found. Refresh the page and try again.
               </section>
             ) : (
               <div className="space-y-3">
                 <PmoWorkflowCardsSection
+                  key={selectedSession.ingestion_session_id}
                   selectedSession={selectedSession}
                   executionCards={executionCardsForDisplay}
                   isAgentRunning={false}
                   readOnly
+                  initialSelectedCardId={historyInitialCardId}
                   runtime={executionRuntime}
                   mapping={executionMapping}
                   normalization={executionNormalization}

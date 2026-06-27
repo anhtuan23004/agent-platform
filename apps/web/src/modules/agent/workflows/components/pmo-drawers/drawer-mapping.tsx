@@ -36,12 +36,16 @@ function groupMappingItems(
 
 export function DrawerMapping({
   approval,
+  threadId: _threadId,
+  onPartialRefresh,
   onDecisionComplete,
 }: {
   approval: WorkflowApprovalRow;
+  threadId: string | undefined;
+  onPartialRefresh: () => Promise<void> | void;
   onDecisionComplete: () => Promise<void> | void;
 }) {
-  const view = parseMappingView(approval);
+  const view = useMemo(() => parseMappingView(approval), [approval]);
   const groupedItems = useMemo(() => groupMappingItems(view?.items ?? []), [view]);
 
   const {
@@ -62,6 +66,7 @@ export function DrawerMapping({
     selectedSessionId: null,
     selectedMappingApproval: approval,
     selectedMappingView: view,
+    onPartialDecisionRefresh: onPartialRefresh,
     onDecisionComplete,
   });
 
@@ -75,6 +80,7 @@ export function DrawerMapping({
 
   return (
     <PmoMappingReviewPanel
+      density="comfortable"
       selectedMappingApproval={approval}
       mappingApprovalsCount={1}
       groupedMappingItems={groupedItems}
