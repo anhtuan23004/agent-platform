@@ -1,4 +1,8 @@
-import type { WorkflowApprovalRow } from '../api/schemas.ts';
+export type ApprovalsPollItem = {
+  status: string;
+  decidedAt?: string | null;
+  createdAt: string;
+};
 
 const THREAD_APPROVALS_POLL_MS = 4_000;
 const PENDING_APPROVALS_POLL_MS = 5_000;
@@ -6,7 +10,7 @@ const RECENT_APPROVAL_ACTIVITY_MS = 30_000;
 
 /** Poll thread approvals while pending or briefly after recent HITL activity. */
 export function threadApprovalsRefetchInterval(
-  items: WorkflowApprovalRow[] | undefined,
+  items: readonly ApprovalsPollItem[] | undefined,
 ): number | false {
   if (!items?.length) {
     return false;
@@ -34,7 +38,7 @@ export function threadApprovalsRefetchInterval(
 
 /** Poll the cross-thread pending inbox only while there are open approvals. */
 export function pendingApprovalsRefetchInterval(
-  items: WorkflowApprovalRow[] | undefined,
+  items: readonly ApprovalsPollItem[] | undefined,
 ): number | false {
   if (!items?.length) {
     return false;

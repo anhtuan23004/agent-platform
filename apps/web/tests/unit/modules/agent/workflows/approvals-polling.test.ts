@@ -1,14 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import type { WorkflowApprovalRow } from '../../../../../src/modules/agent/workflows/api/schemas.ts';
+import {
+  type WorkflowApprovalRow,
+  WorkflowApprovalRow as WorkflowApprovalRowSchema,
+} from '../../../../../src/modules/agent/workflows/api/schemas.ts';
 import {
   pendingApprovalsRefetchInterval,
   threadApprovalsRefetchInterval,
 } from '../../../../../src/modules/agent/workflows/hooks/approvals-polling.ts';
 
 function approval(
-  partial: Partial<WorkflowApprovalRow> & { status: WorkflowApprovalRow['status'] },
+  partial: Partial<WorkflowApprovalRow> & Pick<WorkflowApprovalRow, 'status'>,
 ): WorkflowApprovalRow {
-  return {
+  return WorkflowApprovalRowSchema.parse({
     approvalId: 'a1',
     runId: 'r1',
     stepId: 's1',
@@ -17,13 +20,12 @@ function approval(
     surfaceCanvas: false,
     surfaceChatThreadId: null,
     agentic: false,
-    status: 'pending',
     decisionPayload: null,
     decidedAt: null,
     expiresAt: new Date(Date.now() + 60_000).toISOString(),
     createdAt: new Date().toISOString(),
     ...partial,
-  };
+  });
 }
 
 describe('approvals polling', () => {

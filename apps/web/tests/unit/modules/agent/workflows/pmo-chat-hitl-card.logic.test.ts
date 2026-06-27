@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import { WorkflowApprovalRow } from '../../../../../src/modules/agent/workflows/api/schemas';
 import {
   canQuickApprovePmoHitlCard,
   pmoReviewDetailsLabel,
 } from '../../../../../src/modules/agent/workflows/components/pmo-chat-hitl-card.logic';
-import type { WorkflowApprovalRow } from '../../../../../src/modules/pmo/api/workflow-runtime';
 
 function approval(proposedPayload: WorkflowApprovalRow['proposedPayload']): WorkflowApprovalRow {
-  return {
+  return WorkflowApprovalRow.parse({
     approvalId: 'approval-1',
     runId: 'run-1',
     stepId: 'pmo.ingest.reviewChanges',
@@ -20,7 +20,7 @@ function approval(proposedPayload: WorkflowApprovalRow['proposedPayload']): Work
     decidedAt: null,
     expiresAt: '2026-06-22T00:00:00.000Z',
     createdAt: '2026-06-21T00:00:00.000Z',
-  };
+  });
 }
 
 describe('pmoReviewDetailsLabel', () => {

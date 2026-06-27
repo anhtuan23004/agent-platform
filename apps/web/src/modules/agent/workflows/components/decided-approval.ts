@@ -37,7 +37,7 @@ export function isPmoIngestApproval(approval: WorkflowApprovalRow): boolean {
 }
 
 function isPmoToolId(toolId: string | null): boolean {
-  return toolId !== null && toolId.startsWith('pmo_');
+  return toolId?.startsWith('pmo_') ?? false;
 }
 
 export function decidedStepTitle(payload: unknown): string | null {
