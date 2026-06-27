@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isPublishedIngestionSession } from '../../../src/backend/http/routes.ts';
+import { isPublishedIngestionSession } from '../../../src/backend/ingestion/publication-state.ts';
 
 describe('PMO ingestion session publication state', () => {
   it('treats sessions that completed after publish as published', () => {

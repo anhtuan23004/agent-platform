@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { getPmoReportDateBoundsByIngestionSession } from '../analytics/report-date-bounds.ts';
 import { pmoDb } from '../db/client.ts';
 import { ingestionSessions } from '../db/schema.ts';
+import { isPublishedIngestionSession } from '../ingestion/publication-state.ts';
 import { createS3FileStore } from '../ingestion/s3-file-store.ts';
 import { readPlannerWorkflowSteps } from '../planning/step-metadata.ts';
 import {
@@ -24,6 +25,8 @@ import {
 } from '../profiling/workbook-profiling.ts';
 import { registerDemoAnalyticsRoutes } from './demo-analytics-route.ts';
 import { registerPmoReportRoutes } from './report-routes.ts';
+
+export { isPublishedIngestionSession };
 
 /** Legacy planning states may still exist in the DB for old sessions. */
 type PlanningState = 'uploaded' | 'approved_plan' | 'legacy_planning';
@@ -114,13 +117,6 @@ function readPlanningState(rawStatus: string): PlanningState {
   }
   // Any non-planning runtime status is already beyond plan generation.
   return 'approved_plan';
-}
-
-export function isPublishedIngestionSession(input: {
-  status: string;
-  publish_decision: string | null;
-}): boolean {
-  return input.status === 'published' || input.publish_decision === 'approved';
 }
 
 function mapHistoryStatus(state: PlanningState): {

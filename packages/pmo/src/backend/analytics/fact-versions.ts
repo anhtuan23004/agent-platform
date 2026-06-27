@@ -12,6 +12,7 @@ import {
   resourceAllocations,
   timesheets,
 } from '../db/schema.ts';
+import { publishedIngestionSessionFilter } from '../ingestion/publication-state.ts';
 import { hashReportRules } from '../reporting/rules/canonical.ts';
 import { resolveReportRules } from '../reporting/rules/resolve.ts';
 
@@ -114,9 +115,7 @@ export async function getCanonicalDataVersion(tenantId: string): Promise<string>
       db
         .select({ id: ingestionSessions.id, publishedAt: ingestionSessions.publish_reviewed_at })
         .from(ingestionSessions)
-        .where(
-          and(eq(ingestionSessions.tenant_id, tenantId), eq(ingestionSessions.status, 'published')),
-        )
+        .where(publishedIngestionSessionFilter(tenantId))
         .orderBy(desc(ingestionSessions.publish_reviewed_at))
         .limit(1),
     ]);

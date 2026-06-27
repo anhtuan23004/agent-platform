@@ -337,23 +337,6 @@ export async function seedPmo02FromMockDbForTenant(
     throw new Error(`mock-data.db at ${mockDbPath} has no active PMO member/week rows`);
   }
 
-  await db.insert(ingestionSessions).values({
-    id: ingestionSessionId,
-    tenant_id: tenantId,
-    status: 'published',
-    source_kind: 'seed',
-    source_file_key: `seed://${mockDbPath}`,
-    source_file_name: 'PMO_02_RA_Timesheet_Monitoring.xlsx',
-    mime_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    reporting_period_key: 'PMO_02',
-    reporting_period_start: parseRequiredDate('reporting_period_start', '2026-06-29'),
-    reporting_period_end: parseRequiredDate('reporting_period_end', '2026-08-07'),
-    created_by: SEED_INGESTION_CREATED_BY,
-    publish_reviewed_at: now(),
-    created_at: now(),
-    finished_at: now(),
-  });
-
   const mockMemberIds = new Set(members.map((m) => m.member_id));
   const projectionMemberProfiles = readSeedCsv<{
     member_id: string;
@@ -382,6 +365,31 @@ export async function seedPmo02FromMockDbForTenant(
     await tx.execute(sql`DELETE FROM ${projectMaster} WHERE tenant_id = ${tenantId}::uuid`);
     await tx.execute(sql`DELETE FROM ${calendarWeeks} WHERE tenant_id = ${tenantId}::uuid`);
     await tx.execute(sql`DELETE FROM ${overbookIdleConfig} WHERE tenant_id = ${tenantId}::uuid`);
+    await tx.execute(sql`DELETE FROM ${ingestionSessions} WHERE tenant_id = ${tenantId}::uuid`);
+
+    const weekStarts = weeks.map((w) =>
+      parseRequiredDate('week.week_start', w.week_start).getTime(),
+    );
+    const weekEnds = weeks.map((w) => parseRequiredDate('week.week_end', w.week_end).getTime());
+    const publishedAt = now();
+
+    await tx.insert(ingestionSessions).values({
+      id: ingestionSessionId,
+      tenant_id: tenantId,
+      status: 'published',
+      source_kind: 'seed',
+      source_file_key: `seed://${mockDbPath}`,
+      source_file_name: 'PMO_02_RA_Timesheet_Monitoring.xlsx',
+      mime_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      reporting_period_key: 'PMO_02',
+      publish_decision: 'approved',
+      publish_reviewed_at: publishedAt,
+      reporting_period_start: new Date(Math.min(...weekStarts)),
+      reporting_period_end: new Date(Math.max(...weekEnds)),
+      created_by: SEED_INGESTION_CREATED_BY,
+      created_at: publishedAt,
+      finished_at: publishedAt,
+    });
 
     await tx.insert(memberMaster).values(
       members.map((m) => {
