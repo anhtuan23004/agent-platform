@@ -62,10 +62,20 @@ export const PmoUtilizationQueryOutputSchema = z.object({
     .array(
       z.object({
         memberId: z.string(),
+        fullName: z.string().nullable(),
+        department: z.string().nullable(),
+        roleTitle: z.string().nullable(),
         busyRate: z.number().nullable(),
         effortConsumption: z.number().nullable(),
         issueType: z.string(),
         ragColor: z.string(),
+        detail: z.string().nullable(),
+        explanation: z
+          .object({
+            summary: z.string(),
+            riskTradeoffs: z.array(z.string()),
+          })
+          .nullable(),
       }),
     )
     .optional(),

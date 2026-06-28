@@ -1,6 +1,7 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { desc } from 'drizzle-orm';
 import { pmoDb } from '../db/client.ts';
 import { ingestionSessions } from '../db/schema.ts';
+import { publishedIngestionSessionFilter } from './publication-state.ts';
 
 /** Latest user-published ingestion session for a tenant (excludes seed-only canonical rows). */
 export async function resolveDefaultPublishedSessionId(tenantId: string): Promise<string | null> {
@@ -8,9 +9,7 @@ export async function resolveDefaultPublishedSessionId(tenantId: string): Promis
   const rows = await db
     .select({ id: ingestionSessions.id })
     .from(ingestionSessions)
-    .where(
-      and(eq(ingestionSessions.tenant_id, tenantId), eq(ingestionSessions.status, 'published')),
-    )
+    .where(publishedIngestionSessionFilter(tenantId))
     .orderBy(desc(ingestionSessions.publish_reviewed_at))
     .limit(1);
 

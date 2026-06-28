@@ -62,21 +62,23 @@ export interface ListWorkflowRunsOptions {
 }
 
 export interface DecideApprovalBody {
-  decision: 'approve' | 'reject' | 'modify';
+  decision: 'approve' | 'reject' | 'modify' | 'clarify';
   overrideUserIds?: string[];
   alternateIndex?: number;
   alternateIndices?: number[];
   payloadPatch?: Record<string, unknown>;
   note?: string;
+  clarificationMessage?: string;
 }
 
 export interface ResumeChatBody {
   approvalId: string;
-  decision: 'approve' | 'reject' | 'modify';
+  decision: 'approve' | 'reject' | 'modify' | 'clarify';
   overrideUserIds?: string[];
   alternateIndices?: number[];
   payloadPatch?: Record<string, unknown>;
   note?: string;
+  clarificationMessage?: string;
 }
 
 interface SseTokenResponse {
@@ -115,6 +117,14 @@ export const workflowRuntimeApi = {
     const res = await fetch(`/api/agent/v1/workflows/runs/${encodeURIComponent(runId)}/approvals`, {
       credentials: 'include',
     });
+    return jsonOrThrow<WorkflowApprovalRow[]>(res);
+  },
+
+  async listThreadApprovals(threadId: string): Promise<WorkflowApprovalRow[]> {
+    const res = await fetch(
+      `/api/agent/v1/workflows/threads/${encodeURIComponent(threadId)}/approvals`,
+      { credentials: 'include' },
+    );
     return jsonOrThrow<WorkflowApprovalRow[]>(res);
   },
 

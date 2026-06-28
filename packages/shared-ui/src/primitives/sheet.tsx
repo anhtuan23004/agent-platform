@@ -54,6 +54,7 @@ interface SheetContentProps
   extends React.ComponentProps<typeof SheetPrimitive.Content>,
     VariantProps<typeof sheetVariants> {
   hideClose?: boolean;
+  overlayClassName?: string;
 }
 
 function SheetContent({
@@ -61,12 +62,13 @@ function SheetContent({
   className,
   children,
   hideClose = false,
+  overlayClassName,
   ref,
   ...props
 }: SheetContentProps) {
   return (
     <SheetPortal>
-      <SheetOverlay />
+      <SheetOverlay className={overlayClassName} />
       <SheetPrimitive.Content
         ref={ref}
         className={cn(sheetVariants({ side }), className)}

@@ -43,7 +43,9 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1067.0",
     "@mastra/core": "^1.42.0",
+    "@mastra/observability": "^1.14.1",
     "@seta/agent-sdk": "workspace:^",
+    "@seta/shared-orchestration": "workspace:^",
     "@seta/core": "workspace:^",
     "@seta/ingestion": "workspace:^",
     "@seta/shared-db": "workspace:^",

@@ -616,8 +616,9 @@ export async function runDemoAnalytics(
     throw new DemoAnalyticsNoDataError();
   }
 
+  // Facts are computed at publish (force) and db:seed; this is a cache-hit safety net.
   if (!options.ingestionSessionId) {
-    await ensureFactsComputed(tenantId);
+    await ensureFactsComputed(tenantId, { force: false });
   }
 
   return buildDemoAnalyticsResult(canonical, {

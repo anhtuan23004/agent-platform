@@ -1,6 +1,7 @@
 import type {
   PmoPlanningSession,
   PmoSessionDocumentProfileRecord,
+  PmoStepViewState,
   PmoWorkflowExecutionStepStatus,
 } from '../api/client';
 import type { WorkflowApprovalRow, WorkflowRunRow } from '../api/workflow-runtime';
@@ -34,6 +35,7 @@ export type ExecutionCard = {
   status: PmoWorkflowExecutionStepStatus;
   description?: string;
   output_summary?: Record<string, unknown>;
+  view_state?: PmoStepViewState;
 };
 
 export type ExecutionActionGroup = {
@@ -241,6 +243,16 @@ export function profilingSheetKey(documentId: string, sheetName: string): string
   return `${documentId}::${sheetName}`;
 }
 
+/** True while any session may still be advancing and needs list/runtime refresh. */
+export function hasActiveIngestionSessionForPolling(sessions: PmoPlanningSession[]): boolean {
+  return sessions.some(
+    (session) =>
+      session.workflow_step_status === 'in_progress' ||
+      session.workflow_step_status === 'needs_review' ||
+      session.status === 'approved_plan',
+  );
+}
+
 export function shortId(value: string): string {
   return value.slice(0, 8);
 }
@@ -339,12 +351,76 @@ function cardMetaStringFromPayload(payload: unknown, key: string): string | null
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
+export function readAgentNoteFromApproval(approval: WorkflowApprovalRow): string | null {
+  const payload = approval.proposedPayload;
+  if (!payload || typeof payload !== 'object') return null;
+  const card = payload as { agentNote?: unknown };
+  return typeof card.agentNote === 'string' && card.agentNote.trim().length > 0
+    ? card.agentNote.trim()
+    : null;
+}
+
+export function readClarificationsFromApproval(
+  approval: WorkflowApprovalRow,
+): Array<{ role: string; message: string; ts: string }> {
+  const payload = approval.proposedPayload;
+  if (!payload || typeof payload !== 'object') return [];
+  const card = payload as { clarifications?: unknown };
+  return Array.isArray(card.clarifications) ? card.clarifications : [];
+}
+
 export function readPlannerStepIdFromApproval(approval: WorkflowApprovalRow): string | null {
   return cardMetaStringFromPayload(approval.proposedPayload, 'plannerStepId');
 }
 
+/** toolId → actionId fallback for cards that omit meta.actionId. */
+const TOOL_ID_TO_ACTION_ID: Record<string, string> = {
+  pmo_profileWorkbook: 'workbook_profiling',
+  pmo_confirmMapping: 'column_mapping',
+  pmo_reviewNormalization: 'normalize_to_staging',
+  pmo_confirmPublish: 'publish_after_approval',
+  pmo_confirmReportRange: 'generate_report',
+};
+
 export function readActionIdFromApproval(approval: WorkflowApprovalRow): string | null {
-  return cardMetaStringFromPayload(approval.proposedPayload, 'actionId');
+  const explicit = cardMetaStringFromPayload(approval.proposedPayload, 'actionId');
+  if (explicit) return explicit;
+  // Infer from toolId when actionId is absent (newer card builders may omit it).
+  const toolId = cardToolIdFromPayload(approval.proposedPayload);
+  return toolId ? (TOOL_ID_TO_ACTION_ID[toolId] ?? null) : null;
+}
+
+/** Agentic chat HITL creates one workflow run per suspend; keep the newest row per action. */
+export function findLatestApprovalByAction(
+  approvals: WorkflowApprovalRow[],
+  actionId: PmoPlanActionId,
+): WorkflowApprovalRow | null {
+  const matches = approvals.filter((approval) => readActionIdFromApproval(approval) === actionId);
+  if (matches.length === 0) return null;
+  return (
+    [...matches].sort(
+      (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
+    )[0] ?? null
+  );
+}
+
+export function mergeSessionApprovals(
+  approvals: WorkflowApprovalRow[],
+  sessionId: string,
+  sessionRunIds: readonly string[],
+): WorkflowApprovalRow[] {
+  const byId = new Map<string, WorkflowApprovalRow>();
+  for (const approval of approvals) {
+    const fromPayload = readIngestionSessionIdFromApproval(approval);
+    const belongsToSession =
+      (fromPayload && sessionIdsMatch(fromPayload, sessionId)) ||
+      sessionRunIds.includes(approval.runId);
+    if (!belongsToSession) continue;
+    byId.set(approval.approvalId, approval);
+  }
+  return [...byId.values()].sort(
+    (left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime(),
+  );
 }
 
 export function readReviewTypeFromApproval(approval: WorkflowApprovalRow): string | null {
@@ -423,6 +499,23 @@ export function isNormalizationApprovalRow(approval: WorkflowApprovalRow): boole
   }
 
   return cardToolIdFromPayload(approval.proposedPayload) === 'pmo_reviewNormalization';
+}
+
+export function isProfilingApprovalRow(approval: WorkflowApprovalRow): boolean {
+  const reviewType = readReviewTypeFromApproval(approval);
+  const actionId = readActionIdFromApproval(approval);
+  if (reviewType === 'profiling' || actionId === 'workbook_profiling') return true;
+
+  const stepId = approval.stepId;
+  if (
+    stepId === 'pmo.ingest.workbookProfiling' ||
+    stepId === 'workbookProfiling' ||
+    stepId.endsWith('.workbookProfiling')
+  ) {
+    return true;
+  }
+
+  return cardToolIdFromPayload(approval.proposedPayload) === 'pmo_profileWorkbook';
 }
 
 export function readIngestionSessionIdFromApproval(approval: WorkflowApprovalRow): string | null {
@@ -1029,10 +1122,6 @@ export function statusTone(statusLabel: string): string {
     return 'bg-success-tint text-success-ink';
   }
 
-  if (statusLabel === 'Generating plan') {
-    return 'bg-warning-tint text-warning-ink';
-  }
-
   return 'bg-primary-tint text-primary-ink';
 }
 
@@ -1202,8 +1291,49 @@ function reviewTypeForActionId(actionId: string | undefined): PmoReviewType {
   return 'generic';
 }
 
+function findStepViewState(
+  session: PmoPlanningSession,
+  step: {
+    action_id?: string;
+    planner_step_id?: string;
+    step_no?: number;
+  },
+): PmoStepViewState | undefined {
+  const views = session.execution_state?.step_views;
+  if (!views) return undefined;
+
+  if (step.action_id && views[step.action_id]) return views[step.action_id];
+
+  return Object.values(views).find((view) => {
+    if (step.planner_step_id && view.planner_step_id === step.planner_step_id) return true;
+    if (step.action_id && view.action_id === step.action_id) return true;
+    return false;
+  });
+}
+
 export function buildExecutionCards(session: PmoPlanningSession | null): ExecutionCard[] {
-  if (!session?.plan) {
+  if (!session) {
+    return [];
+  }
+
+  // When plan is null (e.g. agent hasn't written it yet), fall back to execution_state.steps.
+  if (!session.plan) {
+    if (session.execution_state?.steps?.length) {
+      return session.execution_state.steps
+        .slice()
+        .sort((a, b) => a.step_no - b.step_no)
+        .map((step) => ({
+          step_no: step.step_no,
+          planner_step_id: step.planner_step_id,
+          action_id: step.action_id,
+          review_type: step.review_type,
+          step_name: step.step_name,
+          status: step.status,
+          description: '',
+          output_summary: step.output_summary ?? findStepViewState(session, step)?.output_summary,
+          view_state: findStepViewState(session, step),
+        }));
+    }
     return [];
   }
 
@@ -1219,6 +1349,14 @@ export function buildExecutionCards(session: PmoPlanningSession | null): Executi
 
     const cards = sortedWorkflow.map((step, index) => {
       const actionId = step.action_id ?? inferActionIdFromStepName(step.step_name);
+      const runtimeStep = session.execution_state?.steps.find(
+        (item) => item.step_no === step.step_no,
+      );
+      const viewState = findStepViewState(session, {
+        action_id: actionId,
+        planner_step_id: step.planner_step_id,
+        step_no: step.step_no,
+      });
       return {
         step_no: step.step_no,
         planner_step_id: step.planner_step_id ?? `pmo.planner.step.${step.step_no}.${actionId}`,
@@ -1229,8 +1367,8 @@ export function buildExecutionCards(session: PmoPlanningSession | null): Executi
           statusByStepNo.get(step.step_no) ??
           (session.planning_state === 'approved_plan' && index === 0 ? 'in_progress' : 'pending'),
         description: step.description,
-        output_summary: session.execution_state?.steps.find((item) => item.step_no === step.step_no)
-          ?.output_summary,
+        output_summary: runtimeStep?.output_summary ?? viewState?.output_summary,
+        view_state: viewState,
       };
     });
 
@@ -1247,7 +1385,8 @@ export function buildExecutionCards(session: PmoPlanningSession | null): Executi
         step_name: step.step_name,
         status: step.status,
         description: '',
-        output_summary: step.output_summary,
+        output_summary: step.output_summary ?? findStepViewState(session, step)?.output_summary,
+        view_state: findStepViewState(session, step),
       }));
 
     return [...cards, ...runtimeOnlySteps].sort((a, b) => a.step_no - b.step_no);
@@ -1265,7 +1404,8 @@ export function buildExecutionCards(session: PmoPlanningSession | null): Executi
         step_name: step.step_name,
         status: step.status,
         description: '',
-        output_summary: step.output_summary,
+        output_summary: step.output_summary ?? findStepViewState(session, step)?.output_summary,
+        view_state: findStepViewState(session, step),
       }));
   }
 
@@ -1297,43 +1437,13 @@ export function buildExecutionCards(session: PmoPlanningSession | null): Executi
             : 'pending'
           : 'pending',
       description: step.description,
+      view_state: findStepViewState(session, {
+        action_id: actionId,
+        planner_step_id: step.planner_step_id,
+        step_no: step.step_no,
+      }),
     };
   });
-}
-
-export function buildPlanningTimeline(
-  state: PmoPlanningSession['planning_state'] | null,
-): Array<{ id: number; label: string; state: TimelineState }> {
-  const labels = [
-    'Upload workbook',
-    'Analyze goal and build plan',
-    'Plan review and regeneration',
-    'Approve plan and move next step',
-    'Execute next workflow steps',
-  ];
-
-  const mapState = (s: PmoPlanningSession['planning_state'] | null): TimelineState[] => {
-    if (s === 'approved_plan') {
-      return ['done', 'done', 'done', 'current', 'pending'];
-    }
-
-    if (s === 'plan_review') {
-      return ['done', 'done', 'current', 'pending', 'pending'];
-    }
-
-    if (s === 'generating_plan' || s === 'plan_generation_failed') {
-      return ['done', 'current', 'pending', 'pending', 'pending'];
-    }
-
-    return ['current', 'pending', 'pending', 'pending', 'pending'];
-  };
-
-  const states = mapState(state);
-  return labels.map((label, index) => ({
-    id: index + 1,
-    label,
-    state: states[index] ?? 'pending',
-  }));
 }
 
 export function resolveExecutionCurrentStepIndex(params: {

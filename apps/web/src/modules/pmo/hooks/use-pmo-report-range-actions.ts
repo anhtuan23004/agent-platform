@@ -1,5 +1,6 @@
 import { toast } from '@seta/shared-ui';
 import { useCallback } from 'react';
+import { notifyApprovalResolved } from '../../agent/hooks/use-approval-events';
 import type { WorkflowApprovalRow } from '../api/workflow-runtime';
 import { useSubmitWorkflowRuntimeDecision } from './use-workflow-runtime';
 
@@ -15,8 +16,10 @@ interface ReportDateRangePayload {
 
 interface UsePmoReportRangeActionsOptions {
   selectedReportApproval: WorkflowApprovalRow | null;
-  loadSessions: (keepSelection?: boolean) => Promise<void>;
-  refreshWorkflowRuntime: () => Promise<void>;
+  loadSessions?: (keepSelection?: boolean) => Promise<void>;
+  refreshWorkflowRuntime?: () => Promise<unknown>;
+  /** Drawer-context callback: called after a decision instead of loadSessions/refreshWorkflowRuntime. */
+  onDecisionComplete?: () => Promise<void> | void;
 }
 
 interface UsePmoReportRangeActionsResult {
@@ -31,12 +34,17 @@ interface UsePmoReportRangeActionsResult {
 export function usePmoReportRangeActions(
   options: UsePmoReportRangeActionsOptions,
 ): UsePmoReportRangeActionsResult {
-  const { selectedReportApproval, loadSessions, refreshWorkflowRuntime } = options;
+  const { selectedReportApproval, loadSessions, refreshWorkflowRuntime, onDecisionComplete } =
+    options;
   const submitDecision = useSubmitWorkflowRuntimeDecision();
 
   const refreshAfterDecision = useCallback(async () => {
-    await Promise.all([refreshWorkflowRuntime(), loadSessions(true)]);
-  }, [loadSessions, refreshWorkflowRuntime]);
+    if (onDecisionComplete) {
+      await onDecisionComplete();
+    } else if (loadSessions && refreshWorkflowRuntime) {
+      await Promise.all([refreshWorkflowRuntime(), loadSessions(true)]);
+    }
+  }, [onDecisionComplete, loadSessions, refreshWorkflowRuntime]);
 
   const confirmReportRange = useCallback(
     (ranges: ReportDateRangePayload, dateRangeStrategy = 'manual_database') => {
@@ -51,6 +59,7 @@ export function usePmoReportRangeActions(
         },
         {
           onSuccess: async () => {
+            notifyApprovalResolved();
             await refreshAfterDecision();
             toast.success('Report queued', {
               description: 'PDF generation is running from published PMO data.',
@@ -78,6 +87,7 @@ export function usePmoReportRangeActions(
       },
       {
         onSuccess: async () => {
+          notifyApprovalResolved();
           toast.success('Report skipped', {
             description: 'Published PMO data was kept; only report generation was skipped.',
           });

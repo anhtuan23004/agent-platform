@@ -48,11 +48,23 @@ describe('pmo_listMemberUtilization', () => {
       members: [
         {
           memberId: 'EMP-001',
+          fullName: 'Nguyen Van A',
+          department: 'Delivery',
+          roleTitle: 'Backend Engineer',
           busyRate: 1.15,
           effortConsumption: 1,
           issueType: 'overbook',
           ragColor: 'yellow',
           excludedWeekCount: 0,
+          detail: 'Busy 115% — overbooked, rebalance',
+          explanation: {
+            summary:
+              'Busy 115% — overbooked, rebalance Deterministic evidence shows busy rate 115% and effort consumption 100%.',
+            riskTradeoffs: [
+              'High allocation can increase delivery risk if actual workload stays elevated.',
+              'Transfer decisions should still respect role fit and future project demand.',
+            ],
+          },
         },
       ],
       summary: { totalMembers: 10, matchedMembers: 1 },

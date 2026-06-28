@@ -352,6 +352,19 @@ export interface PmoWorkflowExecutionStep {
   output_summary?: Record<string, unknown>;
 }
 
+export interface PmoStepViewState {
+  action_id: string;
+  review_type: string;
+  planner_step_id: string;
+  step_name: string;
+  status: 'in_progress' | 'needs_review' | 'completed' | 'failed' | 'cancelled';
+  review_status?: 'not_needed' | 'pending' | 'approved' | 'rejected' | 'modified';
+  approval_payload?: unknown;
+  runtime_payload?: unknown;
+  output_summary?: Record<string, unknown>;
+  updated_at: string;
+}
+
 export interface PmoWorkbookProfilingSessionSummary {
   generated_at: string;
   document_count: number;
@@ -371,7 +384,7 @@ export interface PmoWorkbookProfilingSessionSummary {
 }
 
 export interface PmoWorkflowExecutionState {
-  state_version: 1;
+  state_version: 1 | 2;
   started_at: string;
   updated_at: string;
   current_step_no: number;
@@ -382,6 +395,7 @@ export interface PmoWorkflowExecutionState {
   profiling_review: PmoProfilingReviewState | null;
   report_request?: unknown;
   report_result?: unknown;
+  step_views?: Record<string, PmoStepViewState>;
 }
 
 export interface PmoPlanningSession {
@@ -400,13 +414,7 @@ export interface PmoPlanningSession {
   reporting_period_key: string | null;
   reporting_period_start: string | null;
   reporting_period_end: string | null;
-  planning_state:
-    | 'uploaded'
-    | 'intent_review'
-    | 'generating_plan'
-    | 'plan_generation_failed'
-    | 'plan_review'
-    | 'approved_plan';
+  planning_state: 'uploaded' | 'approved_plan';
   status_label: string;
   active_gate: string;
   progress_text: string;
@@ -437,41 +445,6 @@ export interface PmoPlanningSession {
 
 export interface ListPlanningSessionsResponse {
   items: PmoPlanningSession[];
-}
-
-export interface GeneratePlanInput {
-  ingestion_session_id?: string;
-  goal: string;
-  previous_plan?: PmoPlan | null;
-  plan_feedback?: string;
-}
-
-export interface GeneratePlanResponse {
-  ingestion_session_id: string;
-  planning_state: 'generating_plan';
-}
-
-export interface ApprovePlanResponse {
-  ingestion_session_id: string;
-  planning_state: 'approved_plan';
-  approved_at: string;
-  execution_state: PmoWorkflowExecutionState;
-  profiling_documents: PmoSessionDocumentProfileRecord[];
-  profiling_summary: PmoWorkbookProfilingSessionSummary | null;
-  profiling_review: PmoProfilingReviewState | null;
-}
-
-export interface ConfirmPlanIntentResponse {
-  ingestion_session_id: string;
-  planning_state: 'uploaded';
-  intent: PmoPlan['intent_analysis'];
-  confirmed_at: string;
-}
-
-export interface ConfirmPlanIntentInput {
-  ingestionSessionId: string;
-  dataSourceMode?: 'existing_db' | 'uploaded_file';
-  actionMode?: NonNullable<PmoPlan['intent_analysis']>['actionMode'];
 }
 
 export interface AppendSessionDocumentResponse {
@@ -511,16 +484,6 @@ export interface CancelWorkflowResponse {
   execution_state: PmoWorkflowExecutionState;
   workflow_current_step: string | null;
   workflow_step_status: 'in_progress' | 'needs_review' | 'completed' | 'failed' | 'cancelled';
-}
-
-export interface StartIngestWorkflowInput {
-  ingestionSessionId: string;
-  fileKey?: string;
-  reportingPeriodKey?: string;
-}
-
-export interface StartIngestWorkflowResponse {
-  runId: string;
 }
 
 export interface UploadWorkbookOptions {
@@ -571,16 +534,20 @@ export const pmoApi = {
     return uploadWorkbookThroughProxy(file, options, options.onProgress);
   },
 
-  async startIngestWorkflow(input: StartIngestWorkflowInput): Promise<StartIngestWorkflowResponse> {
-    const workflowId = 'pmo.ingestData.v2';
-
-    const res = await fetch(`/api/agent/v1/workflows/runs/${workflowId}/start`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(input),
-      credentials: 'include',
-    });
-    return jsonOrThrow<StartIngestWorkflowResponse>(res);
+  async linkSessionToThread(
+    sessionId: string,
+    chatThreadId: string,
+  ): Promise<{ ingestion_session_id: string; chat_thread_id: string }> {
+    const res = await fetch(
+      `/api/pmo/v1/ingestion-sessions/${encodeURIComponent(sessionId)}/thread`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_thread_id: chatThreadId }),
+        credentials: 'include',
+      },
+    );
+    return jsonOrThrow(res);
   },
 
   async listPlanningSessions(input?: {
@@ -596,38 +563,12 @@ export const pmoApi = {
     return jsonOrThrow<ListPlanningSessionsResponse>(res);
   },
 
-  async generatePlan(input: GeneratePlanInput): Promise<GeneratePlanResponse> {
-    const res = await fetch('/api/pmo/v1/plan/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(input),
+  async getPlanningSession(sessionId: string): Promise<PmoPlanningSession> {
+    const res = await fetch(`/api/pmo/v1/ingestion-sessions/${encodeURIComponent(sessionId)}`, {
+      method: 'GET',
       credentials: 'include',
     });
-    return jsonOrThrow<GeneratePlanResponse>(res);
-  },
-
-  async approvePlan(ingestionSessionId: string): Promise<ApprovePlanResponse> {
-    const res = await fetch('/api/pmo/v1/plan/approve', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ingestion_session_id: ingestionSessionId }),
-      credentials: 'include',
-    });
-    return jsonOrThrow<ApprovePlanResponse>(res);
-  },
-
-  async confirmPlanIntent(input: ConfirmPlanIntentInput): Promise<ConfirmPlanIntentResponse> {
-    const res = await fetch('/api/pmo/v1/plan/confirm-intent', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ingestion_session_id: input.ingestionSessionId,
-        dataSourceMode: input.dataSourceMode,
-        actionMode: input.actionMode,
-      }),
-      credentials: 'include',
-    });
-    return jsonOrThrow<ConfirmPlanIntentResponse>(res);
+    return jsonOrThrow<PmoPlanningSession>(res);
   },
 
   async appendSessionDocument(

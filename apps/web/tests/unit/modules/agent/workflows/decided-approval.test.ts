@@ -76,4 +76,25 @@ describe('decided approval helpers', () => {
     expect(outcomeText(r)).toBe('Assignment confirmed.');
     expect(cardIntent('garbage')).toBeNull();
   });
+
+  it('pmo approve uses card summary when available', () => {
+    const r = row({
+      status: 'approved',
+      proposedPayload: {
+        summary: 'Ready to publish 12 change(s).',
+        meta: { toolId: 'pmo_confirmPublish' },
+      },
+    });
+    expect(outcomeText(r)).toBe('Ready to publish 12 change(s).');
+  });
+
+  it('pmo reject falls back to a step-specific decline message', () => {
+    const r = row({
+      status: 'rejected',
+      proposedPayload: {
+        meta: { toolId: 'pmo_confirmMapping' },
+      },
+    });
+    expect(outcomeText(r)).toBe('Step declined. No changes applied.');
+  });
 });

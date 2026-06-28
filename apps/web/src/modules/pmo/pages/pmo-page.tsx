@@ -1,6 +1,6 @@
-import { Button, Dropzone, Input, Label, PageChrome, Textarea, toast } from '@seta/shared-ui';
-import { Loader2, RefreshCw, Workflow } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Button, PageChrome, toast } from '@seta/shared-ui';
+import { RefreshCw } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   type PmoPlan,
   type PmoPlanningSession,
@@ -9,16 +9,16 @@ import {
 } from '../api/client';
 import { PmoSessionHistoryPanel } from '../components/pmo-session-history-panel';
 import { PmoWorkflowCardsSection } from '../components/pmo-workflow-cards-section';
+import { workflowCardId } from '../components/pmo-workflow-cards-section.logic';
 import { usePmoMappingReviewActions } from '../hooks/use-pmo-mapping-review-actions';
 import { usePmoNormalizationReviewActions } from '../hooks/use-pmo-normalization-review-actions';
 import { usePmoPublishReviewActions } from '../hooks/use-pmo-publish-review-actions';
 import { usePmoReportRangeActions } from '../hooks/use-pmo-report-range-actions';
-import { type UploadedWorkbookInfo, usePmoSessionActions } from '../hooks/use-pmo-session-actions';
+import { usePmoSessionActions } from '../hooks/use-pmo-session-actions';
 import { usePmoWorkflowRuntime } from '../hooks/use-pmo-workflow-runtime';
 import {
   buildExecutionCards,
-  formatBytes,
-  formatLocalDate,
+  hasActiveIngestionSessionForPolling,
   profilingSheetKey,
 } from './pmo-page.logic';
 
@@ -37,61 +37,46 @@ const PROFILING_AREAS: PmoProfilingArea[] = [
 ];
 
 export function PmoPage() {
-  const [reportingPeriodKey, setReportingPeriodKey] = useState('');
-  const [goalDraft, setGoalDraft] = useState(
-    'Ingest this workbook and prepare data for RA calculation.',
-  );
   const [sessions, setSessions] = useState<PmoPlanningSession[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [isReviewPanelOpen, setIsReviewPanelOpen] = useState(false);
+  const [historyViewSessionId, setHistoryViewSessionId] = useState<string | null>(null);
+  const reviewPanelRef = useRef<HTMLElement | null>(null);
 
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
   const [profilingOverridesBySessionId, setProfilingOverridesBySessionId] = useState<
     Record<string, Record<string, { finalArea: PmoProfilingArea; markIgnore: boolean }>>
   >({});
 
-  const [uploadedInfo, setUploadedInfo] = useState<UploadedWorkbookInfo | null>(null);
+  const selectedSession = useMemo(() => {
+    if (!selectedSessionId) return null;
+    return sessions.find((row) => row.ingestion_session_id === selectedSessionId) ?? null;
+  }, [sessions, selectedSessionId]);
 
-  const [feedbackBySessionId, setFeedbackBySessionId] = useState<Record<string, string>>({});
+  const reviewSession = useMemo(() => {
+    if (!historyViewSessionId) return null;
+    return sessions.find((row) => row.ingestion_session_id === historyViewSessionId) ?? null;
+  }, [historyViewSessionId, sessions]);
 
-  const selectedSession = useMemo(
-    () =>
-      sessions.find((row) => row.ingestion_session_id === selectedSessionId) ?? sessions[0] ?? null,
-    [sessions, selectedSessionId],
-  );
+  const workflowSession = isReviewPanelOpen ? reviewSession : selectedSession;
 
-  const selectedFeedback = selectedSession
-    ? (feedbackBySessionId[selectedSession.ingestion_session_id] ?? '')
-    : '';
-
-  const selectedUploadedSessionId =
-    (selectedSession?.planning_state === 'uploaded' ||
-      selectedSession?.planning_state === 'plan_generation_failed') &&
-    selectedSession.workflow_step_status !== 'cancelled'
-      ? selectedSession.ingestion_session_id
-      : null;
-  const fallbackUploadedSessionId = selectedSession
-    ? null
-    : (uploadedInfo?.ingestionSessionId ?? null);
-  const targetGenerateSessionId: string | null =
-    selectedUploadedSessionId ?? fallbackUploadedSessionId;
-
-  const executionCards = buildExecutionCards(selectedSession);
-  const executionState = selectedSession?.execution_state ?? null;
-  const profilingDocuments = selectedSession?.profiling_documents.length
-    ? selectedSession.profiling_documents
+  const executionCards = buildExecutionCards(workflowSession);
+  const executionState = workflowSession?.execution_state ?? null;
+  const profilingDocuments = workflowSession?.profiling_documents.length
+    ? workflowSession.profiling_documents
     : (executionState?.documents ?? []);
-  const profilingSummary = selectedSession?.profiling_summary ?? executionState?.profiling_summary;
+  const profilingSummary = workflowSession?.profiling_summary ?? executionState?.profiling_summary;
   const profilingReviewState =
-    selectedSession?.profiling_review ?? executionState?.profiling_review;
-  const selectedSessionOverrides = selectedSession
-    ? (profilingOverridesBySessionId[selectedSession.ingestion_session_id] ?? {})
+    workflowSession?.profiling_review ?? executionState?.profiling_review;
+  const selectedSessionOverrides = workflowSession
+    ? (profilingOverridesBySessionId[workflowSession.ingestion_session_id] ?? {})
     : {};
 
   const {
     pendingApprovals,
     workflowRuns,
     runtimeRunBySessionId,
+    selectedProfilingApproval,
     mappingApprovals,
     selectedMappingApproval,
     selectedMappingView,
@@ -104,33 +89,17 @@ export function PmoPage() {
     selectedPublishView,
     reportApprovals,
     selectedReportApproval,
+    approvalByActionId,
     runtimeActiveStepId,
     hasRuntimeCurrentStepMatch,
   } = usePmoWorkflowRuntime({
-    selectedSession,
+    selectedSession: workflowSession,
     executionCards,
     executionCurrentStepNo: executionState?.current_step_no ?? null,
   });
 
-  const feedbackHistoryItems = useMemo(() => {
-    if (!selectedSession) {
-      return [] as Array<{ key: string; feedback: string }>;
-    }
-
-    const duplicateCountByValue = new Map<string, number>();
-    return selectedSession.feedback_history.map((feedback) => {
-      const duplicateCount = (duplicateCountByValue.get(feedback) ?? 0) + 1;
-      duplicateCountByValue.set(feedback, duplicateCount);
-
-      return {
-        key: `${selectedSession.ingestion_session_id}-feedback-${feedback}-${duplicateCount}`,
-        feedback,
-      };
-    });
-  }, [selectedSession]);
-
-  const selectedRuntimeRun = selectedSession
-    ? (runtimeRunBySessionId.get(selectedSession.ingestion_session_id) ?? null)
+  const selectedRuntimeRun = workflowSession
+    ? (runtimeRunBySessionId.get(workflowSession.ingestion_session_id) ?? null)
     : null;
   const runtimeCancelled = selectedRuntimeRun?.status === 'canceled';
 
@@ -169,6 +138,12 @@ export function PmoPage() {
 
   const firstExecutionStepNo = executionCardsForDisplay[0]?.step_no ?? null;
 
+  const historyInitialCardId = useMemo(() => {
+    if (!reviewSession) return null;
+    const firstStep = executionCardsForDisplay[0];
+    return firstStep ? workflowCardId(firstStep.step_no) : null;
+  }, [executionCardsForDisplay, reviewSession]);
+
   const loadSessions = useCallback(async (keepSelection = true) => {
     setIsLoadingSessions(true);
     try {
@@ -197,53 +172,34 @@ export function PmoPage() {
   }, []);
 
   const refreshMappingApprovals = useCallback(async () => {
-    await pendingApprovals.refetch();
+    const res = await pendingApprovals.refetch();
+    return res;
   }, [pendingApprovals]);
 
   const refreshWorkflowRuntime = useCallback(async () => {
-    await Promise.all([refreshMappingApprovals(), workflowRuns.refetch()]);
+    const [approvalsRes] = await Promise.all([refreshMappingApprovals(), workflowRuns.refetch()]);
+    return approvalsRes;
   }, [refreshMappingApprovals, workflowRuns]);
 
   const {
-    isUploading,
-    isGenerating,
-    generatingSessionId,
-    isApproving,
-    isConfirmingIntent,
     isAppendingDocument,
     isSavingProfilingReview,
     isApprovingProfiling,
     isCancellingWorkflowBySessionId,
     refreshPage,
-    onFile,
-    handleAnalyzeGeneratePlan,
-    handleGeneratePlanForSession,
-    handleRegeneratePlan,
-    handleApprovePlanAndStart,
-    handleConfirmPlanIntent,
     handleAppendDocument,
     handleSaveProfilingReview,
     handleApproveProfilingContinue,
     isWorkflowCancelable,
-    isSessionGeneratable,
     handleCancelWorkflow,
   } = usePmoSessionActions({
-    reportingPeriodKey,
-    goalDraft,
-    targetGenerateSessionId,
     selectedSession,
-    profilingDocuments,
-    feedbackBySessionId,
     profilingOverridesBySessionId,
     loadSessions,
-    setSelectedSessionId,
-    setIsReviewPanelOpen,
-    setUploadedInfo,
     refreshWorkflowRuntime,
     runtimeRunBySessionId,
+    profilingApproval: selectedProfilingApproval,
   });
-  const planGenerationActive =
-    isGenerating || selectedSession?.planning_state === 'generating_plan';
 
   const {
     editingMappingKey,
@@ -302,7 +258,7 @@ export function PmoPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      void loadSessions(false);
+      void loadSessions(true);
     }, 0);
 
     return () => {
@@ -310,13 +266,16 @@ export function PmoPage() {
     };
   }, [loadSessions]);
 
+  // Poll for session updates while any session is in a non-terminal state.
+  const hasActiveSession = hasActiveIngestionSessionForPolling(sessions);
   useEffect(() => {
-    if (!sessions.some((session) => session.planning_state === 'generating_plan')) return;
+    if (!hasActiveSession) return;
     const timer = window.setInterval(() => {
       void loadSessions(true);
-    }, 2_000);
+      void refreshWorkflowRuntime();
+    }, 3_000);
     return () => window.clearInterval(timer);
-  }, [loadSessions, sessions]);
+  }, [hasActiveSession, loadSessions, refreshWorkflowRuntime]);
 
   const handleSelectProfilingArea = useCallback(
     (documentId: string, sheetName: string, selectedArea: PmoProfilingArea) => {
@@ -368,7 +327,7 @@ export function PmoPage() {
     [selectedSession],
   );
 
-  const plan: PmoPlan | null = selectedSession?.plan ?? null;
+  const plan: PmoPlan | null = workflowSession?.plan ?? null;
   const executionRuntime = {
     executionCurrentStepNo: executionState?.current_step_no ?? null,
     executionCurrentStepStatus: runtimeCancelled
@@ -377,6 +336,7 @@ export function PmoPage() {
     firstExecutionStepNo,
     runtimeActiveStepId,
     hasRuntimeCurrentStepMatch,
+    approvalByActionId,
   };
 
   const executionMapping = {
@@ -451,14 +411,14 @@ export function PmoPage() {
 
   const executionPlan = {
     plan,
-    goalDraft,
+    goalDraft: '',
   };
 
   return (
     <PageChrome
       breadcrumb={['Work']}
-      title="PMO Ingestion"
-      subtitle="Persisted state workflow: upload -> generate plan -> review/regenerate -> approve."
+      title="PMO Ingestion History"
+      subtitle="View past ingestion sessions, workflow status, and audit trail. Start new ingestion from PMO Agent chat."
       actions={
         <div className="flex items-center gap-2">
           <Button type="button" size="sm" variant="secondary" onClick={refreshPage}>
@@ -470,164 +430,49 @@ export function PmoPage() {
     >
       <div className="min-h-full bg-surface-1 px-4 py-5 pb-8 sm:px-6">
         <div className="mx-auto flex max-w-[1240px] flex-col gap-3">
-          <section className="rounded-xl border border-hairline bg-canvas p-4 shadow-sm">
-            <div className="flex items-start gap-3">
-              <span className="mt-0.5 rounded-md bg-primary-tint p-2 text-primary">
-                <Workflow className="size-5" />
-              </span>
-              <div>
-                <h2 className="text-body-sm font-semibold text-ink">Workflow path</h2>
-                <p className="mt-0.5 text-body-sm text-ink-subtle">
-                  Upload workbook, generate plan from Goal via LLM, review/regenerate, then approve.
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-              <section className="space-y-3">
-                <div className="space-y-2">
-                  <Label htmlFor="reporting-period-key">Reporting period key (optional)</Label>
-                  <Input
-                    id="reporting-period-key"
-                    value={reportingPeriodKey}
-                    onChange={(e) => setReportingPeriodKey(e.target.value)}
-                    placeholder="e.g. 2025-W35"
-                    disabled={isUploading || planGenerationActive}
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="pmo-goal-input">Goal</Label>
-                    <span className="text-caption text-ink-subtle">{goalDraft.length} / 500</span>
-                  </div>
-                  <Textarea
-                    id="pmo-goal-input"
-                    rows={3}
-                    maxLength={500}
-                    value={goalDraft}
-                    onChange={(e) => setGoalDraft(e.target.value)}
-                    className="resize-none"
-                    placeholder="Describe an ingest workflow or a report to generate from PMO data."
-                    disabled={planGenerationActive}
-                  />
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="primary"
-                    onClick={handleAnalyzeGeneratePlan}
-                    disabled={
-                      (!targetGenerateSessionId && !goalDraft.trim()) || planGenerationActive
-                    }
-                  >
-                    {planGenerationActive ? (
-                      <>
-                        <Loader2 className="size-4 animate-spin" />
-                        Generating plan...
-                      </>
-                    ) : (
-                      'Analyze & generate plan'
-                    )}
-                  </Button>
-
-                  <span className="rounded-full border border-hairline bg-surface-1 px-2 py-0.5 text-caption text-ink-subtle">
-                    {targetGenerateSessionId
-                      ? 'Ready to generate plan'
-                      : 'Enter a database report goal or upload a workbook'}
-                  </span>
-                </div>
-              </section>
-
-              <Dropzone
-                accept={ACCEPT}
-                maxBytes={MAX_BYTES}
-                label="Drop PMO workbook here, or click to choose"
-                hint="XLSX / XLSM · up to 50 MB"
-                pendingLabel="Uploading workbook..."
-                tooLargeMessage="That file is over 50 MB. Try a smaller workbook."
-                isPending={isUploading}
-                onFile={onFile}
-              />
-            </div>
-
-            {uploadedInfo ? (
-              <section className="mt-3 rounded-lg border border-hairline bg-surface-1 p-3 text-caption">
-                <h3 className="text-body-sm font-semibold text-ink">Uploaded workbook</h3>
-                <div className="mt-2 grid gap-2 sm:grid-cols-4">
-                  <p className="text-ink-subtle">
-                    Session:{' '}
-                    <span className="font-medium text-ink">{uploadedInfo.ingestionSessionId}</span>
-                  </p>
-                  <p className="text-ink-subtle">
-                    Name: <span className="font-medium text-ink">{uploadedInfo.fileName}</span>
-                  </p>
-                  <p className="text-ink-subtle">
-                    Size:{' '}
-                    <span className="font-medium text-ink">
-                      {formatBytes(uploadedInfo.fileSizeBytes)}
-                    </span>
-                  </p>
-                  <p className="text-ink-subtle">
-                    Uploaded at:{' '}
-                    <span className="font-medium text-ink">
-                      {formatLocalDate(uploadedInfo.uploadedAtIso)}
-                    </span>
-                  </p>
-                </div>
-              </section>
-            ) : null}
-          </section>
-
           <PmoSessionHistoryPanel
             sessions={sessionsForHistory}
             selectedSessionId={selectedSession?.ingestion_session_id ?? null}
             isLoadingSessions={isLoadingSessions}
             isCancellingWorkflowBySessionId={isCancellingWorkflowBySessionId}
-            generatingSessionId={generatingSessionId}
             isWorkflowCancelable={isWorkflowCancelable}
-            isSessionGeneratable={isSessionGeneratable}
             onSelectSession={setSelectedSessionId}
             onViewSession={(sessionId) => {
               setSelectedSessionId(sessionId);
+              setHistoryViewSessionId(sessionId);
               setIsReviewPanelOpen(true);
+              requestAnimationFrame(() => {
+                reviewPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              });
             }}
-            onGeneratePlan={handleGeneratePlanForSession}
             onCancelWorkflow={handleCancelWorkflow}
           />
 
-          <section className="rounded-xl border border-hairline bg-canvas p-4 shadow-sm">
+          <section
+            ref={reviewPanelRef}
+            className="rounded-xl border border-hairline bg-canvas p-4 shadow-sm scroll-mt-4"
+          >
             {!isReviewPanelOpen ? (
               <section className="rounded-lg border border-hairline bg-surface-1 p-4 text-body-sm text-ink-subtle">
-                Select one run and click View to open Plan tab.
+                Select one run and click View to inspect its workflow steps.
               </section>
-            ) : !selectedSession ? (
+            ) : isLoadingSessions && !reviewSession ? (
               <section className="rounded-lg border border-hairline bg-surface-1 p-4 text-body-sm text-ink-subtle">
-                Selected run was not found.
+                Loading session details…
+              </section>
+            ) : !reviewSession ? (
+              <section className="rounded-lg border border-hairline bg-surface-1 p-4 text-body-sm text-ink-subtle">
+                Selected run was not found. Refresh the page and try again.
               </section>
             ) : (
               <div className="space-y-3">
                 <PmoWorkflowCardsSection
-                  selectedSession={selectedSession}
-                  plan={plan}
-                  goalDraft={goalDraft}
+                  key={reviewSession.ingestion_session_id}
+                  selectedSession={reviewSession}
                   executionCards={executionCardsForDisplay}
-                  selectedFeedback={selectedFeedback}
-                  onFeedbackChange={(nextValue) => {
-                    setFeedbackBySessionId((prev) => ({
-                      ...prev,
-                      [selectedSession.ingestion_session_id]: nextValue,
-                    }));
-                  }}
-                  isGenerating={planGenerationActive}
-                  isApproving={isApproving}
-                  isConfirmingIntent={isConfirmingIntent}
-                  onConfirmIntent={handleConfirmPlanIntent}
-                  onRegeneratePlan={handleRegeneratePlan}
-                  onApprovePlanAndStart={handleApprovePlanAndStart}
-                  feedbackHistoryItems={feedbackHistoryItems}
+                  isAgentRunning={false}
+                  readOnly
+                  initialSelectedCardId={historyInitialCardId}
                   runtime={executionRuntime}
                   mapping={executionMapping}
                   normalization={executionNormalization}

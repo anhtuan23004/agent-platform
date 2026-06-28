@@ -50,15 +50,28 @@ export async function pumpOrchestrationStream(
   const assistantParts: OrchestrationAssistantPart[] = [];
   let answer = '';
   let suspend: ApprovalEvent | undefined;
+  let streamError: unknown;
 
-  for await (const part of parts) {
-    if (part.type === 'data-tool-call-suspended') {
-      const d = part.data as SuspendData;
-      suspend = { card: d.suspendPayload.card, mastraRunId: d.runId, toolCallId: d.toolCallId };
-      continue;
+  // The for-await MUST be wrapped in try/catch: if the ReadableStream errors
+  // (e.g. the Mastra agent loop continues after a native-suspend tool returns
+  // and a subsequent chunk causes a transform error), the loop throws. Without
+  // the catch, `onApproval` is never called and the approval row is never
+  // created — even though the `data-tool-call-suspended` chunk was already
+  // captured into `suspend`. This was the root cause of missing PMO approval
+  // rows: the card showed (emitted before the error) but the DB write was
+  // skipped because control never reached the `if (suspend)` block.
+  try {
+    for await (const part of parts) {
+      if (part.type === 'data-tool-call-suspended') {
+        const d = part.data as SuspendData;
+        suspend = { card: d.suspendPayload.card, mastraRunId: d.runId, toolCallId: d.toolCallId };
+        continue;
+      }
+      writer.write(part);
+      if (part.type === 'text-delta') answer += part.delta ?? part.text ?? '';
     }
-    writer.write(part);
-    if (part.type === 'text-delta') answer += part.delta ?? part.text ?? '';
+  } catch (err) {
+    streamError = err;
   }
 
   if (answer) assistantParts.push({ type: 'text', text: answer });
@@ -67,6 +80,10 @@ export async function pumpOrchestrationStream(
     await opts.onApproval(suspend);
     return { assistantParts };
   }
+
+  // If the stream errored and there was no suspend, re-throw so the caller
+  // (createUIMessageStream execute callback) surfaces the error.
+  if (streamError) throw streamError;
 
   const { result, trust } = await opts.finalize();
   writer.write({ type: 'data-result', id: 'result', data: result });

@@ -7,6 +7,7 @@ import type {
   PmoWorkbookProfilingSessionSummary,
   PmoWorkflowExecutionStepStatus,
 } from '../api/client';
+import type { WorkflowApprovalRow } from '../api/workflow-runtime';
 import {
   documentStatusTone,
   formatLocalDate,
@@ -27,6 +28,8 @@ interface PmoProfilingDetailsPanelProps {
   profilingReviewState: PmoProfilingReviewState | null | undefined;
   profilingSummary: PmoWorkbookProfilingSessionSummary | null | undefined;
   profilingDocuments: PmoSessionDocumentProfileRecord[];
+  /** Real approval row from agent.workflow_approvals — null when no approval exists. */
+  profilingApproval: WorkflowApprovalRow | null;
   selectedSessionOverrides: Record<string, ProfilingOverrideEntry>;
   profilingAreas: PmoProfilingArea[];
   isAppendingDocument: boolean;
@@ -74,6 +77,11 @@ export function PmoProfilingDetailsPanel(props: PmoProfilingDetailsPanelProps) {
     onSelectSheetArea,
     onToggleSheetIgnore,
   } = props;
+
+  // Approve is possible when the profiling review is in needs_review and the
+  // step has not failed/cancelled.  A pending agent approval row is preferred
+  // (agent-driven workflow) but NOT required — the PMO page can approve
+  // directly via /api/pmo/v1/profiling/approve-continue as a fallback.
   const canApproveProfiling =
     profilingReviewState?.status === 'needs_review' &&
     stepStatus !== 'failed' &&
@@ -286,6 +294,10 @@ export function PmoProfilingDetailsPanel(props: PmoProfilingDetailsPanelProps) {
           </ul>
         )}
       </div>
+
+      {/* "Waiting for agent" gate removed — the PMO page can approve profiling
+          directly via /api/pmo/v1/profiling/approve-continue when no agent
+          approval row exists. */}
 
       {canShowProfilingActions && isCurrent ? (
         <div className="space-y-2">

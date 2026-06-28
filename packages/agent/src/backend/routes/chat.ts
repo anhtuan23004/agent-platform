@@ -4,6 +4,8 @@ import type { Hono } from 'hono';
 import { z } from 'zod';
 import {
   PendingAssignmentExistsError,
+  PMO_ORCHESTRATOR_WORKFLOW_ID,
+  STAFFING_ORCHESTRATOR_WORKFLOW_ID,
   writeChatApprovalRow,
 } from '../domain/write-chat-approval-row.ts';
 import { agentEnv } from '../env.ts';
@@ -236,6 +238,8 @@ export function mountChatRoute(app: Hono<AgentRouteEnv>, deps: AgentRouteDeps): 
     const tenantSettings = await getTenantSettings(session.tenant_id);
     // Native-suspend HITL: when the orchestration run suspends, project the
     // approval read-model row so the pending-approvals poll renders the card.
+    const workflowIdForAgent =
+      chatAgent === 'pmo' ? PMO_ORCHESTRATOR_WORKFLOW_ID : STAFFING_ORCHESTRATOR_WORKFLOW_ID;
     const onApproval = async (ev: ApprovalEvent): Promise<void> => {
       try {
         await writeChatApprovalRow({
@@ -247,6 +251,7 @@ export function mountChatRoute(app: Hono<AgentRouteEnv>, deps: AgentRouteDeps): 
           userId: session.user_id,
           pool: deps.pool,
           approvalTtlHours: tenantSettings.approvalTtlHours,
+          workflowId: workflowIdForAgent,
         });
       } catch (err) {
         if (err instanceof PendingAssignmentExistsError) {

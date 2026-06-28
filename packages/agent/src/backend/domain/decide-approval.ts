@@ -6,7 +6,7 @@ import type { SessionLike } from '../types.ts';
 export interface DecideApprovalOpts {
   session: SessionLike;
   approvalId: string;
-  decision: 'approve' | 'reject' | 'modify';
+  decision: 'approve' | 'reject' | 'modify' | 'clarify';
   /**
    * For 'modify' decisions: the assignee set the user composed in the UI. The
    * workflow's primary.argsPatch is taken as the template and its
@@ -56,7 +56,7 @@ export interface ApprovalDecisionContext {
 export interface RecordApprovalDecisionOpts {
   session: SessionLike;
   approvalId: string;
-  decision: 'approve' | 'reject' | 'modify';
+  decision: 'approve' | 'reject' | 'modify' | 'clarify';
   overrideUserIds?: string[];
   payloadPatch?: Record<string, unknown>;
   note?: string;
@@ -83,7 +83,7 @@ interface ApprovalCardLike {
  */
 function resumeDataFromDecision(
   ctx: ApprovalDecisionContext,
-  decision: 'approve' | 'reject' | 'modify',
+  decision: 'approve' | 'reject' | 'modify' | 'clarify',
   overrideUserIds: string[] | undefined,
   alternateIndex: number | undefined,
   alternateIndices: number[] | undefined,
@@ -218,7 +218,9 @@ export async function recordApprovalDecision(
         ? 'rejected'
         : opts.decision === 'modify'
           ? 'modified'
-          : 'approved';
+          : opts.decision === 'clarify'
+            ? 'clarified'
+            : 'approved';
     const decisionPayload = {
       decision: opts.decision,
       ...(opts.overrideUserIds !== undefined ? { override_user_ids: opts.overrideUserIds } : {}),

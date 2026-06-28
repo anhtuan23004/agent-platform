@@ -8,11 +8,21 @@ import { resolveAnalyticsScope, toLoadFactsDateRange } from './resolve-analytics
 
 const memberRowSchema = z.object({
   memberId: z.string(),
+  fullName: z.string().nullable(),
+  department: z.string().nullable(),
+  roleTitle: z.string().nullable(),
   busyRate: z.number().nullable(),
   effortConsumption: z.number().nullable(),
   issueType: z.enum(['overbook', 'idle', 'mismatch_under', 'mismatch_over', 'ok']),
   ragColor: z.enum(['green', 'yellow', 'red', 'none']),
   excludedWeekCount: z.number().int(),
+  detail: z.string().nullable(),
+  explanation: z
+    .object({
+      summary: z.string(),
+      riskTradeoffs: z.array(z.string()),
+    })
+    .nullable(),
 });
 
 export const pmoListMemberUtilizationTool = defineAgentTool({
@@ -64,7 +74,7 @@ export const pmoListMemberUtilizationTool = defineAgentTool({
         lastDiscussedMemberId: result.members[0]?.memberId ?? null,
         recentMembers: result.members.slice(0, 10).map((member) => ({
           memberId: member.memberId,
-          label: member.memberId,
+          label: member.fullName ?? member.memberId,
         })),
         ...(scope.dateRange ? { lastDateRange: scope.dateRange } : {}),
         ...(scope.ingestionSessionId ? { lastIngestionSessionId: scope.ingestionSessionId } : {}),

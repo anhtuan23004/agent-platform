@@ -129,10 +129,12 @@ export interface OrchestratorDeps {
 /** The proposeAssignment composite's ResumeSchema shape — the decision the
  *  approval card resolves to. Forwarded verbatim into resumeStream. */
 export type ResumeDecision = {
-  decision: 'approve' | 'reject' | 'modify';
+  decision: 'approve' | 'reject' | 'modify' | 'clarify';
   overrideUserIds?: string[];
   alternateIndices?: number[];
+  payloadPatch?: Record<string, unknown>;
   note?: string;
+  clarificationMessage?: string;
 };
 
 /** A run ctx PLUS the resume coordinates: the Mastra runId of the suspended run

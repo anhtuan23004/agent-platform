@@ -1,7 +1,7 @@
 import { useAui, useAuiState } from '@assistant-ui/react';
 import { attachmentsBlockSend, ChatComposer, Label } from '@seta/shared-ui';
 import { X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ModelSelector } from '../components/model-selector';
 import { useChatAttachments } from '../hooks/use-chat-attachments';
 import { usePmoChatIngestAttachments } from '../hooks/use-pmo-chat-ingest-attachments';
@@ -30,10 +30,10 @@ export function AgentComposer({ compact = false }: AgentComposerProps) {
   const staffingAttachments = useChatAttachments(selection.threadId);
   const pmoIngestAttachments = usePmoChatIngestAttachments(selection.threadId);
   const isPmo = chatAgent === 'pmo';
-  const attachments = isPmo ? [] : staffingAttachments.attachments;
-  const attach = isPmo ? undefined : staffingAttachments.attach;
-  const remove = isPmo ? undefined : staffingAttachments.remove;
-  const reset = isPmo ? () => {} : staffingAttachments.reset;
+  const attachments = isPmo ? pmoIngestAttachments.attachments : staffingAttachments.attachments;
+  const attach = isPmo ? pmoIngestAttachments.attach : staffingAttachments.attach;
+  const remove = isPmo ? pmoIngestAttachments.remove : staffingAttachments.remove;
+  const reset = isPmo ? pmoIngestAttachments.reset : staffingAttachments.reset;
   const warning = isPmo ? pmoIngestAttachments.warning : staffingAttachments.warning;
   const uploadSources = isPmo ? pmoIngestAttachments.uploadSources : [];
   const uploadSourcesLoading = isPmo ? pmoIngestAttachments.uploadSourcesLoading : false;
@@ -72,8 +72,15 @@ export function AgentComposer({ compact = false }: AgentComposerProps) {
     reset();
   };
 
+  // Guard against double-fire when `aui` reference changes before
+  // the `setPendingPrompt(null)` state update propagates.
+  const pendingConsumedRef = useRef(false);
   useEffect(() => {
-    if (!pendingPrompt || isRunning) return;
+    if (pendingPrompt) pendingConsumedRef.current = false;
+  }, [pendingPrompt]);
+  useEffect(() => {
+    if (!pendingPrompt || isRunning || pendingConsumedRef.current) return;
+    pendingConsumedRef.current = true;
     const { text, autoSend } = pendingPrompt;
     setPendingPrompt(null);
     if (autoSend) {
@@ -110,14 +117,15 @@ export function AgentComposer({ compact = false }: AgentComposerProps) {
         pending={isRunning}
         placeholder={
           isPmo
-            ? 'Ask about published PMO utilization data…'
+            ? 'Upload a workbook and describe your goal, or ask about PMO data…'
             : CHAT_AGENT_COPY[chatAgent].placeholder
         }
         permissionHint={
           isPmo ? (
             <div className="flex w-full min-w-0 flex-col gap-1.5">
               <span className={warning ? 'text-warning-ink' : undefined}>
-                {warning ?? 'Published PMO data only.'}
+                {warning ??
+                  'Attach an Excel workbook to ingest, or select a published source for analytics.'}
               </span>
               {uploadSourcesLoading ? (
                 <span>Loading uploads…</span>

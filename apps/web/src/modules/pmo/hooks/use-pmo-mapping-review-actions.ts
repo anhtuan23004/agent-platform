@@ -1,5 +1,6 @@
 import { toast } from '@seta/shared-ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { notifyApprovalResolved } from '../../agent/hooks/use-approval-events';
 import type { WorkflowApprovalRow } from '../api/workflow-runtime';
 import type {
   MappingAlternateOption,
@@ -12,8 +13,14 @@ interface UsePmoMappingReviewActionsOptions {
   selectedSessionId: string | null;
   selectedMappingApproval: WorkflowApprovalRow | null;
   selectedMappingView: MappingViewModel | null;
-  loadSessions: (keepSelection?: boolean) => Promise<void>;
-  refreshMappingApprovals: () => Promise<void>;
+  /** Page-context refresh: reload the session list after a decision. */
+  loadSessions?: (keepSelection?: boolean) => Promise<void>;
+  /** Page-context refresh: refetch pending approvals after a decision. */
+  refreshMappingApprovals?: () => Promise<unknown>;
+  /** Drawer-context callback: called after the mapping step fully completes. */
+  onDecisionComplete?: () => Promise<void> | void;
+  /** Drawer-context refresh after a single mapping item decision (keep drawer open). */
+  onPartialDecisionRefresh?: () => Promise<void> | void;
 }
 
 interface UsePmoMappingReviewActionsResult {
@@ -41,6 +48,8 @@ export function usePmoMappingReviewActions(
     selectedMappingView,
     loadSessions,
     refreshMappingApprovals,
+    onDecisionComplete,
+    onPartialDecisionRefresh,
   } = options;
 
   const submitDecision = useSubmitWorkflowRuntimeDecision();
@@ -85,9 +94,21 @@ export function usePmoMappingReviewActions(
     selectedMappingView?.awaitingNextStep === true &&
     !submitDecision.isPending;
 
-  const refreshAfterDecision = useCallback(async () => {
-    await Promise.all([refreshMappingApprovals(), loadSessions(true)]);
-  }, [loadSessions, refreshMappingApprovals]);
+  const refreshAfterPartialDecision = useCallback(async () => {
+    if (onPartialDecisionRefresh) {
+      await onPartialDecisionRefresh();
+    } else if (loadSessions && refreshMappingApprovals) {
+      await Promise.all([refreshMappingApprovals(), loadSessions(true)]);
+    }
+  }, [onPartialDecisionRefresh, loadSessions, refreshMappingApprovals]);
+
+  const refreshAfterFinalDecision = useCallback(async () => {
+    if (onDecisionComplete) {
+      await onDecisionComplete();
+    } else if (loadSessions && refreshMappingApprovals) {
+      await Promise.all([refreshMappingApprovals(), loadSessions(true)]);
+    }
+  }, [onDecisionComplete, loadSessions, refreshMappingApprovals]);
 
   const approveCurrentMappingItem = useCallback(() => {
     if (!selectedMappingApproval) return;
@@ -103,7 +124,7 @@ export function usePmoMappingReviewActions(
           toast.success('Mapping item approved', {
             description: 'The next mapping item is now ready for review.',
           });
-          await refreshAfterDecision();
+          await refreshAfterPartialDecision();
         },
         onError: (err) => {
           toast.error('Failed to approve mapping item', {
@@ -112,7 +133,7 @@ export function usePmoMappingReviewActions(
         },
       },
     );
-  }, [refreshAfterDecision, selectedMappingApproval, submitDecision]);
+  }, [refreshAfterPartialDecision, selectedMappingApproval, submitDecision]);
 
   const openMappingModify = useCallback(
     (itemKey: string) => {
@@ -145,7 +166,7 @@ export function usePmoMappingReviewActions(
           });
           setEditingMappingKey(null);
           setSelectedMappingAlternate(null);
-          await refreshAfterDecision();
+          await refreshAfterPartialDecision();
         },
         onError: (err) => {
           toast.error('Failed to update mapping', {
@@ -154,7 +175,12 @@ export function usePmoMappingReviewActions(
         },
       },
     );
-  }, [refreshAfterDecision, selectedMappingAlternate, selectedMappingApproval, submitDecision]);
+  }, [
+    refreshAfterPartialDecision,
+    selectedMappingAlternate,
+    selectedMappingApproval,
+    submitDecision,
+  ]);
 
   const proceedToNextWorkflowStep = useCallback(() => {
     if (!selectedMappingApproval) return;
@@ -168,10 +194,13 @@ export function usePmoMappingReviewActions(
       },
       {
         onSuccess: async () => {
+          if (!onDecisionComplete) {
+            notifyApprovalResolved();
+          }
           toast.success('Moved to next step', {
             description: 'Workflow moved to the next step in final plan.',
           });
-          await refreshAfterDecision();
+          await refreshAfterFinalDecision();
         },
         onError: (err) => {
           toast.error('Failed to proceed to next step', {
@@ -180,7 +209,13 @@ export function usePmoMappingReviewActions(
         },
       },
     );
-  }, [refreshAfterDecision, selectedMappingApproval, selectedMappingView, submitDecision]);
+  }, [
+    refreshAfterFinalDecision,
+    onDecisionComplete,
+    selectedMappingApproval,
+    selectedMappingView,
+    submitDecision,
+  ]);
 
   const selectMappingAlternate = useCallback((alternateIndex: number) => {
     setSelectedMappingAlternate(alternateIndex);

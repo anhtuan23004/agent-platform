@@ -7,7 +7,6 @@ import * as schema from './backend/db/schema.ts';
 import { buildPmoRoutes } from './backend/http/routes.ts';
 import { pmoReportJobs } from './backend/reporting/jobs/index.ts';
 import { loadPmoReportRuleCatalog } from './backend/reporting/rules/index.ts';
-import { pmoWorkflows } from './backend/workflows/index.ts';
 import { PMO_EVENTS } from './events.ts';
 import { pmoRbac } from './rbac.ts';
 
@@ -22,7 +21,6 @@ export function registerPmoContributions(reg: ContributionRegistry): void {
     migrationsDir: resolve(__dirname, '../drizzle/migrations'),
     events: PMO_EVENTS,
     rbac: pmoRbac,
-    workflows: pmoWorkflows,
     jobs: pmoReportJobs,
     agentTools: pmoAgentTools,
     agentSpecs: pmoAgentSpecs,

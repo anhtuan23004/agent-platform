@@ -13,19 +13,6 @@ export interface UploadPmoWorkbookResult {
   reportingPeriodKey?: string;
 }
 
-export interface StartPmoIngestInput {
-  ingestionSessionId: string;
-  fileKey: string;
-  reportingPeriodKey?: string;
-}
-
-export interface StartPmoIngestResult {
-  runId: string;
-  ingestionSessionId: string;
-  fileKey: string;
-  reportingPeriodKey?: string;
-}
-
 export function useUploadPmoWorkbook() {
   return useMutation({
     mutationFn: async ({ file, reportingPeriodKey }: UploadPmoWorkbookInput) => {
@@ -37,29 +24,6 @@ export function useUploadPmoWorkbook() {
         fileName: uploaded.filename,
         reportingPeriodKey,
       } satisfies UploadPmoWorkbookResult;
-    },
-  });
-}
-
-export function useStartPmoIngest() {
-  return useMutation({
-    mutationFn: async ({
-      ingestionSessionId,
-      fileKey,
-      reportingPeriodKey,
-    }: StartPmoIngestInput) => {
-      const started = await pmoApi.startIngestWorkflow({
-        ingestionSessionId,
-        fileKey,
-        reportingPeriodKey,
-      });
-
-      return {
-        runId: started.runId,
-        ingestionSessionId,
-        fileKey,
-        reportingPeriodKey,
-      } satisfies StartPmoIngestResult;
     },
   });
 }

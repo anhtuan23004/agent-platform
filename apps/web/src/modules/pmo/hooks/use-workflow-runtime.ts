@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo } from 'react';
 import { type WorkflowRunScope, workflowRuntimeApi } from '../api/workflow-runtime';
+import { pendingApprovalsRefetchInterval } from './approvals-polling.ts';
 
 const PAGE_SIZE = 25;
 
@@ -81,7 +82,7 @@ export function useWorkflowRuntimePendingApprovals() {
   return useQuery({
     queryKey: workflowRuntimeQueryKeys.pendingApprovals(),
     queryFn: () => workflowRuntimeApi.listMyPendingApprovals(),
-    refetchInterval: 5000,
+    refetchInterval: (query) => pendingApprovalsRefetchInterval(query.state.data),
   });
 }
 
@@ -104,18 +105,25 @@ export function useWorkflowRuntimeRunApprovals(runId: string) {
 export interface SubmitRuntimeDecisionArgs {
   approvalId: string;
   agentic: boolean;
-  decision: 'approve' | 'reject' | 'modify';
+  decision: 'approve' | 'reject' | 'modify' | 'clarify';
   overrideUserIds?: string[];
   alternateIndices?: number[];
   payloadPatch?: Record<string, unknown>;
   note?: string;
+  clarificationMessage?: string;
 }
 
 export function useSubmitWorkflowRuntimeDecision() {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ approvalId, agentic, ...decision }: SubmitRuntimeDecisionArgs) =>
       agentic
         ? workflowRuntimeApi.resumeChat({ approvalId, ...decision })
         : workflowRuntimeApi.decideApproval(approvalId, decision),
+    onSuccess: () => {
+      // Invalidate approval and run queries so PMO cards reflect the decision.
+      void qc.invalidateQueries({ queryKey: workflowRuntimeQueryKeys.pendingApprovals() });
+      void qc.invalidateQueries({ queryKey: workflowRuntimeQueryKeys.all });
+    },
   });
 }

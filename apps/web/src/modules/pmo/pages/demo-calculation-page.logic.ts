@@ -89,6 +89,9 @@ export function utilizationEmptyState(params: {
   if (params.hasActiveDataFilters && params.sessions.some((session) => session.is_published)) {
     return 'filter_empty';
   }
+  if (params.sessions.some((session) => session.is_published)) {
+    return 'filter_empty';
+  }
   if (params.sessions.length > 0 && params.sessions.every((session) => !session.is_published)) {
     return 'unpublished_uploads';
   }

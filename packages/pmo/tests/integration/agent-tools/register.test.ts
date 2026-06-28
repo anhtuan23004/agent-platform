@@ -5,7 +5,7 @@ describe('pmo register', () => {
     vi.resetModules();
   });
 
-  it('exports PMO analytics agent tools and registers workflow metadata', async () => {
+  it('exports PMO analytics agent tools', async () => {
     const { AgentRegistry } = await import('@seta/agent-sdk');
     AgentRegistry.__resetForTests();
 
@@ -21,9 +21,6 @@ describe('pmo register', () => {
         'pmo_listMemberUtilization',
         'pmo_recommendRebalance',
       ].sort(),
-    );
-    expect(AgentRegistry.listWorkflows('work').map((workflow) => workflow.id)).toContain(
-      'ingestDataV2',
     );
   });
 });

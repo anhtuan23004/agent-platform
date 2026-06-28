@@ -70,7 +70,7 @@ function ShellWithPanel({ children }: { children: React.ReactNode }) {
       activeItemId={activeId}
       linkComponent={ShellLink}
       userMenu={<UserMenu />}
-      hideAgent={pathname.startsWith('/agent/')}
+      hideAgent={pathname.startsWith('/agent/') || pathname.startsWith('/pmo')}
       notificationPanel={<NotificationPopoverContainer />}
       agentPanel={<AgentSidePanel onClose={() => setPanelOpen(false)} />}
       agentOpen={panelOpen}

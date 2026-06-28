@@ -7,6 +7,8 @@ interface CardShape {
   intent?: string;
   riskBadge?: 'write' | 'destructive' | 'external';
   summary?: string;
+  agentNote?: string;
+  clarifications?: Array<{ role: string; message: string; ts: string }>;
   details: Array<{ kind: string } & Record<string, unknown>>;
   primary: { label: string };
   alternates?: Array<{ label: string }>;
@@ -23,6 +25,7 @@ export interface HitlCardProps {
     overrideUserIds?: string[];
     note?: string;
   }) => void;
+  onClarify?: (message: string) => void;
   renderEntity: (entity: EntityRef) => ReactNode;
   cardRenderers?: Record<string, ComponentType<BlockProps>>;
 }
@@ -71,12 +74,82 @@ const countdownToneClass: Record<'ok' | 'soon' | 'urgent', string> = {
   urgent: 'text-danger-ink',
 };
 
+function ClarificationSection({
+  agentNote,
+  clarifications,
+  onSend,
+}: {
+  agentNote?: string;
+  clarifications: Array<{ role: string; message: string; ts: string }>;
+  onSend?: (message: string) => void;
+}) {
+  const [text, setText] = useState('');
+  const hasMessages = Boolean(agentNote) || clarifications.length > 0;
+  if (!hasMessages && !onSend) return null;
+
+  return (
+    <div className="mx-3.5 mt-3 rounded-lg border border-hairline bg-surface-1">
+      {/* Message history */}
+      <div className="max-h-48 overflow-y-auto px-3 py-2 space-y-2">
+        {agentNote ? (
+          <div className="flex gap-2">
+            <span className="shrink-0 text-caption font-semibold text-primary-ink">Agent:</span>
+            <p className="text-caption text-ink">{agentNote}</p>
+          </div>
+        ) : null}
+        {clarifications.map((msg) => (
+          <div key={msg.ts} className="flex gap-2">
+            <span
+              className={`shrink-0 text-caption font-semibold ${msg.role === 'agent' ? 'text-primary-ink' : 'text-ink'}`}
+            >
+              {msg.role === 'agent' ? 'Agent:' : 'You:'}
+            </span>
+            <p className="text-caption text-ink">{msg.message}</p>
+          </div>
+        ))}
+      </div>
+      {/* Input */}
+      {onSend ? (
+        <div className="flex items-center gap-1.5 border-t border-hairline px-3 py-2">
+          <input
+            type="text"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && text.trim()) {
+                onSend(text.trim());
+                setText('');
+              }
+            }}
+            placeholder="Type your message..."
+            className="flex-1 rounded-md border border-hairline-strong bg-canvas px-2.5 py-1.5 text-body-sm text-ink placeholder:text-ink-tertiary focus:border-primary-border focus:outline-none"
+          />
+          <button
+            type="button"
+            onClick={() => {
+              if (text.trim()) {
+                onSend(text.trim());
+                setText('');
+              }
+            }}
+            disabled={!text.trim()}
+            className="rounded-md bg-primary px-3 py-1.5 text-body-sm font-semibold text-on-primary disabled:opacity-50"
+          >
+            Send
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function HitlCard({
   card,
   canAct,
   pending,
   expiresAt,
   onDecide,
+  onClarify,
   renderEntity,
   cardRenderers,
 }: HitlCardProps) {
@@ -128,6 +201,14 @@ export function HitlCard({
           </span>
         ) : null}
       </header>
+
+      {card.clarifications?.length || card.agentNote ? (
+        <ClarificationSection
+          agentNote={card.agentNote}
+          clarifications={card.clarifications ?? []}
+          onSend={canAct && !disabled ? (msg) => onClarify?.(msg) : undefined}
+        />
+      ) : null}
 
       <div className="px-3.5 py-3">
         {card.summary ? (

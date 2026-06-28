@@ -117,5 +117,14 @@ describe('demo calculation page logic', () => {
         sessions: [session()],
       }),
     ).toBe('filter_empty');
+
+    expect(
+      utilizationEmptyState({
+        hasAnalyticsData: false,
+        hasNoDataError: true,
+        hasActiveDataFilters: false,
+        sessions: [session()],
+      }),
+    ).toBe('filter_empty');
   });
 });

@@ -1176,3 +1176,73 @@ export function buildReportRangeCard(input: ReportRangeCardInput): ApprovalCard 
     },
   };
 }
+
+// ── Profiling review card ──────────────────────────────────────────────
+
+interface ProfilingCardInput {
+  ingestionSessionId: string;
+  workbookConfidence: number;
+  validationStatus: 'confirmed' | 'needs_review' | 'blocked';
+  tableMappings: TableMapping[];
+  identity: CardIdentity;
+  toolCallId: string;
+  plannerStep?: PmoPlannerStepMetadata | null;
+}
+
+export function buildProfilingReviewCard(input: ProfilingCardInput): ApprovalCard {
+  const tableCount = input.tableMappings.length;
+  const autoAcceptTables = input.tableMappings.filter((t) =>
+    t.mappings.every((m) => m.status === 'auto_accept'),
+  ).length;
+
+  const summary =
+    input.validationStatus === 'confirmed'
+      ? `Detected ${tableCount} table(s) with high confidence (${input.workbookConfidence}). All tables confirmed.`
+      : input.validationStatus === 'blocked'
+        ? `Detected ${tableCount} table(s) but validation is blocked. Review required before proceeding.`
+        : `Detected ${tableCount} table(s) — ${autoAcceptTables} auto-accepted, ${tableCount - autoAcceptTables} need review (confidence: ${input.workbookConfidence}).`;
+
+  const tableRows = input.tableMappings.map((t) => ({
+    k: t.tableId,
+    v: `${t.mappings.length} column(s) | ${t.mappings.filter((m) => m.status === 'auto_accept').length} auto-accepted`,
+  }));
+
+  return {
+    toolCallId: input.toolCallId,
+    intent: 'Review workbook profiling results',
+    riskBadge: 'write',
+    summary,
+    details: [
+      {
+        kind: 'kvTable',
+        rows: [
+          { k: 'Ingestion session', v: input.ingestionSessionId },
+          { k: 'Tables detected', v: String(tableCount) },
+          { k: 'Workbook confidence', v: String(input.workbookConfidence) },
+          { k: 'Validation status', v: input.validationStatus },
+        ],
+      },
+      {
+        kind: 'kvTable',
+        rows: tableRows,
+      },
+    ],
+    primary: {
+      label: 'Approve profiling',
+      argsPatch: { decision: 'approve' },
+    },
+    alternates: [],
+    decline: {
+      label: 'Reject profiling',
+      argsPatch: { decision: 'reject' },
+    },
+    meta: {
+      tenantId: input.identity.tenantId,
+      userId: input.identity.userId,
+      agentPath: ['supervisor', 'work', 'pmo'],
+      toolId: 'pmo_profileWorkbook',
+      ...plannerStepMeta(input.plannerStep),
+      ts: new Date().toISOString(),
+    },
+  };
+}
